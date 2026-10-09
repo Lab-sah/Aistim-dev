@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Rekap Pesanan Baru per Outlet (Tema Merah)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.0
-// @description  [v1.5.0] Tombol 'Rekap Pesanan Baru' DIHAPUS (script kini hanya: pencarian otomatis saat outlet berubah + bersihkan tombol/badge lama). [v1.4.0] Rekap Pesanan Baru kini membaca semua halaman daftar pesanan dan menghitung pesanan yang tombol Edit-nya aktif (Edit nonaktif = bukan pesanan baru), per outlet + daftar invoice. [v1.3.1] Sembunyikan badge debug 'Aistim: ...' di pojok kanan bawah (dari content.js ekstensi). [v1.3.0] Sekaligus menghapus tombol hijau 'Rekap Pesanan' lama bawaan ekstensi di halaman Erzap mana pun (menggantikan script bersihkan_tombol_lama.js). [v1.2.6] Fix: cegah error tak jelas kalau elemen outlet bukan <select> lagi (perubahan tampilan filter outlet ERZAP)
+// @version      1.6.0
+// @description  [v1.6.0] Pembersih tombol lama diperluas: tombol (warna apa pun) berteks 'Rekap Pesanan Baru' / 'Rekap Pesanan' dihapus dan dijaga terus selama halaman terbuka. [v1.5.0] Tombol 'Rekap Pesanan Baru' DIHAPUS (script kini hanya: pencarian otomatis saat outlet berubah + bersihkan tombol/badge lama). [v1.4.0] Rekap Pesanan Baru kini membaca semua halaman daftar pesanan dan menghitung pesanan yang tombol Edit-nya aktif (Edit nonaktif = bukan pesanan baru), per outlet + daftar invoice. [v1.3.1] Sembunyikan badge debug 'Aistim: ...' di pojok kanan bawah (dari content.js ekstensi). [v1.3.0] Sekaligus menghapus tombol hijau 'Rekap Pesanan' lama bawaan ekstensi di halaman Erzap mana pun (menggantikan script bersihkan_tombol_lama.js). [v1.2.6] Fix: cegah error tak jelas kalau elemen outlet bukan <select> lagi (perubahan tampilan filter outlet ERZAP)
 // @author       You
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -12,14 +12,23 @@
 (function() {
     'use strict';
 
-    // Tombol hijau "Rekap Pesanan" lama (bawaan content.js ekstensi <= v2.9.8) memakai ID yang sama dengan
-    // tombol di script ini dan tidak berfungsi. Buang yang lama saja; tombol milik script lain (ber-data-aistim) aman.
+    // Tombol "Rekap Pesanan Baru" / "Rekap Pesanan" (merah atau hijau, sisa versi lama) dibuang. Hanya <button>/<a> yang
+    // seluruh teksnya persis itu (boleh berikon/angka di belakang), sehingga elemen lain tidak tersentuh.
+    const RE_TOMBOL_LAMA = /^[^a-z0-9]*rekap\s+pesanan(\s+baru)?\s*(\(\d+\))?$/i;
     function hapusTombolLama() {
-        document.querySelectorAll('#btn-rekap-pesanan').forEach(b => {
-            const teks = (b.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
-            // tombol lama: tanpa penanda data-aistim dan persis berteks "Rekap Pesanan"
-            if (!b.hasAttribute('data-aistim') && teks === 'rekap pesanan') b.remove();
+        document.querySelectorAll('#btn-rekap-pesanan, button, a.btn, a[role="button"], input[type="button"]').forEach(b => {
+            const teks = (b.textContent || b.value || '').replace(/\s+/g, ' ').trim();
+            if (RE_TOMBOL_LAMA.test(teks)) b.remove();
         });
+    }
+    // Dijaga terus (ringan, maksimal 1x per 500 ms) karena script lama bisa membuat ulang tombolnya.
+    let jadwalBersih = 0;
+    function jagaTombolLama() {
+        hapusTombolLama();
+        new MutationObserver(() => {
+            if (jadwalBersih) return;
+            jadwalBersih = setTimeout(() => { jadwalBersih = 0; hapusTombolLama(); }, 500);
+        }).observe(document.documentElement, { childList: true, subtree: true });
     }
 
     // Badge debug "Aistim: ..." di pojok kanan bawah (dibuat content.js ekstensi <= v2.9.8): sembunyikan lewat CSS
@@ -32,20 +41,9 @@
     }
 
     // @match mencakup semua halaman Erzap karena tombol lama bisa muncul di halaman mana pun.
-    // Di luar daftar pesanan, tugas script ini hanya membersihkan tombol lama (60 detik pertama), lalu selesai.
-    if (!/^\/pesanan_penjualans/.test(location.pathname)) {
-        hapusTombolLama();
-        const obs = new MutationObserver(hapusTombolLama);
-        obs.observe(document.documentElement, { childList: true, subtree: true });
-        setTimeout(() => obs.disconnect(), 60000);
-        return;
-    }
-
-    // Di halaman daftar pesanan: bersihkan tombol hijau lama (60 detik pertama)
-    hapusTombolLama();
-    const obsLama = new MutationObserver(hapusTombolLama);
-    obsLama.observe(document.documentElement, { childList: true, subtree: true });
-    setTimeout(() => obsLama.disconnect(), 60000);
+    jagaTombolLama();
+    // Di luar daftar pesanan, tugas script ini hanya membersihkan tombol lama.
+    if (!/^\/pesanan_penjualans/.test(location.pathname)) return;
 
     // 1. Fitur Auto Search saat Outlet Berubah
     setInterval(() => {
