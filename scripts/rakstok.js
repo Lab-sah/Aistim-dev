@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.17.10
+// @version      1.17.11
 // @description  Lihat Stok: kolom Rak (tulisan "Map rak", klik untuk popup daftar rak per toko/gudang dari Penempatan Rak), ikon logo PartDistro di kolom Nama (gambar produk baru dimuat & tampil di popup saat ikon diklik), tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @match        https://*.erzap.com/produks/*/edit*
@@ -367,14 +367,15 @@
         td.appendChild(s);
     }
 
-    // data rak per gudang/toko untuk satu sel: dari cache (1 jam) atau diambil dari server
-    function dataRak(td) {
+    // data rak per gudang/toko untuk satu sel: dari cache (1 jam) atau diambil dari server.
+    // paksa=true (klik "Map rak"): lewati cache, selalu ambil ulang dari server lalu perbarui cache.
+    function dataRak(td, paksa) {
         const idproduk = td.dataset.prd;
         const idoutlet = td.dataset.otl || '';
         if (!idproduk) return Promise.resolve([]);
         const key = idproduk + '|' + idoutlet;
         const c = cache[key];
-        if (c && Date.now() - c.t < CACHE_TTL) return Promise.resolve(c.v);
+        if (!paksa && c && Date.now() - c.t < CACHE_TTL) return Promise.resolve(c.v);
         return ambilRakProduk(idproduk, idoutlet, td.dataset.gdn).then((v) => {
             cache[key] = { t: Date.now(), v: v };
             saveCache();
@@ -635,7 +636,7 @@
         const m = bukaPop(anchor || td, judul || 'Rak produk'); // anchor = elemen yang diklik (kolom Rak asli disembunyikan, tidak punya posisi)
         m.info('Memuat rak...');
 
-        dataRak(td).then((data) => {
+        dataRak(td, true).then((data) => { // true = selalu muat ulang data rak dari server tiap "Map rak" diklik
             if (!document.body.contains(m.pop)) return; // popup sudah ditutup
             data = data || [];
             if (!data.some((x) => x.r)) return m.info('Produk ini belum punya penempatan rak.');
