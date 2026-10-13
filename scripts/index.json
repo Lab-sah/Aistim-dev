@@ -16,6 +16,7 @@
     "rak_barang.js",
     "rakstok.js",
     "rekam.js",
-    "pesanan_web.js"
+    "pesanan_web.js",
+    "ppob.js"
   ]
 }
