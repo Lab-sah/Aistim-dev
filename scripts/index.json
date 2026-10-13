@@ -14,6 +14,10 @@
     "rekam.js",
     "pesanan_web.js",
     "ppob.js",
-    "rekapbeban.js"
+    "rekapbeban.js",
+    "analisastok.js",
+    "pengisianso.js",
+    "rekapservis.js",
+    "rekapstokmin.js"
   ]
 }
