@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.17.12
+// @version      1.17.14
 // @description  Lihat Stok: kolom Rak (tulisan "Map rak", klik untuk popup daftar rak per toko/gudang dari Penempatan Rak), ikon logo PartDistro di kolom Nama (gambar produk baru dimuat & tampil di popup saat ikon diklik), tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @match        https://*.erzap.com/produks/*/edit*
@@ -152,12 +152,19 @@
         #gs_rak_pop .rk_tutup { display: block; padding: 3px 10px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; font-size: 11px; color: #444; }
         #gs_rak_pop .rk_tutup:hover { background: #f0f0f0; }
         #gs_rak_pop .rk_foot { flex: none; padding: 5px 8px; border-top: 1px solid #ddd; background: #fff; border-radius: 0 0 4px 4px; }
-        #gs_rak_pop.rk_gambar { max-width: min(340px, 94vw); }
         #gs_rak_pop.rk_gambar .rk_foot { display: flex; gap: 6px; flex-wrap: wrap; }
         #gs_rak_pop .rk_edit { color: #0d6efd; border-color: #b6d4fe; }
         #gs_rak_pop .rk_edit:hover { background: #e7f1ff; }
-        #gs_rak_pop.rk_gambar .rk_isi img { display: block; max-width: 100%; margin: 0 auto 6px; border: 1px solid #eee; border-radius: 4px; background: #fafafa;
-                                            pointer-events: none; -webkit-touch-callout: none; -webkit-user-drag: none; user-select: none; }
+        /* Popup gambar: tiap gambar dalam kotaknya sendiri, satu kotak terlihat sekaligus; kotak lain di-scroll (snap per kotak) */
+        #gs_rak_pop.rk_gambar { width: min(340px, 94vw); max-width: min(340px, 94vw); }
+        #gs_rak_pop.rk_gambar .rk_isi { scroll-snap-type: y mandatory; }
+        #gs_rak_pop .rk_grid { display: grid; grid-template-columns: 1fr; gap: 6px; }
+        #gs_rak_pop .rk_kotak { position: relative; aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; overflow: hidden;
+                                border: 1px solid #dfe3ee; border-radius: 6px; background: #fafafa; box-sizing: border-box; scroll-snap-align: start; }
+        #gs_rak_pop .rk_kotak img { display: block; width: 100%; height: 100%; object-fit: contain;
+                                    pointer-events: none; -webkit-touch-callout: none; -webkit-user-drag: none; user-select: none; }
+        #gs_rak_pop .rk_kotak .rk_no { position: absolute; left: 4px; top: 4px; font-size: 10px; line-height: 1; padding: 2px 6px; border-radius: 8px;
+                                       background: rgba(0,0,0,.55); color: #fff; pointer-events: none; }
 
         /* Ikon gambar (logo PartDistro) di kolom Nama */
         .gs_ikon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
@@ -615,15 +622,39 @@
             if (!document.body.contains(m.pop)) return; // popup sudah ditutup
             if (!urls.length) { m.info('Produk ini belum punya gambar.'); tambahEditGambar(m, id); m.taruh(); return; }
             m.isi.textContent = '';
-            urls.forEach((u) => {
+            const grid = document.createElement('div');
+            grid.className = 'rk_grid';
+            urls.forEach((u, i) => {
+                const kotak = document.createElement('div');
+                kotak.className = 'rk_kotak';
                 const img = document.createElement('img');
                 img.alt = '';
                 img.draggable = false;
-                img.addEventListener('load', m.taruh);
-                img.addEventListener('error', () => { img.alt = 'Gambar gagal dimuat'; m.taruh(); });
+                img.addEventListener('error', () => { img.alt = 'Gambar gagal dimuat'; });
                 img.src = u;
-                m.isi.appendChild(img);
+                kotak.appendChild(img);
+                if (urls.length > 1) {
+                    const no = document.createElement('span');
+                    no.className = 'rk_no';
+                    no.textContent = (i + 1) + '/' + urls.length;
+                    kotak.appendChild(no);
+                }
+                grid.appendChild(kotak);
             });
+            m.isi.appendChild(grid);
+            // tinggi area isi = tepat satu kotak: gambar pertama terlihat, sisanya di-scroll
+            if (urls.length > 1) {
+                const satuKotak = () => {
+                    const k = grid.firstElementChild;
+                    if (!k || !document.body.contains(m.pop)) return;
+                    const cs = getComputedStyle(m.isi);
+                    m.isi.style.maxHeight = Math.ceil(k.offsetHeight + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom)) + 'px';
+                    m.taruh();
+                };
+                satuKotak();
+                window.addEventListener('resize', satuKotak);
+                m.isi.title = 'Gulir untuk melihat gambar lainnya (' + urls.length + ' gambar)';
+            }
             m.tombolTutup();
             tambahEditGambar(m, id);
             m.taruh();
