@@ -13,6 +13,7 @@
     "rakstok.js",
     "rekam.js",
     "pesanan_web.js",
-    "ppob.js"
+    "ppob.js",
+    "rekapbeban.js"
   ]
 }
