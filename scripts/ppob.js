@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - PPOB (No Faktur + Outlet)
 // @namespace    http://tampermonkey.net/
-// @version      1.8.5
-// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Tombol testurl: fetch link apa pun dan tampilkan outputnya.
+// @version      1.9.0
+// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Saldo PPOB tampil di atas tabel. Tombol testurl: fetch link apa pun dan tampilkan outputnya.
 // @author       You
 // @match        https://trial.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -18,7 +18,7 @@
     if (!/^\/penjualans(\/aktifitas_ppob\/new|\/index\/new)?\/?$/.test(location.pathname)) return;
     if (window.__aistimPpob) return;
     window.__aistimPpob = true;
-    console.log('[ppob.js] v1.8.5 aktif di ' + location.pathname);
+    console.log('[ppob.js] v1.9.0 aktif di ' + location.pathname);
 
     const TABEL = '#data_table';
     const KOLOM_FAKTUR = 2;   // kolom ke-2 = "No Faktur" (No | No Faktur | Status | ...)
@@ -253,7 +253,12 @@
     });
 
     const st = document.createElement('style');
-    st.textContent = '.aistim_ppob_outlet{margin-bottom:3px;font-size:12px;font-weight:600;white-space:normal;word-break:break-word}';
+    st.textContent = '.aistim_ppob_outlet{margin-bottom:3px;font-size:12px;font-weight:600;white-space:normal;word-break:break-word}' +
+        '#aistim_ppob_saldo{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 8px;padding:8px 12px;border:1px solid #cfe2ff;border-left:4px solid #0d6efd;border-radius:4px;background:#f3f8ff;font-size:14px;color:#222}' +
+        '#aistim_ppob_saldo .sp_nilai{font-size:18px;font-weight:700;color:#0d6efd}' +
+        '#aistim_ppob_saldo .sp_info{font-size:11px;color:#777}' +
+        '#aistim_ppob_saldo .sp_err{color:#dc3545}' +
+        '#aistim_ppob_saldo button{margin-left:auto;padding:2px 10px;border:1px solid #b6d4fe;border-radius:4px;background:#fff;color:#0d6efd;cursor:pointer;font-size:12px}';
     document.head.appendChild(st);
 
     // Klik No Faktur: tab baru dibuka dulu (agar tidak diblokir popup blocker), lalu diarahkan ke nota hasil pencarian.
@@ -299,7 +304,51 @@
         }
     }
 
+    // ---------- Saldo PPOB di atas tabel (GET /main/check_balance_ppob/new -> {status, message, balance}) ----------
+    const SALDO_URL = '/main/check_balance_ppob/new';
+    const SALDO_TIAP_MS = 60 * 1000;
+    const fmtRp = (n) => 'Rp ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    let saldoBox = null, saldoJalan = false;
+
+    async function muatSaldo() {
+        if (!saldoBox || saldoJalan) return;
+        saldoJalan = true;
+        const nilai = saldoBox.querySelector('.sp_nilai'), info = saldoBox.querySelector('.sp_info');
+        info.classList.remove('sp_err');
+        try {
+            const res = await fetch(SALDO_URL, { credentials: 'same-origin', cache: 'no-store',
+                headers: { 'Accept': 'application/json, text/javascript, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest' } });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const j = await res.json();
+            if (!j || j.status === false || typeof j.balance !== 'number') throw new Error((j && j.message) || 'saldo tidak terbaca');
+            nilai.textContent = fmtRp(j.balance);
+            const d = new Date();
+            info.textContent = 'diperbarui ' + dua(d.getHours()) + ':' + dua(d.getMinutes()) + ':' + dua(d.getSeconds());
+        } catch (err) {
+            info.textContent = 'gagal memuat saldo (' + err.message + ')';
+            info.classList.add('sp_err');
+            console.warn('[ppob.js] saldo PPOB: ' + err.message);
+        } finally {
+            saldoJalan = false;
+        }
+    }
+
+    function pasangSaldo() {
+        if (saldoBox && document.body.contains(saldoBox)) return;
+        const tabel = document.querySelector(TABEL);
+        if (!tabel) return;
+        const target = tabel.closest('.dataTables_wrapper') || tabel;
+        saldoBox = document.createElement('div');
+        saldoBox.id = 'aistim_ppob_saldo';
+        saldoBox.innerHTML = '<span>Saldo PPOB</span><span class="sp_nilai">memuat...</span><span class="sp_info"></span><button type="button" title="Muat ulang saldo">&#8635; Muat ulang</button>';
+        saldoBox.querySelector('button').addEventListener('click', muatSaldo);
+        target.parentNode.insertBefore(saldoBox, target);
+        muatSaldo();
+    }
+    setInterval(() => { if (!document.hidden) muatSaldo(); }, SALDO_TIAP_MS);
+
     function proses() {
+        pasangSaldo();
         document.querySelectorAll(TABEL + ' tbody tr td:nth-child(' + KOLOM_FAKTUR + ') a').forEach((a) => {
             if (a.classList.contains('disabled') || a.hasAttribute('disabled')) aktifkan(a);
             tambahOutlet(a);
