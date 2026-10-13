@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.17.11
+// @version      1.17.12
 // @description  Lihat Stok: kolom Rak (tulisan "Map rak", klik untuk popup daftar rak per toko/gudang dari Penempatan Rak), ikon logo PartDistro di kolom Nama (gambar produk baru dimuat & tampil di popup saat ikon diklik), tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @match        https://*.erzap.com/produks/*/edit*
@@ -565,14 +565,17 @@
             const a = area();
             const c = anchor.getBoundingClientRect();
             const sx = window.pageXOffset, sy = window.pageYOffset;
-            const maxH = Math.max(160, Math.min(a.height - 8, window.innerHeight * 0.7));
+            // Batas bawah = bawah tabel atau bawah layar (mana yang lebih jauh): tabel yang barisnya sedikit
+            // (mis. 1 data) tidak lagi memampatkan popup sampai isinya harus di-scroll; tinggi mengikuti isi/gambar.
+            const bawah = Math.max(a.bottom, window.innerHeight);
+            const maxH = Math.max(160, Math.min(bawah - a.top - 8, window.innerHeight * 0.85));
             pop.style.maxHeight = maxH + 'px';
             const w = pop.offsetWidth, h = pop.offsetHeight;
             let left = c.left;
             if (left + w > a.right - 4) left = a.right - 4 - w;
             if (left < a.left + 4) left = a.left + 4;
             let top = c.top;
-            if (top + h > a.bottom - 4) top = a.bottom - 4 - h;
+            if (top + h > bawah - 4) top = bawah - 4 - h;
             if (top < a.top + 4) top = a.top + 4;
             pop.style.left = (left + sx) + 'px';
             pop.style.top = (top + sy) + 'px';
