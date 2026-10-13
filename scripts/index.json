@@ -1,7 +1,6 @@
 {
   "scripts": [
     "pesananbaru.js",
-    "rekapbeban.js",
     "koreksiso.js",
     "aistim_tool.js",
     "analisastok.js",
