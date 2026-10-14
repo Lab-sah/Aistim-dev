@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Home (Stats Saldo PPOB)
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
-// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo" (dari /main/check_balance_ppob/new, merah bila di bawah Rp 1 juta) dan di bawahnya "Pengeluaran hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB).
+// @version      1.2.0
+// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi nominal saldo (dari /main/check_balance_ppob/new, merah bila di bawah Rp 1 juta) dan di bawahnya "Pengeluaran hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik pengeluaran = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB.
 // @match        https://*.erzap.com/
 // @match        https://*.erzap.com/?*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -31,7 +31,7 @@
     const tidur = (ms) => new Promise((r) => setTimeout(r, ms));
 
     let kartu = null;
-    let saldoEl = null;         // baris "Saldo : ..."
+    let saldoEl = null;         // baris nominal saldo
     let keluarEl = null;        // baris "Pengeluaran hari ini : ..."
 
     // ---------- saldo ----------
@@ -53,12 +53,12 @@
         try {
             const saldo = await ambilSaldo();
             saldoTerbaca = true;
-            saldoEl.textContent = 'Saldo : ' + fmtRp(saldo);
+            saldoEl.textContent = fmtRp(saldo);
             const rendah = saldo < BATAS_RENDAH;
             saldoEl.style.color = rendah ? '#dc3545' : '';
             kartu.title = rendah ? 'Saldo PPOB kurang dari Rp 1 juta' : 'Saldo PPOB';
         } catch (err) {
-            if (!saldoTerbaca) saldoEl.textContent = 'Saldo : -';
+            if (!saldoTerbaca) saldoEl.textContent = '-';
             kartu.title = 'Gagal memuat saldo PPOB: ' + err.message;
             console.warn('[home.js] saldo PPOB: ' + err.message);
         } finally {
@@ -80,6 +80,8 @@
         const iLog = th.findIndex((t) => t === 'log');
         const iTrx = th.findIndex((t) => t === 'trx id');
         const iFaktur = th.findIndex((t) => t === 'no faktur');
+        const iNomor = th.findIndex((t) => t === 'nomor transaksi');
+        const iBarang = th.findIndex((t) => t === 'nama barang');
         if (iStatus < 0 || iPakai < 0 || iLog < 0) return null;
         const hasil = [];
         tabel.querySelectorAll('tbody tr').forEach((tr) => {
@@ -89,7 +91,15 @@
             if (!m) return;
             // kunci unik baris: Trx Id (cadangan: No Faktur + LOG) -> dipakai membuang baris yang sama bila halaman terbaca berulang
             const kunci = iTrx >= 0 && c[iTrx] ? rapih(c[iTrx].textContent) : (iFaktur >= 0 && c[iFaktur] ? rapih(c[iFaktur].textContent) : '') + '|' + rapih(c[iLog].textContent);
-            hasil.push({ kunci: kunci, tgl: m[1], sukses: /sukses/i.test(c[iStatus].textContent), pakai: keAngka(c[iPakai].textContent) });
+            const sel = (i) => (i >= 0 && c[i] ? rapih(c[i].textContent) : '');
+            const jam = /\d{2}-\d{2}-\d{4}\s+(\d{2}:\d{2}(?::\d{2})?)/.exec(rapih(c[iLog].textContent));
+            // nomor faktur: teks link saja (sel faktur bisa memuat tulisan outlet dari skrip PPOB)
+            const linkFaktur = iFaktur >= 0 && c[iFaktur] ? c[iFaktur].querySelector('a') : null;
+            hasil.push({
+                kunci: kunci, tgl: m[1], jam: jam ? jam[1] : '',
+                sukses: /sukses/i.test(c[iStatus].textContent), status: sel(iStatus), pakai: keAngka(c[iPakai].textContent),
+                faktur: linkFaktur ? rapih(linkFaktur.textContent) : sel(iFaktur), barang: sel(iBarang), nomor: sel(iNomor)
+            });
         });
         return hasil;
     }
@@ -128,6 +138,7 @@
         const hariIni = tglHariIni();
         const terlihat = new Set();
         let total = 0, jumlah = 0;
+        const daftar = [];
         for (let n = 1; n <= MAKS_HALAMAN; n++) {
             const baris = await halamanPpob(n);
             if (!baris.length) break;
@@ -138,12 +149,13 @@
                 baru++;
                 if (b.tgl !== hariIni) return;
                 adaHariIni = true;
+                daftar.push(b);
                 if (b.sukses) { total += b.pakai; jumlah++; }
             });
             if (!baru) break;          // halaman ini tidak membawa baris baru: sudah habis
             if (!adaHariIni) break;    // daftar urut terbaru -> halaman tanpa transaksi hari ini = sisanya lebih lama
         }
-        return { total: total, jumlah: jumlah };
+        return { total: total, jumlah: jumlah, daftar: daftar };
     }
 
     let jalanKeluar = false, keluarTerbaca = false;
@@ -153,15 +165,97 @@
         try {
             const h = await hitungPengeluaran();
             keluarTerbaca = true;
+            dataKeluar = h;
+            if (popupBuka) isiPopup();
             keluarEl.textContent = 'Pengeluaran hari ini : ' + fmtRp(h.total);
-            keluarEl.title = h.jumlah + ' transaksi PPOB sukses hari ini';
+            keluarEl.title = h.jumlah + ' transaksi PPOB sukses hari ini (klik untuk melihat daftar transaksi)';
         } catch (err) {
             if (!keluarTerbaca) keluarEl.textContent = 'Pengeluaran hari ini : -';
             keluarEl.title = 'Gagal memuat pengeluaran: ' + err.message;
+            galatKeluar = err.message;
+            if (popupBuka) isiPopup();
             console.warn('[home.js] pengeluaran PPOB: ' + err.message);
         } finally {
             jalanKeluar = false;
         }
+    }
+
+    // ---------- popup: daftar transaksi PPOB hari ini (klik baris "Pengeluaran hari ini") ----------
+    let dataKeluar = null, galatKeluar = '', popupBuka = null;   // popupBuka = {lapisan, isi}
+
+    function el(tag, atribut, anak) {
+        const e = document.createElement(tag);
+        Object.keys(atribut || {}).forEach((k) => {
+            if (k === 'teks') e.textContent = atribut[k];
+            else if (k === 'gaya') e.style.cssText = atribut[k];
+            else e.setAttribute(k, atribut[k]);
+        });
+        (anak || []).forEach((a) => e.appendChild(a));
+        return e;
+    }
+
+    function isiPopup() {
+        if (!popupBuka) return;
+        const isi = popupBuka.isi;
+        isi.textContent = '';
+        if (!dataKeluar) {
+            isi.appendChild(el('div', { teks: galatKeluar ? 'Gagal memuat: ' + galatKeluar : 'Memuat transaksi PPOB hari ini ...', gaya: 'padding:18px;color:' + (galatKeluar ? '#dc3545' : '#555') }));
+            return;
+        }
+        const d = dataKeluar;
+        isi.appendChild(el('div', { gaya: 'padding:8px 12px;background:#f3f8ff;border-bottom:1px solid #dbe7f7;font-size:13px', teks: d.jumlah + ' transaksi sukses, pengeluaran ' + fmtRp(d.total) + ' (dari ' + d.daftar.length + ' transaksi hari ini)' }));
+        if (!d.daftar.length) {
+            isi.appendChild(el('div', { teks: 'Belum ada transaksi PPOB hari ini.', gaya: 'padding:18px;color:#555' }));
+            return;
+        }
+        const th = (t, kanan) => el('th', { teks: t, gaya: 'position:sticky;top:0;background:#eef0f4;padding:6px 8px;border-bottom:1px solid #cfd4dc;text-align:' + (kanan ? 'right' : 'left') + ';white-space:nowrap' });
+        const tabel = el('table', { gaya: 'width:100%;border-collapse:collapse;font-size:12px' }, [
+            el('thead', {}, [el('tr', {}, [th('Jam'), th('No Faktur'), th('Barang'), th('Nomor'), th('Status'), th('Saldo Digunakan', true)])])
+        ]);
+        const tb = el('tbody');
+        d.daftar.forEach((b) => {
+            const warna = b.sukses ? '#198754' : (/error|gagal/i.test(b.status) ? '#dc3545' : '#0b7285');
+            const td = (t, extra) => el('td', { teks: t, gaya: 'padding:5px 8px;border-bottom:1px solid #eceff3;' + (extra || '') });
+            tb.appendChild(el('tr', {}, [
+                td(b.jam), td(b.faktur, 'white-space:nowrap'), td(b.barang), td(b.nomor, 'white-space:nowrap'),
+                td(b.status.replace(/^Transaksi\s+/i, ''), 'font-weight:600;color:' + warna),
+                td(fmtRp(b.pakai), 'text-align:right;white-space:nowrap;' + (b.sukses ? '' : 'color:#999;text-decoration:line-through'))
+            ]));
+        });
+        tabel.appendChild(tb);
+        isi.appendChild(tabel);
+    }
+
+    function tutupPopup() {
+        if (popupBuka) { popupBuka.lapisan.remove(); popupBuka = null; }
+        document.removeEventListener('keydown', tekanTombol, true);
+    }
+    function tekanTombol(e) { if (e.key === 'Escape') tutupPopup(); }
+
+    function bukaPopup() {
+        if (popupBuka) return;
+        const lapisan = el('div', { gaya: 'position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px' });
+        const kotak = el('div', { gaya: 'background:#fff;color:#222;width:min(900px,100%);max-height:88vh;display:flex;flex-direction:column;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.4);font:13px sans-serif;overflow:hidden' });
+        const bTutup = el('button', { type: 'button', teks: '×', gaya: 'border:0;background:none;font-size:22px;line-height:1;cursor:pointer;color:#666' });
+        const judul = el('div', { gaya: 'display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #ddd' }, [
+            el('b', { teks: 'Transaksi PPOB hari ini (' + tglHariIni() + ')' }), bTutup
+        ]);
+        const isi = el('div', { gaya: 'overflow:auto;flex:1;min-height:80px' });
+        const bBuka = el('a', { href: PPOB_URL, target: '_blank', rel: 'noopener', teks: 'Buka Aktifitas PPOB', gaya: 'padding:6px 14px;border-radius:4px;background:#0d6efd;color:#fff;text-decoration:none;cursor:pointer' });
+        const bSegar = el('button', { type: 'button', teks: '↻ Muat ulang', gaya: 'padding:6px 14px;border:1px solid #b6d4fe;border-radius:4px;background:#fff;color:#0d6efd;cursor:pointer' });
+        const bTutup2 = el('button', { type: 'button', teks: 'Tutup', gaya: 'padding:6px 14px;border:0;border-radius:4px;background:#64748b;color:#fff;cursor:pointer' });
+        const kaki = el('div', { gaya: 'display:flex;gap:8px;justify-content:flex-end;padding:10px 12px;border-top:1px solid #ddd' }, [bSegar, bBuka, bTutup2]);
+        kotak.appendChild(judul); kotak.appendChild(isi); kotak.appendChild(kaki);
+        lapisan.appendChild(kotak);
+        document.body.appendChild(lapisan);
+        popupBuka = { lapisan: lapisan, isi: isi };
+        bTutup.addEventListener('click', tutupPopup);
+        bTutup2.addEventListener('click', tutupPopup);
+        bSegar.addEventListener('click', () => { dataKeluar = null; galatKeluar = ''; isiPopup(); muatPengeluaran(); });
+        lapisan.addEventListener('mousedown', (e) => { if (e.target === lapisan) tutupPopup(); });
+        document.addEventListener('keydown', tekanTombol, true);
+        isiPopup();
+        if (!dataKeluar && !jalanKeluar) muatPengeluaran();
     }
 
     // ---------- cari kartu stats yang sudah ada (label_transaksi) ----------
@@ -218,7 +312,7 @@
             utama.style.cssText = 'font-weight:700;font-size:1.4em;';
             label.parentNode.insertBefore(utama, label.nextSibling);
         }
-        utama.textContent = 'Saldo : ...';
+        utama.textContent = '...';
         const kedua = buatBarisKeluar(utama);
         utama.parentNode.insertBefore(kedua, utama.nextSibling);
         return { kartu: salinan, saldo: utama, keluar: kedua };
@@ -233,7 +327,7 @@
         l.textContent = LABEL;
         l.style.cssText = 'font-size:12px;font-weight:600;color:#555;';
         const n = document.createElement('div');
-        n.textContent = 'Saldo : ...';
+        n.textContent = '...';
         n.style.cssText = 'font-size:20px;font-weight:700;';
         const kedua = buatBarisKeluar(n);
         k.appendChild(l);
@@ -259,6 +353,9 @@
         kartu = hasil.kartu;
         saldoEl = hasil.saldo;
         keluarEl = hasil.keluar;
+        keluarEl.style.cursor = 'pointer';
+        keluarEl.style.textDecoration = 'underline dotted';
+        keluarEl.addEventListener('click', bukaPopup);
         muatSaldo();
         muatPengeluaran();
         return true;
