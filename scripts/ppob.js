@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - PPOB (No Faktur + Outlet)
 // @namespace    http://tampermonkey.net/
-// @version      1.11.0
+// @version      1.11.1
 // @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: lonceng bersuara "Cek saldo bosku" + tulisan peringatan.
 // @author       You
 // @match        https://trial.erzap.com/penjualans*
@@ -18,7 +18,7 @@
     if (!/^\/penjualans(\/aktifitas_ppob\/new|\/index\/new)?\/?$/.test(location.pathname)) return;
     if (window.__aistimPpob) return;
     window.__aistimPpob = true;
-    console.log('[ppob.js] v1.11.0 aktif di ' + location.pathname);
+    console.log('[ppob.js] v1.11.1 aktif di ' + location.pathname);
 
     const TABEL = '#data_table';
     const KOLOM_FAKTUR = 2;   // kolom ke-2 = "No Faktur" (No | No Faktur | Status | ...)
@@ -289,6 +289,12 @@
         '#aistim_ppob_saldo button{margin-left:auto;padding:2px 10px;border:1px solid #b6d4fe;border-radius:4px;background:#fff;color:#0d6efd;cursor:pointer;font-size:12px}';
     document.head.appendChild(st);
 
+    // ID nota kadang sudah ada di href link No Faktur: /penjualans/nota_a5/<id>?layout=simple -> nota = /penjualans/<id>
+    function urlLangsung(a) {
+        const m = /\/penjualans\/(?:nota[a-z0-9_]*|cetak[a-z0-9_]*)\/(\d{4,})/i.exec(a.getAttribute('href') || '');
+        return m ? location.origin + '/penjualans/' + m[1] : null;
+    }
+
     // Klik No Faktur: tab baru dibuka dulu (agar tidak diblokir popup blocker), lalu diarahkan ke nota hasil pencarian.
     // Kalau pencarian di belakang layar gagal, tab dibuka ke /penjualans dan diisi/dicari/diklik "Lihat" otomatis (halamanCari).
     const PREFIX_NAMA = 'aistim_ppob_cari:';
@@ -296,6 +302,11 @@
         e.preventDefault();
         e.stopPropagation();
         const faktur = e.currentTarget.textContent.trim();
+        const langsung = urlLangsung(e.currentTarget);
+        if (langsung) {
+            if (!window.open(langsung, '_blank')) alert('Tab baru diblokir browser. Izinkan popup untuk trial.erzap.com.');
+            return;
+        }
         // Nota sudah dikenal (tersimpan): langsung buka URL-nya, tanpa tab kosong
         if (simpanan[faktur] && simpanan[faktur].url) {
             if (!window.open(simpanan[faktur].url, '_blank')) alert('Tab baru diblokir browser. Izinkan popup untuk trial.erzap.com.');

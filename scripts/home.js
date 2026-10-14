@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Home (Stats Saldo PPOB)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
-// @description  Halaman Home (Transaksi Hari Ini): menambah kartu stats "SALDO PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar. Saldo diambil dari /main/check_balance_ppob/new dan diperbarui tiap 60 detik; merah bila di bawah Rp 1 juta.
+// @version      1.1.1
+// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo" (dari /main/check_balance_ppob/new, merah bila di bawah Rp 1 juta) dan di bawahnya "Pengeluaran hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB).
 // @match        https://*.erzap.com/
 // @match        https://*.erzap.com/?*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -18,17 +18,23 @@
     window.__aistimHome = true;
 
     const SALDO_URL = '/main/check_balance_ppob/new';
+    const PPOB_URL = '/penjualans/aktifitas_ppob/new';
     const BATAS_RENDAH = 1000000;
-    const TIAP_MS = 60 * 1000;
-    const MAKS_TUNGGU_MS = 20 * 1000;   // kartu stats bisa baru muncul setelah ajax selesai
-    const LABEL = 'SALDO PPOB';
+    const SALDO_TIAP_MS = 60 * 1000;
+    const PENGELUARAN_TIAP_MS = 5 * 60 * 1000;
+    const MAKS_HALAMAN = 20;              // batas halaman Aktifitas PPOB yang dibaca (50 baris per halaman)
+    const MAKS_TUNGGU_MS = 20 * 1000;     // kartu stats bisa baru muncul setelah ajax selesai
+    const LABEL = 'PPOB';
     const fmtRp = (n) => 'Rp ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const dua = (n) => (n < 10 ? '0' : '') + n;
+    const rapih = (t) => (t || '').replace(/\s+/g, ' ').trim();
+    const tidur = (ms) => new Promise((r) => setTimeout(r, ms));
 
-    let nilaiEl = null;   // elemen yang menampung angka saldo
-    let infoEl = null;    // keterangan kecil (waktu / error)
     let kartu = null;
+    let saldoEl = null;         // baris "Saldo : ..."
+    let keluarEl = null;        // baris "Pengeluaran hari ini : ..."
 
-    // ---------- ambil saldo ----------
+    // ---------- saldo ----------
     async function ambilSaldo() {
         const res = await fetch(SALDO_URL, {
             credentials: 'same-origin', cache: 'no-store',
@@ -40,23 +46,121 @@
         return j.balance;
     }
 
-    let jalan = false;
-    async function muat() {
-        if (!kartu || !document.body.contains(kartu) || jalan) return;
-        jalan = true;
+    let jalanSaldo = false, saldoTerbaca = false;
+    async function muatSaldo() {
+        if (!kartu || !document.body.contains(kartu) || jalanSaldo) return;
+        jalanSaldo = true;
         try {
             const saldo = await ambilSaldo();
-            nilaiEl.textContent = fmtRp(saldo);
+            saldoTerbaca = true;
+            saldoEl.textContent = 'Saldo : ' + fmtRp(saldo);
             const rendah = saldo < BATAS_RENDAH;
-            nilaiEl.style.color = rendah ? '#dc3545' : '';
+            saldoEl.style.color = rendah ? '#dc3545' : '';
             kartu.title = rendah ? 'Saldo PPOB kurang dari Rp 1 juta' : 'Saldo PPOB';
-            if (infoEl) infoEl.textContent = '';
         } catch (err) {
-            if (nilaiEl.textContent === '' || nilaiEl.textContent === '...') nilaiEl.textContent = '-';
+            if (!saldoTerbaca) saldoEl.textContent = 'Saldo : -';
             kartu.title = 'Gagal memuat saldo PPOB: ' + err.message;
             console.warn('[home.js] saldo PPOB: ' + err.message);
         } finally {
-            jalan = false;
+            jalanSaldo = false;
+        }
+    }
+
+    // ---------- pengeluaran hari ini: jumlah "Saldo Digunakan" transaksi sukses hari ini (tabel Aktifitas PPOB) ----------
+    const tglHariIni = () => { const d = new Date(); return dua(d.getDate()) + '-' + dua(d.getMonth() + 1) + '-' + d.getFullYear(); };
+    const keAngka = (t) => { const n = parseFloat(String(t || '').replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
+
+    // dokumen halaman Aktifitas PPOB -> baris {tgl, sukses, pakai}; kolom dikenali dari teks header (bukan urutan tetap)
+    function barisDariDokumen(doc) {
+        const tabel = doc.querySelector('#data_table');
+        if (!tabel) return null;
+        const th = Array.from(tabel.querySelectorAll('thead th, thead td')).map((x) => rapih(x.textContent).toLowerCase());
+        const iStatus = th.findIndex((t) => t === 'status');
+        const iPakai = th.findIndex((t) => /saldo digunakan/.test(t));
+        const iLog = th.findIndex((t) => t === 'log');
+        const iTrx = th.findIndex((t) => t === 'trx id');
+        const iFaktur = th.findIndex((t) => t === 'no faktur');
+        if (iStatus < 0 || iPakai < 0 || iLog < 0) return null;
+        const hasil = [];
+        tabel.querySelectorAll('tbody tr').forEach((tr) => {
+            const c = Array.from(tr.cells);
+            if (c.length <= Math.max(iStatus, iPakai, iLog)) return;   // baris pesan kosong ("tidak ada data")
+            const m = /(\d{2}-\d{2}-\d{4})/.exec(rapih(c[iLog].textContent));
+            if (!m) return;
+            // kunci unik baris: Trx Id (cadangan: No Faktur + LOG) -> dipakai membuang baris yang sama bila halaman terbaca berulang
+            const kunci = iTrx >= 0 && c[iTrx] ? rapih(c[iTrx].textContent) : (iFaktur >= 0 && c[iFaktur] ? rapih(c[iFaktur].textContent) : '') + '|' + rapih(c[iLog].textContent);
+            hasil.push({ kunci: kunci, tgl: m[1], sukses: /sukses/i.test(c[iStatus].textContent), pakai: keAngka(c[iPakai].textContent) });
+        });
+        return hasil;
+    }
+
+    // cadangan bila tabel diisi lewat skrip (tidak ada di HTML mentah): muat halamannya di iframe tersembunyi
+    async function barisLewatIframe(halaman) {
+        const fr = document.createElement('iframe');
+        fr.style.cssText = 'position:fixed;left:-10000px;top:0;width:1400px;height:900px;border:0;opacity:0;pointer-events:none';
+        fr.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(fr);
+        try {
+            fr.src = PPOB_URL + '?page=' + halaman;
+            const mulai = Date.now();
+            for (;;) {
+                let b = null;
+                try { const d = fr.contentDocument; if (d && d.readyState === 'complete') b = barisDariDokumen(d); } catch (e) { b = null; }
+                if (b && b.length) return b;
+                if (Date.now() - mulai > 20000) return b || [];
+                await tidur(400);
+            }
+        } finally {
+            fr.remove();
+        }
+    }
+
+    async function halamanPpob(n) {
+        const res = await fetch(PPOB_URL + '?page=' + n, { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'text/html' } });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+        let b = barisDariDokumen(doc);
+        if ((!b || !b.length) && n === 1) b = await barisLewatIframe(1);   // HTML mentah tanpa baris: coba lewat halaman sungguhan
+        return b || [];
+    }
+
+    async function hitungPengeluaran() {
+        const hariIni = tglHariIni();
+        const terlihat = new Set();
+        let total = 0, jumlah = 0;
+        for (let n = 1; n <= MAKS_HALAMAN; n++) {
+            const baris = await halamanPpob(n);
+            if (!baris.length) break;
+            let baru = 0, adaHariIni = false;
+            baris.forEach((b) => {
+                if (terlihat.has(b.kunci)) return;   // baris yang sudah dihitung (server mengabaikan ?page / halaman berulang)
+                terlihat.add(b.kunci);
+                baru++;
+                if (b.tgl !== hariIni) return;
+                adaHariIni = true;
+                if (b.sukses) { total += b.pakai; jumlah++; }
+            });
+            if (!baru) break;          // halaman ini tidak membawa baris baru: sudah habis
+            if (!adaHariIni) break;    // daftar urut terbaru -> halaman tanpa transaksi hari ini = sisanya lebih lama
+        }
+        return { total: total, jumlah: jumlah };
+    }
+
+    let jalanKeluar = false, keluarTerbaca = false;
+    async function muatPengeluaran() {
+        if (!kartu || !document.body.contains(kartu) || jalanKeluar) return;
+        jalanKeluar = true;
+        try {
+            const h = await hitungPengeluaran();
+            keluarTerbaca = true;
+            keluarEl.textContent = 'Pengeluaran hari ini : ' + fmtRp(h.total);
+            keluarEl.title = h.jumlah + ' transaksi PPOB sukses hari ini';
+        } catch (err) {
+            if (!keluarTerbaca) keluarEl.textContent = 'Pengeluaran hari ini : -';
+            keluarEl.title = 'Gagal memuat pengeluaran: ' + err.message;
+            console.warn('[home.js] pengeluaran PPOB: ' + err.message);
+        } finally {
+            jalanKeluar = false;
         }
     }
 
@@ -80,6 +184,19 @@
         return Array.from(root.querySelectorAll('*')).filter((e) => e.children.length === 0 && (e.textContent || '').trim() !== '');
     }
 
+    // baris kedua (pengeluaran) memakai kelas yang sama dengan baris saldo, tapi lebih kecil
+    function buatBarisKeluar(contoh) {
+        const e = contoh.cloneNode(false);
+        e.removeAttribute('id');
+        e.textContent = 'Pengeluaran hari ini : ...';
+        e.style.fontSize = '13px';
+        e.style.fontWeight = '600';
+        e.style.color = '#666';
+        e.style.marginTop = '2px';
+        e.style.display = 'block';
+        return e;
+    }
+
     // ---------- bangun kartu: salin kartu asli supaya tampilannya sama ----------
     function bangunDariSalinan(asal) {
         const salinan = asal.kartu.cloneNode(true);
@@ -92,7 +209,7 @@
         if (!label) return null;
         label.textContent = LABEL;
 
-        // angka: daun teks terbesar yang memuat digit; daun angka lain (persen/keterangan) dikosongkan
+        // angka: daun teks pertama yang memuat digit; daun angka lain (persen/keterangan) dikosongkan
         const angka = daunTeks(salinan).filter((e) => e !== label && !label.contains(e) && /\d/.test(e.textContent));
         let utama = angka[0] || null;
         angka.slice(1).forEach((e) => { e.textContent = ''; });
@@ -101,8 +218,10 @@
             utama.style.cssText = 'font-weight:700;font-size:1.4em;';
             label.parentNode.insertBefore(utama, label.nextSibling);
         }
-        utama.textContent = '...';
-        return { kartu: salinan, nilai: utama };
+        utama.textContent = 'Saldo : ...';
+        const kedua = buatBarisKeluar(utama);
+        utama.parentNode.insertBefore(kedua, utama.nextSibling);
+        return { kartu: salinan, saldo: utama, keluar: kedua };
     }
 
     // ---------- cadangan: kartu sederhana bila susunan halaman tidak dikenali ----------
@@ -114,11 +233,13 @@
         l.textContent = LABEL;
         l.style.cssText = 'font-size:12px;font-weight:600;color:#555;';
         const n = document.createElement('div');
-        n.textContent = '...';
+        n.textContent = 'Saldo : ...';
         n.style.cssText = 'font-size:20px;font-weight:700;';
+        const kedua = buatBarisKeluar(n);
         k.appendChild(l);
         k.appendChild(n);
-        return { kartu: k, nilai: n };
+        k.appendChild(kedua);
+        return { kartu: k, saldo: n, keluar: kedua };
     }
 
     function pasang(sederhana) {
@@ -136,8 +257,10 @@
         }
         if (!hasil) return false;
         kartu = hasil.kartu;
-        nilaiEl = hasil.nilai;
-        muat();
+        saldoEl = hasil.saldo;
+        keluarEl = hasil.keluar;
+        muatSaldo();
+        muatPengeluaran();
         return true;
     }
 
@@ -145,11 +268,11 @@
     const mulai = Date.now();
     const pemeriksa = setInterval(() => {
         const habis = Date.now() - mulai > MAKS_TUNGGU_MS;
-        if (pasang(habis)) clearInterval(pemeriksa);
-        else if (habis) clearInterval(pemeriksa);
+        if (pasang(habis) || habis) clearInterval(pemeriksa);
     }, 400);
 
-    setInterval(() => { if (!document.hidden) muat(); }, TIAP_MS);
+    setInterval(() => { if (!document.hidden) muatSaldo(); }, SALDO_TIAP_MS);
+    setInterval(() => { if (!document.hidden) muatPengeluaran(); }, PENGELUARAN_TIAP_MS);
     // kartu stats bisa digambar ulang oleh halaman (ganti outlet/periode): pasang lagi bila kartu kita hilang
     setInterval(() => {
         if (kartu && !document.body.contains(kartu)) { kartu = null; pasang(false); }
