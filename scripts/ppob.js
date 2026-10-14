@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - PPOB (No Faktur + Outlet)
 // @namespace    http://tampermonkey.net/
-// @version      1.14.0
-// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: lonceng bersuara "Cek saldo bosku" + tulisan peringatan.
+// @version      1.15.0
+// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan.
 // @author       You
 // @match        https://trial.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -18,7 +18,7 @@
     if (!/^\/penjualans(\/aktifitas_ppob\/new|\/index\/new)?\/?$/.test(location.pathname)) return;
     if (window.__aistimPpob) return;
     window.__aistimPpob = true;
-    console.log('[ppob.js] v1.14.0 aktif di ' + location.pathname);
+    console.log('[ppob.js] v1.15.0 aktif di ' + location.pathname);
 
     const TABEL = '#data_table';
     const KOLOM_FAKTUR = 2;   // kolom ke-2 = "No Faktur" (No | No Faktur | Status | ...)
@@ -301,9 +301,6 @@
         '#aistim_ppob_saldo.sp_rendah{border-color:#f5c2c7;border-left-color:#dc3545;background:#fff5f5}' +
         '#aistim_ppob_saldo.sp_rendah .sp_nilai{color:#dc3545}' +
         '#aistim_ppob_saldo .sp_warn{font-weight:700;color:#dc3545}' +
-        '#aistim_ppob_saldo button.sp_bel{margin-left:0;padding:0 4px;border:0;background:transparent;font-size:20px;line-height:1}' +
-        '@keyframes aistim_goyang{0%,100%{transform:rotate(0)}20%{transform:rotate(18deg)}40%{transform:rotate(-16deg)}60%{transform:rotate(10deg)}80%{transform:rotate(-8deg)}}' +
-        '#aistim_ppob_saldo.sp_rendah button.sp_bel.sp_on{animation:aistim_goyang 1.2s ease-in-out infinite;transform-origin:50% 10%}' +
         '#aistim_ppob_saldo button{margin-left:auto;padding:2px 10px;border:1px solid #b6d4fe;border-radius:4px;background:#fff;color:#0d6efd;cursor:pointer;font-size:12px}';
     document.head.appendChild(st);
 
@@ -373,13 +370,10 @@
     const fmtRp = (n) => 'Rp ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     let saldoBox = null, saldoJalan = false;
 
-    // ---------- Peringatan saldo < Rp 1 juta: lonceng bersuara "Cek saldo bosku" (hidup/mati) ----------
+    // ---------- Peringatan saldo < Rp 1 juta: suara "Cek saldo bosku" (tanpa tombol lonceng) ----------
     const BATAS_SALDO = 1000000;
     const KATA_SALDO = 'Cek saldo bosku';   // suara lonceng (diucapkan); tulisan peringatan di kotak tetap "Saldo kurang dari 1 juta"
     const ULANG_BUNYI_MS = 5 * 60 * 1000;   // selama saldo masih rendah, diulang tiap 5 menit
-    const K_BUNYI_SALDO = 'aistim_ppob_bunyi_saldo';
-    let bunyiAktif = true;
-    try { bunyiAktif = localStorage.getItem(K_BUNYI_SALDO) !== '0'; } catch (e) { /* abaikan */ }
     let saldoRendah = false, terakhirBunyi = 0, menungguSentuh = false, audioCtx = null;
 
     function siapkanAudio() {
@@ -391,7 +385,7 @@
     // Browser hanya mengizinkan suara setelah halaman pernah diklik/disentuh; kalau tadi diblokir, diulang di sentuhan pertama
     ['pointerdown', 'touchstart', 'keydown', 'click'].forEach((ev) => document.addEventListener(ev, () => {
         siapkanAudio();
-        if (menungguSentuh && saldoRendah && bunyiAktif) { menungguSentuh = false; bunyikanPeringatan(); }
+        if (menungguSentuh && saldoRendah) { menungguSentuh = false; bunyikanPeringatan(); }
     }, { passive: true }));
 
     function bip() {
@@ -432,14 +426,6 @@
         siapkanAudio();
         if (!ucapkan(KATA_SALDO)) bip();
     }
-    function ikonLonceng() {
-        if (!saldoBox) return;
-        const b = saldoBox.querySelector('.sp_bel');
-        if (!b) return;
-        b.textContent = bunyiAktif ? '\uD83D\uDD14' : '\uD83D\uDD15';
-        b.classList.toggle('sp_on', bunyiAktif);
-        b.title = bunyiAktif ? 'Suara peringatan saldo: HIDUP (klik untuk mematikan)' : 'Suara peringatan saldo: MATI (klik untuk menghidupkan)';
-    }
     function periksaSaldo(saldo) {
         saldoRendah = saldo < BATAS_SALDO;
         if (saldoBox) {
@@ -447,7 +433,7 @@
             const w = saldoBox.querySelector('.sp_warn');
             if (w) w.style.display = saldoRendah ? '' : 'none';
         }
-        if (saldoRendah && bunyiAktif && Date.now() - terakhirBunyi > ULANG_BUNYI_MS) bunyikanPeringatan();
+        if (saldoRendah && Date.now() - terakhirBunyi > ULANG_BUNYI_MS) bunyikanPeringatan();
     }
 
     async function muatSaldo() {
@@ -488,17 +474,8 @@
         saldoBox.appendChild(buat('span', { class: 'sp_nilai', teks: '-' }));
         saldoBox.appendChild(buat('span', { class: 'sp_info' }));
         saldoBox.appendChild(buat('span', { class: 'sp_warn', gaya: 'display:none', teks: '⚠ Saldo kurang dari 1 juta' }));
-        saldoBox.appendChild(buat('button', { type: 'button', class: 'sp_bel' }));
         saldoBox.appendChild(buat('button', { type: 'button', class: 'sp_ulang', title: 'Muat ulang saldo', teks: '↻ Muat ulang' }));
         saldoBox.querySelector('.sp_ulang').addEventListener('click', muatSaldo);
-        saldoBox.querySelector('.sp_bel').addEventListener('click', () => {
-            bunyiAktif = !bunyiAktif;
-            try { localStorage.setItem(K_BUNYI_SALDO, bunyiAktif ? '1' : '0'); } catch (e) { /* abaikan */ }
-            ikonLonceng();
-            if (bunyiAktif) { siapkanAudio(); if (saldoRendah) bunyikanPeringatan(); else bip(); }
-            else if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-        });
-        ikonLonceng();
         target.parentNode.insertBefore(saldoBox, target);
         muatSaldo();
     }

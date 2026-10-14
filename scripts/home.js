@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Home (Stats Saldo PPOB)
 // @namespace    http://tampermonkey.net/
-// @version      1.4.0
+// @version      1.4.1
 // @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila di bawah Rp 1 juta) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB.
 // @match        https://*.erzap.com/
 // @match        https://*.erzap.com/?*
@@ -410,6 +410,9 @@
         }
         if (!hasil) return false;
         kartu = hasil.kartu;
+        // tanpa garis bawah di seluruh kartu (CSS Erzap bisa menggarisbawahi elemen <a> salinan); hanya baris transaksi diberi garis titik-titik di bawah
+        kartu.style.textDecoration = 'none';
+        kartu.querySelectorAll('*').forEach((e) => { e.style.textDecoration = 'none'; });
         saldoEl = hasil.saldo;
         keluarEl = hasil.keluar;
         keluarEl.style.cursor = 'pointer';
