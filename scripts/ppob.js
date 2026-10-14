@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - PPOB (No Faktur + Outlet)
 // @namespace    http://tampermonkey.net/
-// @version      1.15.0
-// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan.
+// @version      1.16.0
+// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Transaksi berstatus Error diberi keterangan "Sudah dibatalkan" / "Belum dibatalkan" di kolom Status (dicek dari status nota di /penjualans). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan.
 // @author       You
 // @match        https://trial.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -18,7 +18,7 @@
     if (!/^\/penjualans(\/aktifitas_ppob\/new|\/index\/new)?\/?$/.test(location.pathname)) return;
     if (window.__aistimPpob) return;
     window.__aistimPpob = true;
-    console.log('[ppob.js] v1.15.0 aktif di ' + location.pathname);
+    console.log('[ppob.js] v1.16.0 aktif di ' + location.pathname);
 
     const TABEL = '#data_table';
     const KOLOM_FAKTUR = 2;   // kolom ke-2 = "No Faktur" (No | No Faktur | Status | ...)
@@ -106,6 +106,7 @@
         for (const tabel of doc.querySelectorAll('table')) {
             const th = Array.from(tabel.querySelectorAll('thead th, thead td'));
             const idxOutlet = th.findIndex((x) => /^outlet$/i.test(rapih(x.textContent)));
+            const idxStatus = th.findIndex((x) => /^status( transaksi)?$/i.test(rapih(x.textContent)));
             for (const tr of tabel.querySelectorAll('tbody tr')) {
                 const sel = Array.from(tr.cells);
                 const teks = sel.map((td) => rapih(td.textContent).toUpperCase());
@@ -113,7 +114,10 @@
                 if (!sk || sk <= skor) continue;
                 const a = Array.from(tr.querySelectorAll('a[href]')).find((x) => POLA_ID.test(x.getAttribute('href') || ''));
                 if (!a) continue;
-                terbaik = { url: new URL(a.getAttribute('href'), location.origin).href, outlet: outletBaris(sel, idxOutlet) };
+                // nota dibatalkan: kolom Status Transaksi berisi "Dibatalkan" (cadangan: sel "Dibatalkan" / nomor berakhiran -VOID-)
+                const statusNota = idxStatus >= 0 && sel[idxStatus] ? rapih(sel[idxStatus].textContent) : (teks.indexOf('DIBATALKAN') >= 0 ? 'Dibatalkan' : '');
+                const batal = /dibatalkan/i.test(statusNota) || teks.some((t) => /-VOID-/.test(t));
+                terbaik = { url: new URL(a.getAttribute('href'), location.origin).href, outlet: outletBaris(sel, idxOutlet), batal: batal, statusNota: statusNota };
                 skor = sk;
                 if (sk === 3) return terbaik;
             }
@@ -209,15 +213,20 @@
     try { simpanan = JSON.parse(localStorage.getItem(K_CACHE) || '{}') || {}; } catch (e) { simpanan = {}; }
     function simpanCache(faktur, n) {
         if (!n || !n.url || !n.outlet) return;   // hanya hasil lengkap
-        simpanan[faktur] = { url: n.url, outlet: n.outlet };
+        simpanan[faktur] = { url: n.url, outlet: n.outlet, batal: !!n.batal, statusNota: n.statusNota || '', waktu: Date.now() };
         const kunci = Object.keys(simpanan);
         if (kunci.length > MAKS_CACHE) kunci.slice(0, kunci.length - MAKS_CACHE).forEach((k) => delete simpanan[k]);
         try { localStorage.setItem(K_CACHE, JSON.stringify(simpanan)); } catch (e) { /* penuh/diblokir: abaikan */ }
     }
     const cacheNota = {};
-    function notaDari(faktur, asli) {
+    // perluBatal = baris berstatus Error: status pembatalan nota harus segar. "Sudah dibatalkan" final (boleh dari cache);
+    // "Belum dibatalkan" bisa berubah, jadi dari cache hanya dipakai 2 menit; cache lama tanpa data batal dicari ulang.
+    const BATAL_TTL_MS = 2 * 60 * 1000;
+    function notaDari(faktur, asli, perluBatal) {
         asli = asli || hapusVoid(faktur);
-        if (!cacheNota[faktur] && simpanan[faktur]) cacheNota[faktur] = Promise.resolve(simpanan[faktur]);
+        const c = simpanan[faktur];
+        const pakaiCache = c && (!perluBatal || c.batal === true || (c.batal === false && Date.now() - (c.waktu || 0) < BATAL_TTL_MS));
+        if (!cacheNota[faktur] && pakaiCache) cacheNota[faktur] = Promise.resolve(c);
         if (!cacheNota[faktur]) cacheNota[faktur] = cariNota(faktur, asli)
             .catch((err) => { console.warn('[ppob.js] fetch POST gagal (' + err.message + '), mencoba fetch GET'); return cariNotaGet(faktur, asli); })
             .catch((err) => { console.warn('[ppob.js] fetch GET gagal (' + err.message + '), mencoba lewat halaman /penjualans'); return cariNotaIframe(faktur, asli); })
@@ -256,9 +265,16 @@
         while (jalanOutlet < MAKS_SERENTAK && antriOutlet.length) {
             const it = antriOutlet.shift();
             jalanOutlet++;
-            notaDari(it.faktur, it.asli)
-                .then((n) => { it.el.textContent = '🏪 ' + (n.outlet || '(tidak terbaca)'); })
-                .catch((err) => { it.el.textContent = '🏪 (gagal)'; it.el.title = 'Outlet: ' + err.message; console.warn('[ppob.js] ' + it.faktur + ': ' + err.message); })
+            notaDari(it.faktur, it.asli, it.perluBatal)
+                .then((n) => {
+                    if (it.jenis === 'batal') tulisBatal(it.el, n);
+                    else it.el.textContent = '🏪 ' + (n.outlet || '(tidak terbaca)');
+                })
+                .catch((err) => {
+                    if (it.jenis === 'batal') { it.el.textContent = '(cek pembatalan gagal)'; it.el.style.color = '#888'; it.el.title = err.message; }
+                    else { it.el.textContent = '🏪 (gagal)'; it.el.title = 'Outlet: ' + err.message; }
+                    console.warn('[ppob.js] ' + it.faktur + ': ' + err.message);
+                })
                 .then(() => { jalanOutlet--; prosesAntriOutlet(); });
         }
     }
@@ -272,7 +288,39 @@
         el.style.color = getComputedStyle(a).color;   // warna sama dengan link No Faktur
         tampilMemuat(el, 'Memuat outlet...', '🏪 ');
         td.insertBefore(el, td.firstChild);   // outlet di atas No Faktur
-        antriOutlet.push({ a: a, faktur: a.textContent.trim(), asli: nomorAsli(a, a.textContent.trim()), el: el });
+        antriOutlet.push({ a: a, faktur: a.textContent.trim(), asli: nomorAsli(a, a.textContent.trim()), el: el, jenis: 'outlet', perluBatal: !!selStatusError(a) });
+    }
+
+    // Sel Status bila transaksi di baris ini berstatus Error (kolom dikenali dari teks header "Status")
+    function selStatusError(a) {
+        const tr = a.closest && a.closest('tr');
+        const tabel = tr && tr.closest('table');
+        if (!tabel) return null;
+        const th = Array.from(tabel.querySelectorAll('thead th, thead td')).map((x) => rapih(x.textContent).toLowerCase());
+        const i = th.indexOf('status');
+        if (i < 0 || !tr.cells[i]) return null;
+        const td = tr.cells[i];
+        const teksStatus = td.querySelector('.status_text') ? td.querySelector('.status_text').textContent : td.textContent;
+        return /error|gagal/i.test(teksStatus) ? td : null;
+    }
+
+    // Transaksi Error: tambahkan keterangan "Sudah dibatalkan" / "Belum dibatalkan" di bawah status
+    function tambahBatal(a) {
+        const td = selStatusError(a);
+        if (!td || td.querySelector('.aistim_ppob_batal')) return;
+        const el = document.createElement('div');
+        el.className = 'aistim_ppob_batal';
+        tampilMemuat(el, 'Cek pembatalan...');
+        td.appendChild(el);
+        const faktur = a.textContent.trim();
+        antriOutlet.push({ a: a, faktur: faktur, asli: nomorAsli(a, faktur), el: el, jenis: 'batal', perluBatal: true });
+    }
+
+    function tulisBatal(el, n) {
+        const batal = !!(n && n.batal);
+        el.textContent = batal ? '\u2714 Sudah dibatalkan' : '\u2716 Belum dibatalkan';
+        el.style.color = batal ? '#198754' : '#dc3545';
+        el.title = 'Status nota di penjualan: ' + ((n && n.statusNota) || (batal ? 'Dibatalkan' : '-'));
     }
 
     // Warna link berubah saat baris di-hover (mis. jadi putih): teks outlet menyusul
@@ -292,6 +340,7 @@
 
     const st = document.createElement('style');
     st.textContent = '.aistim_ppob_outlet{margin-bottom:3px;font-size:12px;font-weight:600;white-space:normal;word-break:break-word}' +
+        '.aistim_ppob_batal{margin-top:3px;font-size:12px;font-weight:700;white-space:normal}' +
         '@keyframes aistim_spin{to{transform:rotate(360deg)}}' +
         '.aistim_spin{display:inline-block;width:10px;height:10px;margin-right:5px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;vertical-align:-1px;animation:aistim_spin .7s linear infinite}' +
         '#aistim_ppob_saldo{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 8px;padding:8px 12px;border:1px solid #cfe2ff;border-left:4px solid #0d6efd;border-radius:4px;background:#f3f8ff;font-size:14px;color:#222}' +
@@ -486,6 +535,7 @@
         document.querySelectorAll(TABEL + ' tbody tr td:nth-child(' + KOLOM_FAKTUR + ') a').forEach((a) => {
             if (a.classList.contains('disabled') || a.hasAttribute('disabled')) aktifkan(a);
             tambahOutlet(a);
+            tambahBatal(a);
         });
         prosesAntriOutlet();
     }
