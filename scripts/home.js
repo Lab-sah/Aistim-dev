@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Home (Stats Saldo PPOB)
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
-// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi nominal saldo (dari /main/check_balance_ppob/new, merah bila di bawah Rp 1 juta) dan di bawahnya "Pengeluaran hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik pengeluaran = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB.
+// @version      1.4.0
+// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila di bawah Rp 1 juta) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB.
 // @match        https://*.erzap.com/
 // @match        https://*.erzap.com/?*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -32,8 +32,8 @@
 
     let kartu = null;
     let saldoEl = null;         // baris nominal saldo
-    let keluarEl = null;        // baris "Pengeluaran hari ini : ..."
-    let teksKeluar = 'Pengeluaran hari ini : ...';
+    let keluarEl = null;        // baris "Transaksi hari ini : ..."
+    let teksKeluar = 'Transaksi hari ini : ...';
 
     // ikon sync (\u21BB) berputar untuk keadaan "memuat"
     const gayaHome = document.createElement('style');
@@ -73,12 +73,12 @@
         try {
             const saldo = await ambilSaldo();
             saldoTerbaca = true;
-            saldoEl.textContent = fmtRp(saldo);
+            saldoEl.textContent = 'Saldo (' + fmtRp(saldo) + ')';
             const rendah = saldo < BATAS_RENDAH;
             saldoEl.style.color = rendah ? '#dc3545' : '';
             kartu.title = rendah ? 'Saldo PPOB kurang dari Rp 1 juta' : 'Saldo PPOB';
         } catch (err) {
-            if (!saldoTerbaca) saldoEl.textContent = '-';
+            if (!saldoTerbaca) saldoEl.textContent = 'Saldo (-)';
             kartu.title = 'Gagal memuat saldo PPOB: ' + err.message;
             console.warn('[home.js] saldo PPOB: ' + err.message);
         } finally {
@@ -189,10 +189,10 @@
             keluarTerbaca = true;
             dataKeluar = h;
             if (popupBuka) isiPopup();
-            teksKeluar = 'Pengeluaran hari ini : ' + fmtRp(h.total);
+            teksKeluar = 'Transaksi hari ini : ' + fmtRp(h.total);
             keluarEl.title = h.jumlah + ' transaksi PPOB sukses hari ini (klik untuk melihat daftar transaksi)';
         } catch (err) {
-            if (!keluarTerbaca) teksKeluar = 'Pengeluaran hari ini : -';
+            if (!keluarTerbaca) teksKeluar = 'Transaksi hari ini : -';
             keluarEl.title = 'Gagal memuat pengeluaran: ' + err.message;
             galatKeluar = err.message;
             if (popupBuka) isiPopup();
@@ -204,7 +204,7 @@
         }
     }
 
-    // ---------- popup: daftar transaksi PPOB hari ini (klik baris "Pengeluaran hari ini") ----------
+    // ---------- popup: daftar transaksi PPOB hari ini (klik baris "Transaksi hari ini") ----------
     let dataKeluar = null, galatKeluar = '', popupBuka = null;   // popupBuka = {lapisan, isi}
 
     function el(tag, atribut, anak) {
@@ -329,7 +329,7 @@
     function buatBarisKeluar(contoh) {
         const e = contoh.cloneNode(false);
         e.removeAttribute('id');
-        e.textContent = 'Pengeluaran hari ini : ...';
+        e.textContent = 'Transaksi hari ini : ...';
         e.style.fontSize = '13px';
         e.style.fontWeight = '600';
         e.style.color = '#666';
@@ -371,7 +371,7 @@
             utama.style.cssText = 'font-weight:700;font-size:1.4em;';
             label.parentNode.insertBefore(utama, label.nextSibling);
         }
-        utama.textContent = '...';
+        utama.textContent = 'Saldo (...)';
         const kedua = buatBarisKeluar(utama);
         utama.parentNode.insertBefore(kedua, utama.nextSibling);
         return { kartu: salinan, saldo: utama, keluar: kedua };
@@ -386,7 +386,7 @@
         l.textContent = LABEL;
         l.style.cssText = 'font-size:12px;font-weight:600;color:#555;';
         const n = document.createElement('div');
-        n.textContent = '...';
+        n.textContent = 'Saldo (...)';
         n.style.cssText = 'font-size:20px;font-weight:700;';
         const kedua = buatBarisKeluar(n);
         k.appendChild(l);
@@ -420,7 +420,7 @@
     }
 
     // Penangkap klik (fase capture, paling awal): klik di dalam kartu PPOB tidak boleh sampai ke penanganan klik bawaan Erzap
-    // (yang akan memuat /main/table_data_transaksi_hari_ini/new?layout=simple&target=N). Hanya baris "Pengeluaran hari ini" membuka popup kita.
+    // (yang akan memuat /main/table_data_transaksi_hari_ini/new?layout=simple&target=N). Hanya baris "Transaksi hari ini" membuka popup kita.
     document.addEventListener('click', (e) => {
         const k = e.target && e.target.closest && e.target.closest('[data-aistim-saldo-ppob]');
         if (!k) return;
