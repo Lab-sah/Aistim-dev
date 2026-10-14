@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - PPOB (No Faktur + Outlet)
 // @namespace    http://tampermonkey.net/
-// @version      1.10.0
-// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: peringatan suara "Saldo kurang dari 1 juta" + tombol lonceng. Tombol testurl: fetch link apa pun dan tampilkan outputnya.
+// @version      1.10.2
+// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: lonceng bersuara "Cek saldo bosku" + tulisan peringatan. Tombol testurl: fetch link apa pun dan tampilkan outputnya.
 // @author       You
 // @match        https://trial.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -18,7 +18,7 @@
     if (!/^\/penjualans(\/aktifitas_ppob\/new|\/index\/new)?\/?$/.test(location.pathname)) return;
     if (window.__aistimPpob) return;
     window.__aistimPpob = true;
-    console.log('[ppob.js] v1.10.0 aktif di ' + location.pathname);
+    console.log('[ppob.js] v1.10.2 aktif di ' + location.pathname);
 
     const TABEL = '#data_table';
     const KOLOM_FAKTUR = 2;   // kolom ke-2 = "No Faktur" (No | No Faktur | Status | ...)
@@ -209,6 +209,17 @@
     }
 
     // ---------- Outlet di bawah No Faktur ----------
+    // Pembuat elemen tanpa innerHTML (kalau halaman memakai Trusted Types, innerHTML melempar error dan mematikan seluruh skrip)
+    function buat(tag, atribut, anak) {
+        const e = document.createElement(tag);
+        Object.keys(atribut || {}).forEach((k) => {
+            if (k === 'teks') e.textContent = atribut[k];
+            else if (k === 'gaya') e.style.cssText = atribut[k];
+            else e.setAttribute(k, atribut[k]);
+        });
+        (anak || []).forEach((a) => e.appendChild(a));
+        return e;
+    }
     const rapih = (t) => (t || '').replace(/\s+/g, ' ').trim();
     // teks "memuat" berikon putar (spinner) supaya jelas sedang loading
     function tampilMemuat(el, teks, awalan) {
@@ -333,9 +344,9 @@
     const fmtRp = (n) => 'Rp ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     let saldoBox = null, saldoJalan = false;
 
-    // ---------- Peringatan saldo < Rp 1 juta: suara "Saldo kurang dari 1 juta" + lonceng (hidup/mati) ----------
+    // ---------- Peringatan saldo < Rp 1 juta: lonceng bersuara "Cek saldo bosku" (hidup/mati) ----------
     const BATAS_SALDO = 1000000;
-    const KATA_SALDO = 'Saldo kurang dari 1 juta';
+    const KATA_SALDO = 'Cek saldo bosku';   // suara lonceng (diucapkan); tulisan peringatan di kotak tetap "Saldo kurang dari 1 juta"
     const ULANG_BUNYI_MS = 5 * 60 * 1000;   // selama saldo masih rendah, diulang tiap 5 menit
     const K_BUNYI_SALDO = 'aistim_ppob_bunyi_saldo';
     let bunyiAktif = true;
@@ -444,7 +455,12 @@
         const target = tabel.closest('.dataTables_wrapper') || tabel;
         saldoBox = document.createElement('div');
         saldoBox.id = 'aistim_ppob_saldo';
-        saldoBox.innerHTML = '<span>Saldo PPOB</span><span class="sp_nilai">-</span><span class="sp_info"></span><span class="sp_warn" style="display:none">⚠ Saldo kurang dari 1 juta</span><button type="button" class="sp_bel"></button><button type="button" class="sp_ulang" title="Muat ulang saldo">&#8635; Muat ulang</button>';
+        saldoBox.appendChild(buat('span', { teks: 'Saldo PPOB' }));
+        saldoBox.appendChild(buat('span', { class: 'sp_nilai', teks: '-' }));
+        saldoBox.appendChild(buat('span', { class: 'sp_info' }));
+        saldoBox.appendChild(buat('span', { class: 'sp_warn', gaya: 'display:none', teks: '⚠ Saldo kurang dari 1 juta' }));
+        saldoBox.appendChild(buat('button', { type: 'button', class: 'sp_bel' }));
+        saldoBox.appendChild(buat('button', { type: 'button', class: 'sp_ulang', title: 'Muat ulang saldo', teks: '↻ Muat ulang' }));
         saldoBox.querySelector('.sp_ulang').addEventListener('click', muatSaldo);
         saldoBox.querySelector('.sp_bel').addEventListener('click', () => {
             bunyiAktif = !bunyiAktif;
@@ -460,7 +476,7 @@
     setInterval(() => { if (!document.hidden) muatSaldo(); }, SALDO_TIAP_MS);
 
     function proses() {
-        pasangSaldo();
+        try { pasangSaldo(); } catch (e) { console.warn('[ppob.js] kotak saldo gagal dipasang: ' + e.message); }
         document.querySelectorAll(TABEL + ' tbody tr td:nth-child(' + KOLOM_FAKTUR + ') a').forEach((a) => {
             if (a.classList.contains('disabled') || a.hasAttribute('disabled')) aktifkan(a);
             tambahOutlet(a);
@@ -554,12 +570,18 @@
             lapisan.style.cssText = 'position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px';
             const kotak = document.createElement('div');
             kotak.style.cssText = 'background:#fff;color:#111;width:min(900px,100%);max-height:90vh;display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:8px;font:13px sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.4)';
-            kotak.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center"><b>testurl</b><button type="button" data-x style="border:0;background:none;font-size:18px;cursor:pointer">&times;</button></div>' +
-                '<div style="display:flex;gap:6px"><input type="text" data-url placeholder="Link, mis. /penjualans?pencarian[kode]=PJ131026-PMRA1-0001" style="flex:1;padding:6px;border:1px solid #94a3b8;border-radius:4px">' +
-                '<button type="button" data-go style="padding:6px 14px;border:0;border-radius:4px;background:#2563eb;color:#fff;cursor:pointer">Ambil</button>' +
-                '<button type="button" data-salin style="padding:6px 14px;border:0;border-radius:4px;background:#64748b;color:#fff;cursor:pointer">Salin</button></div>' +
-                '<div data-info style="color:#475569"></div>' +
-                '<textarea data-out readonly style="flex:1;min-height:320px;width:100%;box-sizing:border-box;padding:6px;border:1px solid #cbd5e1;border-radius:4px;font:12px monospace;white-space:pre"></textarea>';
+            const bt = (atr, teks, warna) => buat('button', Object.assign({ type: 'button', teks: teks, gaya: 'padding:6px 14px;border:0;border-radius:4px;background:' + warna + ';color:#fff;cursor:pointer' }, atr));
+            kotak.appendChild(buat('div', { gaya: 'display:flex;justify-content:space-between;align-items:center' }, [
+                buat('b', { teks: 'testurl' }),
+                buat('button', { type: 'button', 'data-x': '', teks: '×', gaya: 'border:0;background:none;font-size:18px;cursor:pointer' })
+            ]));
+            kotak.appendChild(buat('div', { gaya: 'display:flex;gap:6px' }, [
+                buat('input', { type: 'text', 'data-url': '', placeholder: 'Link, mis. /penjualans?pencarian[kode]=PJ131026-PMRA1-0001', gaya: 'flex:1;padding:6px;border:1px solid #94a3b8;border-radius:4px' }),
+                bt({ 'data-go': '' }, 'Ambil', '#2563eb'),
+                bt({ 'data-salin': '' }, 'Salin', '#64748b')
+            ]));
+            kotak.appendChild(buat('div', { 'data-info': '', gaya: 'color:#475569' }));
+            kotak.appendChild(buat('textarea', { 'data-out': '', readonly: '', gaya: 'flex:1;min-height:320px;width:100%;box-sizing:border-box;padding:6px;border:1px solid #cbd5e1;border-radius:4px;font:12px monospace;white-space:pre' }));
             lapisan.appendChild(kotak);
             document.body.appendChild(lapisan);
             lapisan.addEventListener('mousedown', (e) => { if (e.target === lapisan) tutup(); });
@@ -602,7 +624,7 @@
         return;
     }
 
-    pasangTestUrl();
+    try { pasangTestUrl(); } catch (e) { console.warn('[ppob.js] tombol testurl gagal dipasang: ' + e.message); }
 
     let tunda = 0;
     new MutationObserver(function () {

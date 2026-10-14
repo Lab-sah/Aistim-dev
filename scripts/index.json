@@ -18,6 +18,7 @@
     "analisastok.js",
     "pengisianso.js",
     "rekapservis.js",
-    "rekapstokmin.js"
+    "rekapstokmin.js",
+    "rakstok_lama.js"
   ]
 }

@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Lihat Stok - Kolom Rak
+// @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.17.14
+// @version      1.17.15
 // @description  Lihat Stok: kolom Rak (tulisan "Map rak", klik untuk popup daftar rak per toko/gudang dari Penempatan Rak), ikon logo PartDistro di kolom Nama (gambar produk baru dimuat & tampil di popup saat ikon diklik), tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @match        https://*.erzap.com/produks/*/edit*
