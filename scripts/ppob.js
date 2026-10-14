@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - PPOB (No Faktur + Outlet)
 // @namespace    http://tampermonkey.net/
-// @version      1.17.0
-// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Transaksi berstatus Error diberi keterangan "Sudah dibatalkan" / "Belum dibatalkan" di kolom Status (dicek dari status nota di /penjualans; bila belum dibatalkan, halaman nota dicek: peringatan "telah dibatalkan" lalu akun "Retur Penjualan" di rincian transaksi => "Sudah diretur"). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan.
+// @version      1.19.0
+// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Filter Toko (outlet) ditambahkan di form pencarian: tombol Toko membuka daftar outlet (diambil dari /outlets/list_nama_outlet/new hanya setelah diklik) dan menyaring baris tabel yang sedang tampil berdasarkan outlet notanya. Transaksi berstatus Error diberi keterangan "Sudah dibatalkan" / "Belum dibatalkan" di kolom Status (dicek dari status nota di /penjualans; bila belum dibatalkan, halaman nota dicek: peringatan "telah dibatalkan" lalu akun "Retur Penjualan" di rincian transaksi => "Sudah diretur"). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan.
 // @author       You
 // @match        https://trial.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -18,7 +18,7 @@
     if (!/^\/penjualans(\/aktifitas_ppob\/new|\/index\/new)?\/?$/.test(location.pathname)) return;
     if (window.__aistimPpob) return;
     window.__aistimPpob = true;
-    console.log('[ppob.js] v1.17.0 aktif di ' + location.pathname);
+    console.log('[ppob.js] v1.19.0 aktif di ' + location.pathname);
 
     const TABEL = '#data_table';
     const KOLOM_FAKTUR = 2;   // kolom ke-2 = "No Faktur" (No | No Faktur | Status | ...)
@@ -338,6 +338,8 @@
                 .then((n) => {
                     if (it.jenis === 'batal') return lengkapiStatus(it.faktur, n).then((n2) => tulisBatal(it.el, n2));
                     it.el.textContent = '🏪 ' + (n.outlet || '(tidak terbaca)');
+                    if (n.outlet) it.el.setAttribute('data-outlet', n.outlet);
+                    terapkanFilterToko();
                 })
                 .catch((err) => {
                     if (it.jenis === 'batal') { it.el.textContent = '(cek pembatalan gagal)'; it.el.style.color = '#888'; it.el.title = err.message; }
@@ -411,6 +413,9 @@
     const st = document.createElement('style');
     st.textContent = '.aistim_ppob_outlet{margin-bottom:3px;font-size:12px;font-weight:600;white-space:normal;word-break:break-word}' +
         '.aistim_ppob_batal{margin-top:3px;font-size:12px;font-weight:700;white-space:normal}' +
+        '.aistim_ppob_toko_info{margin-top:2px;font-size:11px;color:#666}' +
+        '.aistim_ppob_toko_item{padding:6px 10px;cursor:pointer;border-bottom:1px solid #f1f1f1}.aistim_ppob_toko_item:hover{background:#eef4ff}' +
+        '.aistim_ppob_toko_bar{display:flex;align-items:center;gap:8px;margin:0 0 8px}' +
         '@keyframes aistim_spin{to{transform:rotate(360deg)}}' +
         '.aistim_spin{display:inline-block;width:10px;height:10px;margin-right:5px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;vertical-align:-1px;animation:aistim_spin .7s linear infinite}' +
         '#aistim_ppob_saldo{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 8px;padding:8px 12px;border:1px solid #cfe2ff;border-left:4px solid #0d6efd;border-radius:4px;background:#f3f8ff;font-size:14px;color:#222}' +
@@ -600,6 +605,172 @@
     }
     setInterval(() => { if (!document.hidden) muatSaldo(); }, SALDO_TIAP_MS);
 
+    // ---------- Filter Toko (outlet) ----------
+    // Tombol "Toko" membuka daftar outlet. Daftar lengkap diambil dari /outlets/list_nama_outlet/new (endpoint pemilih outlet Erzap)
+    // HANYA setelah tombol diklik pertama kali, lalu disimpan selama halaman terbuka. Memilih outlet menyaring baris tabel yang sedang
+    // tampil (berdasarkan outlet nota di atas No Faktur); tidak ikut terkirim ke server.
+    const TOKO_URL = '/outlets/list_nama_outlet/new?exclude=&term=&scope=stok_gudang_cabang';
+    let filterToko = '';
+    let kolomToko = null, btnToko = null, infoToko = null, panelToko = null, listToko = null, cariToko = null;
+    let daftarToko = null, memuatToko = false, galatToko = '', tandaPanel = '';
+    const hitungToko = {};   // nama outlet -> jumlah baris di halaman ini
+
+    async function muatDaftarToko() {
+        if (daftarToko || memuatToko) return;
+        memuatToko = true;
+        galatToko = '';
+        renderPanelToko(true);
+        try {
+            const res = await fetch(TOKO_URL, { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'text/plain, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest' } });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+            const nama = Array.from(doc.querySelectorAll('tr.data_outlet'))
+                .map((tr) => rapih(tr.getAttribute('data-nama') || (tr.cells[1] ? tr.cells[1].textContent : '')))
+                .filter(Boolean);
+            if (!nama.length) throw new Error('daftar outlet kosong');
+            daftarToko = nama;
+        } catch (err) {
+            galatToko = err.message;
+            console.warn('[ppob.js] daftar toko gagal dimuat: ' + err.message);
+        } finally {
+            memuatToko = false;
+            renderPanelToko(true);
+        }
+    }
+
+    function pilihToko(nama) {
+        filterToko = nama;
+        tutupPanelToko();
+        terapkanFilterToko();
+    }
+
+    function tutupPanelToko() { if (panelToko) panelToko.style.display = 'none'; }
+
+    function bukaPanelToko() {
+        panelToko.style.display = 'flex';
+        cariToko.value = '';
+        tandaPanel = '';
+        renderPanelToko(true);
+        muatDaftarToko();   // diambil dari server hanya saat pertama kali dibuka
+        cariToko.focus();
+    }
+
+    // isi daftar: memuat / gagal (cadangan: outlet yang ada di baris) / semua outlet; dibangun ulang hanya bila ada yang berubah
+    function renderPanelToko(paksa) {
+        if (!panelToko || panelToko.style.display === 'none') return;
+        const q = (cariToko.value || '').toLowerCase();
+        const sumber = daftarToko ? daftarToko.slice() : Object.keys(hitungToko).sort();
+        Object.keys(hitungToko).forEach((n) => { if (sumber.indexOf(n) < 0) sumber.push(n); });
+        if (filterToko && sumber.indexOf(filterToko) < 0) sumber.push(filterToko);
+        const tanda = [memuatToko, galatToko, q, filterToko, sumber.map((n) => n + '|' + (hitungToko[n] || 0)).join(';')].join('#');
+        if (!paksa && tanda === tandaPanel) return;
+        tandaPanel = tanda;
+        listToko.textContent = '';
+        const baris = (teks, klik, tebal, redup) => {
+            const d = document.createElement('div');
+            d.className = 'aistim_ppob_toko_item';
+            d.textContent = teks;
+            if (tebal) d.style.fontWeight = '700';
+            if (redup) d.style.color = '#999';
+            if (klik) d.addEventListener('click', klik); else d.style.cursor = 'default';
+            listToko.appendChild(d);
+            return d;
+        };
+        if (memuatToko) {
+            const d = baris('', null);
+            const sp = document.createElement('span');
+            sp.className = 'aistim_spin';
+            d.appendChild(sp);
+            d.appendChild(document.createTextNode('Memuat daftar toko...'));
+        } else if (galatToko) {
+            baris('Gagal memuat daftar toko (' + galatToko + '). Menampilkan outlet yang ada di tabel.', null, false, true).style.whiteSpace = 'normal';
+        }
+        baris('-- Semua --', () => pilihToko(''), filterToko === '');
+        sumber.filter((n) => !q || n.toLowerCase().indexOf(q) !== -1).forEach((n) => {
+            const jml = hitungToko[n] || 0;
+            baris(n + (jml ? ' (' + jml + ')' : ''), () => pilihToko(n), n === filterToko, !jml);
+        });
+    }
+
+    function pasangFilterToko() {
+        if (kolomToko && document.body.contains(kolomToko)) return;
+        const tabel = document.querySelector(TABEL);
+        if (!tabel) return;
+        btnToko = document.createElement('button');
+        btnToko.type = 'button';
+        btnToko.id = 'aistim_ppob_filter_toko';
+        btnToko.style.cssText = 'text-align:left;width:100%';
+        btnToko.textContent = '-- Semua --';
+        infoToko = document.createElement('div');
+        infoToko.className = 'aistim_ppob_toko_info';
+        const label = document.createElement('label');
+        label.textContent = 'Toko';
+        label.setAttribute('for', 'aistim_ppob_filter_toko');
+        cariToko = document.createElement('input');
+        cariToko.type = 'text';
+        cariToko.placeholder = 'Cari toko...';
+        cariToko.style.cssText = 'width:100%;box-sizing:border-box;padding:5px 8px;border:0;border-bottom:1px solid #ddd;outline:0';
+        listToko = document.createElement('div');
+        listToko.style.cssText = 'overflow:auto;flex:1';
+        panelToko = document.createElement('div');
+        panelToko.style.cssText = 'display:none;flex-direction:column;position:absolute;left:0;top:100%;z-index:2147483000;min-width:260px;max-height:340px;background:#fff;border:1px solid #ccc;border-radius:4px;box-shadow:0 6px 18px rgba(0,0,0,.25);font-size:13px;text-align:left';
+        panelToko.appendChild(cariToko);
+        panelToko.appendChild(listToko);
+        kolomToko = document.createElement('div');
+        kolomToko.style.position = 'relative';
+        kolomToko.appendChild(label);
+        kolomToko.appendChild(btnToko);
+        kolomToko.appendChild(panelToko);
+        kolomToko.appendChild(infoToko);
+        const status = document.getElementById('pencarian_status');
+        const asal = status && (status.closest('.field2') || status.parentNode);
+        if (asal && asal.parentNode) {
+            // di form pencarian, tepat setelah kolom Status; tampil seperti kolom lain (kelas kolom, label & kontrol disalin)
+            kolomToko.className = asal.className || 'field2';
+            const labelAsal = asal.querySelector('label');
+            if (labelAsal && labelAsal.className) label.className = labelAsal.className;
+            if (status.className) btnToko.className = status.className;
+            asal.parentNode.insertBefore(kolomToko, asal.nextSibling);
+        } else {
+            // form pencarian tidak dikenali: pasang batang filter sendiri di atas tabel
+            kolomToko.className = 'aistim_ppob_toko_bar';
+            const target = tabel.closest('.dataTables_wrapper') || tabel;
+            target.parentNode.insertBefore(kolomToko, target);
+        }
+        tandaPanel = '';
+        btnToko.addEventListener('click', () => { if (panelToko.style.display === 'none') bukaPanelToko(); else tutupPanelToko(); });
+        cariToko.addEventListener('input', () => renderPanelToko(false));
+        cariToko.addEventListener('keydown', (e) => { if (e.key === 'Escape') tutupPanelToko(); });
+        // klik di luar kolom Toko menutup daftar (dipasang sekali)
+        if (!window.__aistimTokoLuar) {
+            window.__aistimTokoLuar = true;
+            document.addEventListener('mousedown', (e) => { if (kolomToko && !kolomToko.contains(e.target)) tutupPanelToko(); }, true);
+        }
+    }
+
+    function terapkanFilterToko() {
+        Object.keys(hitungToko).forEach((k) => { delete hitungToko[k]; });
+        let belum = 0, tampil = 0, total = 0;
+        document.querySelectorAll(TABEL + ' tbody tr').forEach((tr) => {
+            const e = tr.querySelector('.aistim_ppob_outlet');
+            if (!e) return;   // baris pesan kosong ("tidak ada data") tidak disentuh
+            total++;
+            const o = e.getAttribute('data-outlet') || '';
+            if (o) hitungToko[o] = (hitungToko[o] || 0) + 1; else belum++;
+            const cocok = !filterToko || o === filterToko;
+            const tampilBaru = cocok ? '' : 'none';
+            if (tr.style.display !== tampilBaru) tr.style.display = tampilBaru;
+            if (cocok) tampil++;
+        });
+        if (!btnToko) return;
+        const teksTombol = filterToko || '-- Semua --';
+        if (btnToko.textContent !== teksTombol) btnToko.textContent = teksTombol;
+        const teksInfo = (filterToko ? 'Menampilkan ' + tampil + ' dari ' + total + ' baris' : '') +
+                         (belum ? (filterToko ? ' · ' : '') + belum + ' outlet masih dimuat...' : '');
+        if (infoToko && infoToko.textContent !== teksInfo) infoToko.textContent = teksInfo;
+        renderPanelToko(false);
+    }
+
     function proses() {
         try { pasangSaldo(); } catch (e) { console.warn('[ppob.js] kotak saldo gagal dipasang: ' + e.message); }
         document.querySelectorAll(TABEL + ' tbody tr td:nth-child(' + KOLOM_FAKTUR + ') a').forEach((a) => {
@@ -607,6 +778,7 @@
             tambahOutlet(a);
             tambahBatal(a);
         });
+        try { pasangFilterToko(); terapkanFilterToko(); } catch (e) { console.warn('[ppob.js] filter toko gagal: ' + e.message); }
         prosesAntriOutlet();
     }
 
