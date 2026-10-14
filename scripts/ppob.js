@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - PPOB (No Faktur + Outlet)
 // @namespace    http://tampermonkey.net/
-// @version      1.16.0
-// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Transaksi berstatus Error diberi keterangan "Sudah dibatalkan" / "Belum dibatalkan" di kolom Status (dicek dari status nota di /penjualans). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan.
+// @version      1.17.0
+// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Transaksi berstatus Error diberi keterangan "Sudah dibatalkan" / "Belum dibatalkan" di kolom Status (dicek dari status nota di /penjualans; bila belum dibatalkan, halaman nota dicek: peringatan "telah dibatalkan" lalu akun "Retur Penjualan" di rincian transaksi => "Sudah diretur"). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan.
 // @author       You
 // @match        https://trial.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -18,7 +18,7 @@
     if (!/^\/penjualans(\/aktifitas_ppob\/new|\/index\/new)?\/?$/.test(location.pathname)) return;
     if (window.__aistimPpob) return;
     window.__aistimPpob = true;
-    console.log('[ppob.js] v1.16.0 aktif di ' + location.pathname);
+    console.log('[ppob.js] v1.17.0 aktif di ' + location.pathname);
 
     const TABEL = '#data_table';
     const KOLOM_FAKTUR = 2;   // kolom ke-2 = "No Faktur" (No | No Faktur | Status | ...)
@@ -213,19 +213,19 @@
     try { simpanan = JSON.parse(localStorage.getItem(K_CACHE) || '{}') || {}; } catch (e) { simpanan = {}; }
     function simpanCache(faktur, n) {
         if (!n || !n.url || !n.outlet) return;   // hanya hasil lengkap
-        simpanan[faktur] = { url: n.url, outlet: n.outlet, batal: !!n.batal, statusNota: n.statusNota || '', waktu: Date.now() };
+        simpanan[faktur] = { url: n.url, outlet: n.outlet, batal: !!n.batal, retur: n.retur, statusNota: n.statusNota || '', waktu: Date.now() };
         const kunci = Object.keys(simpanan);
         if (kunci.length > MAKS_CACHE) kunci.slice(0, kunci.length - MAKS_CACHE).forEach((k) => delete simpanan[k]);
         try { localStorage.setItem(K_CACHE, JSON.stringify(simpanan)); } catch (e) { /* penuh/diblokir: abaikan */ }
     }
     const cacheNota = {};
     // perluBatal = baris berstatus Error: status pembatalan nota harus segar. "Sudah dibatalkan" final (boleh dari cache);
-    // "Belum dibatalkan" bisa berubah, jadi dari cache hanya dipakai 2 menit; cache lama tanpa data batal dicari ulang.
+    // "Sudah diretur" juga final. "Belum dibatalkan" bisa berubah, jadi dari cache hanya dipakai 2 menit; cache lama tanpa data batal/retur dicari ulang.
     const BATAL_TTL_MS = 2 * 60 * 1000;
     function notaDari(faktur, asli, perluBatal) {
         asli = asli || hapusVoid(faktur);
         const c = simpanan[faktur];
-        const pakaiCache = c && (!perluBatal || c.batal === true || (c.batal === false && Date.now() - (c.waktu || 0) < BATAL_TTL_MS));
+        const pakaiCache = c && (!perluBatal || c.batal === true || c.retur === true || (c.batal === false && c.retur === false && Date.now() - (c.waktu || 0) < BATAL_TTL_MS));
         if (!cacheNota[faktur] && pakaiCache) cacheNota[faktur] = Promise.resolve(c);
         if (!cacheNota[faktur]) cacheNota[faktur] = cariNota(faktur, asli)
             .catch((err) => { console.warn('[ppob.js] fetch POST gagal (' + err.message + '), mencoba fetch GET'); return cariNotaGet(faktur, asli); })
@@ -261,14 +261,83 @@
     const antriOutlet = [];
     let jalanOutlet = 0;
 
+    // ---------- Cek halaman nota untuk transaksi Error yang belum terbukti dibatalkan ----------
+    // 1) peringatan "Transaksi Penjualan ini telah dibatalkan" di halaman nota; 2) bila tidak ada, rincian transaksi (tabel berkolom "Akun")
+    //    dicek apakah memuat akun "Retur Penjualan".
+    function bacaDetailNota(doc) {
+        const teksAlert = Array.from(doc.querySelectorAll('.alert, #error')).map((e) => rapih(e.textContent)).join(' ');
+        const batal = /dibatalkan/i.test(teksAlert);
+        let adaTabelAkun = false, retur = false;
+        doc.querySelectorAll('table').forEach((tabel) => {
+            const th = Array.from(tabel.querySelectorAll('thead th, thead td')).map((x) => rapih(x.textContent).toLowerCase());
+            const i = th.indexOf('akun');
+            if (i < 0) return;
+            adaTabelAkun = true;
+            tabel.querySelectorAll('tbody tr').forEach((tr) => {
+                const c = tr.cells[i];
+                if (c && /retur\s+penjualan/i.test(c.textContent)) retur = true;
+            });
+        });
+        return { batal: batal, retur: retur, adaTabelAkun: adaTabelAkun };
+    }
+
+    // cadangan bila rincian transaksi diisi lewat skrip: muat halaman nota di iframe tersembunyi (antre bersama iframe pencarian)
+    function detailLewatIframe(url) {
+        const p = rantaiIframe.then(async () => {
+            const fr = document.createElement('iframe');
+            fr.style.cssText = 'position:fixed;left:-10000px;top:0;width:1400px;height:900px;border:0;opacity:0;pointer-events:none';
+            fr.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(fr);
+            try {
+                fr.src = url;
+                return await tungguDi(() => {
+                    const d = fr.contentDocument;
+                    if (!d || d.readyState !== 'complete') return null;
+                    const r = bacaDetailNota(d);
+                    return (r.adaTabelAkun || r.batal) ? r : null;
+                }, 20000, 'rincian transaksi nota tidak terbaca');
+            } finally {
+                fr.remove();
+            }
+        });
+        rantaiIframe = p.catch(() => {});
+        return p;
+    }
+
+    async function ambilDetailNota(url) {
+        try {
+            const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'text/html' } });
+            if (res.ok) {
+                const d = bacaDetailNota(new DOMParser().parseFromString(await res.text(), 'text/html'));
+                if (d.adaTabelAkun || d.batal) return d;
+            }
+        } catch (e) { /* lanjut ke cadangan */ }
+        return detailLewatIframe(url);
+    }
+
+    // hasil pencarian n (belum dibatalkan menurut daftar penjualan) dilengkapi dengan cek halaman nota -> n.batal / n.retur
+    const cacheDetail = {};
+    function lengkapiStatus(faktur, n) {
+        if (n.batal || typeof n.retur === 'boolean') return Promise.resolve(n);   // sudah final / sudah dicek
+        if (!cacheDetail[faktur]) {
+            cacheDetail[faktur] = ambilDetailNota(n.url).then((d) => {
+                const n2 = Object.assign({}, n, { batal: !!(n.batal || d.batal), retur: d.retur });
+                cacheNota[faktur] = Promise.resolve(n2);
+                simpanCache(faktur, n2);
+                return n2;
+            }).catch((err) => { delete cacheDetail[faktur]; throw err; });
+        }
+        return cacheDetail[faktur];
+    }
+
     function prosesAntriOutlet() {
         while (jalanOutlet < MAKS_SERENTAK && antriOutlet.length) {
             const it = antriOutlet.shift();
             jalanOutlet++;
             notaDari(it.faktur, it.asli, it.perluBatal)
                 .then((n) => {
-                    if (it.jenis === 'batal') tulisBatal(it.el, n);
-                    else it.el.textContent = '🏪 ' + (n.outlet || '(tidak terbaca)');
+                    if (it.jenis === 'batal') return lengkapiStatus(it.faktur, n).then((n2) => tulisBatal(it.el, n2));
+                    it.el.textContent = '🏪 ' + (n.outlet || '(tidak terbaca)');
                 })
                 .catch((err) => {
                     if (it.jenis === 'batal') { it.el.textContent = '(cek pembatalan gagal)'; it.el.style.color = '#888'; it.el.title = err.message; }
@@ -317,10 +386,11 @@
     }
 
     function tulisBatal(el, n) {
-        const batal = !!(n && n.batal);
-        el.textContent = batal ? '\u2714 Sudah dibatalkan' : '\u2716 Belum dibatalkan';
-        el.style.color = batal ? '#198754' : '#dc3545';
-        el.title = 'Status nota di penjualan: ' + ((n && n.statusNota) || (batal ? 'Dibatalkan' : '-'));
+        const batal = !!(n && n.batal), retur = !batal && !!(n && n.retur);
+        el.textContent = batal ? '\u2714 Sudah dibatalkan' : retur ? '\u2714 Sudah diretur' : '\u2716 Belum dibatalkan';
+        el.style.color = (batal || retur) ? '#198754' : '#dc3545';
+        el.title = retur ? 'Ada akun "Retur Penjualan" di rincian transaksi nota'
+                         : 'Status nota di penjualan: ' + ((n && n.statusNota) || (batal ? 'Dibatalkan' : '-'));
     }
 
     // Warna link berubah saat baris di-hover (mis. jadi putih): teks outlet menyusul
