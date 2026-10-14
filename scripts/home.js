@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Home (Stats Saldo PPOB)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.3.0
 // @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi nominal saldo (dari /main/check_balance_ppob/new, merah bila di bawah Rp 1 juta) dan di bawahnya "Pengeluaran hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik pengeluaran = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB.
 // @match        https://*.erzap.com/
 // @match        https://*.erzap.com/?*
@@ -33,6 +33,26 @@
     let kartu = null;
     let saldoEl = null;         // baris nominal saldo
     let keluarEl = null;        // baris "Pengeluaran hari ini : ..."
+    let teksKeluar = 'Pengeluaran hari ini : ...';
+
+    // ikon sync (\u21BB) berputar untuk keadaan "memuat"
+    const gayaHome = document.createElement('style');
+    gayaHome.textContent = '@keyframes aistim_home_putar{to{transform:rotate(360deg)}}' +
+        '.aistim_home_sync{display:inline-block;margin-right:5px;line-height:1;animation:aistim_home_putar .8s linear infinite}';
+    document.head.appendChild(gayaHome);
+    function ikonSync() {
+        const e = document.createElement('span');
+        e.className = 'aistim_home_sync';
+        e.textContent = '\u21BB';
+        return e;
+    }
+    // baris pengeluaran di kartu: ikon sync berputar di depan teks selama data dimuat
+    function gambarKeluar() {
+        if (!keluarEl) return;
+        keluarEl.textContent = '';
+        if (jalanKeluar) keluarEl.appendChild(ikonSync());
+        keluarEl.appendChild(document.createTextNode(teksKeluar));
+    }
 
     // ---------- saldo ----------
     async function ambilSaldo() {
@@ -162,21 +182,25 @@
     async function muatPengeluaran() {
         if (!kartu || !document.body.contains(kartu) || jalanKeluar) return;
         jalanKeluar = true;
+        gambarKeluar();
+        perbaruiSegar();
         try {
             const h = await hitungPengeluaran();
             keluarTerbaca = true;
             dataKeluar = h;
             if (popupBuka) isiPopup();
-            keluarEl.textContent = 'Pengeluaran hari ini : ' + fmtRp(h.total);
+            teksKeluar = 'Pengeluaran hari ini : ' + fmtRp(h.total);
             keluarEl.title = h.jumlah + ' transaksi PPOB sukses hari ini (klik untuk melihat daftar transaksi)';
         } catch (err) {
-            if (!keluarTerbaca) keluarEl.textContent = 'Pengeluaran hari ini : -';
+            if (!keluarTerbaca) teksKeluar = 'Pengeluaran hari ini : -';
             keluarEl.title = 'Gagal memuat pengeluaran: ' + err.message;
             galatKeluar = err.message;
             if (popupBuka) isiPopup();
             console.warn('[home.js] pengeluaran PPOB: ' + err.message);
         } finally {
             jalanKeluar = false;
+            gambarKeluar();
+            perbaruiSegar();
         }
     }
 
@@ -199,7 +223,17 @@
         const isi = popupBuka.isi;
         isi.textContent = '';
         if (!dataKeluar) {
-            isi.appendChild(el('div', { teks: galatKeluar ? 'Gagal memuat: ' + galatKeluar : 'Memuat transaksi PPOB hari ini ...', gaya: 'padding:18px;color:' + (galatKeluar ? '#dc3545' : '#555') }));
+            if (galatKeluar) {
+                isi.appendChild(el('div', { teks: 'Gagal memuat: ' + galatKeluar, gaya: 'padding:18px;color:#dc3545' }));
+            } else {
+                const memuat = el('div', { gaya: 'padding:22px 18px;color:#555;display:flex;align-items:center;font-size:14px' });
+                const ik = ikonSync();
+                ik.style.fontSize = '20px';
+                ik.style.marginRight = '10px';
+                memuat.appendChild(ik);
+                memuat.appendChild(document.createTextNode('Memuat transaksi PPOB hari ini ...'));
+                isi.appendChild(memuat);
+            }
             return;
         }
         const d = dataKeluar;
@@ -226,6 +260,18 @@
         isi.appendChild(tabel);
     }
 
+    // tombol Muat ulang: ikon sync berputar dan tombol nonaktif selama data dimuat
+    function perbaruiSegar() {
+        if (!popupBuka) return;
+        const b = popupBuka.segar;
+        b.textContent = '';
+        if (jalanKeluar) b.appendChild(ikonSync());
+        b.appendChild(document.createTextNode(jalanKeluar ? 'Memuat ...' : '\u21BB Muat ulang'));
+        b.disabled = jalanKeluar;
+        b.style.opacity = jalanKeluar ? '.6' : '';
+        b.style.cursor = jalanKeluar ? 'default' : 'pointer';
+    }
+
     function tutupPopup() {
         if (popupBuka) { popupBuka.lapisan.remove(); popupBuka = null; }
         document.removeEventListener('keydown', tekanTombol, true);
@@ -248,7 +294,7 @@
         kotak.appendChild(judul); kotak.appendChild(isi); kotak.appendChild(kaki);
         lapisan.appendChild(kotak);
         document.body.appendChild(lapisan);
-        popupBuka = { lapisan: lapisan, isi: isi };
+        popupBuka = { lapisan: lapisan, isi: isi, segar: bSegar };
         bTutup.addEventListener('click', tutupPopup);
         bTutup2.addEventListener('click', tutupPopup);
         bSegar.addEventListener('click', () => { dataKeluar = null; galatKeluar = ''; isiPopup(); muatPengeluaran(); });
@@ -256,6 +302,7 @@
         document.addEventListener('keydown', tekanTombol, true);
         isiPopup();
         if (!dataKeluar && !jalanKeluar) muatPengeluaran();
+        perbaruiSegar();
     }
 
     // ---------- cari kartu stats yang sudah ada (label_transaksi) ----------
@@ -291,9 +338,21 @@
         return e;
     }
 
+    // Salinan kartu ikut membawa pemicu klik bawaan Erzap (onclick, data-*, href) yang membuka popup
+    // /main/table_data_transaksi_hari_ini/new?layout=simple&target=N. Pemicu itu dibuang dari salinan.
+    function bersihkanPemicu(root) {
+        [root].concat(Array.from(root.querySelectorAll('*'))).forEach((e) => {
+            Array.from(e.attributes).forEach((a) => {
+                const n = a.name.toLowerCase();
+                if (/^on/.test(n) || n === 'href' || n === 'target' || n === 'role' || /^data-(toggle|target|url|remote|href|link|bs-|dialog|popup|modal)/.test(n)) e.removeAttribute(a.name);
+            });
+        });
+    }
+
     // ---------- bangun kartu: salin kartu asli supaya tampilannya sama ----------
     function bangunDariSalinan(asal) {
         const salinan = asal.kartu.cloneNode(true);
+        bersihkanPemicu(salinan);
         salinan.removeAttribute('id');
         salinan.querySelectorAll('[id]').forEach((e) => e.removeAttribute('id'));   // hindari id ganda
         salinan.querySelectorAll('canvas, svg, img').forEach((e) => e.remove());      // grafik/ikon milik kartu asli
@@ -355,11 +414,20 @@
         keluarEl = hasil.keluar;
         keluarEl.style.cursor = 'pointer';
         keluarEl.style.textDecoration = 'underline dotted';
-        keluarEl.addEventListener('click', bukaPopup);
         muatSaldo();
         muatPengeluaran();
         return true;
     }
+
+    // Penangkap klik (fase capture, paling awal): klik di dalam kartu PPOB tidak boleh sampai ke penanganan klik bawaan Erzap
+    // (yang akan memuat /main/table_data_transaksi_hari_ini/new?layout=simple&target=N). Hanya baris "Pengeluaran hari ini" membuka popup kita.
+    document.addEventListener('click', (e) => {
+        const k = e.target && e.target.closest && e.target.closest('[data-aistim-saldo-ppob]');
+        if (!k) return;
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        if (keluarEl && keluarEl.contains(e.target)) bukaPopup();
+    }, true);
 
     // tunggu kartu stats muncul; kalau sampai batas waktu tidak ada, pakai kartu sederhana
     const mulai = Date.now();
