@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Home (Stats Saldo PPOB)
 // @namespace    http://tampermonkey.net/
-// @version      1.4.1
-// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila di bawah Rp 1 juta) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB.
+// @version      1.5.0
+// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila di bawah Rp 25 juta) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Saldo di bawah Rp 25 juta: popup peringatan muncul saat Home dibuka dan diulang tiap 5 menit sampai saldo diisi.
 // @match        https://*.erzap.com/
 // @match        https://*.erzap.com/?*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -19,7 +19,6 @@
 
     const SALDO_URL = '/main/check_balance_ppob/new';
     const PPOB_URL = '/penjualans/aktifitas_ppob/new';
-    const BATAS_RENDAH = 1000000;
     const SALDO_TIAP_MS = 60 * 1000;
     const PENGELUARAN_TIAP_MS = 5 * 60 * 1000;
     const MAKS_HALAMAN = 20;              // batas halaman Aktifitas PPOB yang dibaca (50 baris per halaman)
@@ -74,9 +73,10 @@
             const saldo = await ambilSaldo();
             saldoTerbaca = true;
             saldoEl.textContent = 'Saldo (' + fmtRp(saldo) + ')';
-            const rendah = saldo < BATAS_RENDAH;
+            periksaNotif(saldo);
+            const rendah = saldo < NOTIF_BATAS;
             saldoEl.style.color = rendah ? '#dc3545' : '';
-            kartu.title = rendah ? 'Saldo PPOB kurang dari Rp 1 juta' : 'Saldo PPOB';
+            kartu.title = rendah ? 'Saldo PPOB kurang dari Rp 25 juta' : 'Saldo PPOB';
         } catch (err) {
             if (!saldoTerbaca) saldoEl.textContent = 'Saldo (-)';
             kartu.title = 'Gagal memuat saldo PPOB: ' + err.message;
@@ -303,6 +303,57 @@
         isiPopup();
         if (!dataKeluar && !jalanKeluar) muatPengeluaran();
         perbaruiSegar();
+    }
+
+    // ---------- popup peringatan: saldo PPOB di bawah Rp 25 juta ----------
+    // Muncul saat Home pertama dibuka, lalu diulang tiap 5 menit selama saldo masih di bawah batas; berhenti (dan popup ditutup) setelah saldo diisi.
+    const NOTIF_BATAS = 25000000;
+    const NOTIF_ULANG_MS = 5 * 60 * 1000;
+    let notifTerakhir = 0;      // waktu popup terakhir ditampilkan (0 = belum pernah di halaman ini)
+    let notifBuka = null;       // {lapisan, nilai}
+
+    function tutupNotif() {
+        if (notifBuka) { notifBuka.lapisan.remove(); notifBuka = null; }
+        document.removeEventListener('keydown', tekanTombolNotif, true);
+    }
+    function tekanTombolNotif(e) { if (e.key === 'Escape') tutupNotif(); }
+
+    function tampilNotif(saldo) {
+        if (notifBuka) { notifBuka.nilai.textContent = fmtRp(saldo); return; }   // sudah terbuka: cukup perbarui angkanya
+        const lapisan = el('div', { gaya: 'position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px' });
+        const kotak = el('div', { gaya: 'background:#fff;color:#222;width:min(440px,100%);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.45);font:14px sans-serif;overflow:hidden;border-top:6px solid #dc3545' });
+        const nilai = el('div', { teks: fmtRp(saldo), gaya: 'font-size:26px;font-weight:700;color:#dc3545;margin:6px 0' });
+        const bTutup = el('button', { type: 'button', teks: 'Tutup', gaya: 'padding:7px 22px;border:0;border-radius:4px;background:#dc3545;color:#fff;font-size:14px;cursor:pointer' });
+        kotak.appendChild(el('div', { gaya: 'padding:16px 18px 6px' }, [
+            el('div', { teks: '⚠ Saldo PPOB Hampir Habis', gaya: 'font-size:17px;font-weight:700;color:#dc3545;margin-bottom:8px' }),
+            el('div', { teks: 'Saldo PPOB saat ini:' }),
+            nilai,
+            el('div', { teks: 'Di bawah Rp ' + NOTIF_BATAS.toLocaleString('en-US') + '. Segera isi saldo PPOB.', gaya: 'color:#555' }),
+            el('div', { teks: 'Peringatan ini muncul lagi tiap 5 menit sampai saldo diisi.', gaya: 'color:#888;font-size:12px;margin-top:8px' })
+        ]));
+        kotak.appendChild(el('div', { gaya: 'display:flex;justify-content:flex-end;padding:10px 18px 16px' }, [bTutup]));
+        lapisan.appendChild(kotak);
+        document.body.appendChild(lapisan);
+        notifBuka = { lapisan: lapisan, nilai: nilai };
+        bTutup.addEventListener('click', tutupNotif);
+        lapisan.addEventListener('mousedown', (e) => { if (e.target === lapisan) tutupNotif(); });
+        document.addEventListener('keydown', tekanTombolNotif, true);
+        bTutup.focus();
+    }
+
+    // dipanggil setiap saldo terbaca
+    function periksaNotif(saldo) {
+        if (saldo >= NOTIF_BATAS) {       // saldo sudah diisi: berhenti mengingatkan
+            notifTerakhir = 0;
+            tutupNotif();
+            return;
+        }
+        if (Date.now() - notifTerakhir >= NOTIF_ULANG_MS) {   // pertama terbaca (notifTerakhir = 0) langsung tampil
+            notifTerakhir = Date.now();
+            tampilNotif(saldo);
+        } else if (notifBuka) {
+            notifBuka.nilai.textContent = fmtRp(saldo);
+        }
     }
 
     // ---------- cari kartu stats yang sudah ada (label_transaksi) ----------
