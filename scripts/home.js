@@ -1,10 +1,9 @@
 // ==UserScript==
-// @name         Erzap - Home (Stats Saldo PPOB)
+// @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.5.0
-// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila di bawah Rp 25 juta) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Saldo di bawah Rp 25 juta: popup peringatan muncul saat Home dibuka dan diulang tiap 5 menit sampai saldo diisi.
-// @match        https://*.erzap.com/
-// @match        https://*.erzap.com/?*
+// @version      1.6.0
+// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila di bawah Rp 25 juta) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Saldo di bawah Rp 25 juta: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi); kartu PPOB hanya di Home.
+// @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
 // ==/UserScript==
@@ -13,7 +12,9 @@
     'use strict';
 
     if (window.top !== window) return;
-    if (location.pathname !== '/') return;
+    // Jendela cetak / nota / popup (layout=simple, /nota...) dilewati: peringatan tidak boleh muncul di sana
+    if (/[?&]layout=/.test(location.search) || /\/nota/i.test(location.pathname)) return;
+    const DI_HOME = location.pathname === '/';   // kartu PPOB hanya di Home; popup peringatan saldo di semua halaman
     if (window.__aistimHome) return;
     window.__aistimHome = true;
 
@@ -67,19 +68,24 @@
 
     let jalanSaldo = false, saldoTerbaca = false;
     async function muatSaldo() {
-        if (!kartu || !document.body.contains(kartu) || jalanSaldo) return;
+        if (jalanSaldo) return;
+        if (DI_HOME && (!kartu || !document.body.contains(kartu))) return;   // di Home tunggu kartu terpasang dulu
         jalanSaldo = true;
         try {
             const saldo = await ambilSaldo();
             saldoTerbaca = true;
-            saldoEl.textContent = 'Saldo (' + fmtRp(saldo) + ')';
             periksaNotif(saldo);
-            const rendah = saldo < NOTIF_BATAS;
-            saldoEl.style.color = rendah ? '#dc3545' : '';
-            kartu.title = rendah ? 'Saldo PPOB kurang dari Rp 25 juta' : 'Saldo PPOB';
+            if (kartu && document.body.contains(kartu)) {
+                saldoEl.textContent = 'Saldo (' + fmtRp(saldo) + ')';
+                const rendah = saldo < NOTIF_BATAS;
+                saldoEl.style.color = rendah ? '#dc3545' : '';
+                kartu.title = rendah ? 'Saldo PPOB kurang dari Rp 25 juta' : 'Saldo PPOB';
+            }
         } catch (err) {
-            if (!saldoTerbaca) saldoEl.textContent = 'Saldo (-)';
-            kartu.title = 'Gagal memuat saldo PPOB: ' + err.message;
+            if (kartu && document.body.contains(kartu)) {
+                if (!saldoTerbaca) saldoEl.textContent = 'Saldo (-)';
+                kartu.title = 'Gagal memuat saldo PPOB: ' + err.message;
+            }
             console.warn('[home.js] saldo PPOB: ' + err.message);
         } finally {
             jalanSaldo = false;
@@ -473,27 +479,33 @@
         return true;
     }
 
-    // Penangkap klik (fase capture, paling awal): klik di dalam kartu PPOB tidak boleh sampai ke penanganan klik bawaan Erzap
-    // (yang akan memuat /main/table_data_transaksi_hari_ini/new?layout=simple&target=N). Hanya baris "Transaksi hari ini" membuka popup kita.
-    document.addEventListener('click', (e) => {
-        const k = e.target && e.target.closest && e.target.closest('[data-aistim-saldo-ppob]');
-        if (!k) return;
-        e.stopImmediatePropagation();
-        e.preventDefault();
-        if (keluarEl && keluarEl.contains(e.target)) bukaPopup();
-    }, true);
+    if (DI_HOME) {
+        // Penangkap klik (fase capture, paling awal): klik di dalam kartu PPOB tidak boleh sampai ke penanganan klik bawaan Erzap
+        // (yang akan memuat /main/table_data_transaksi_hari_ini/new?layout=simple&target=N). Hanya baris "Transaksi hari ini" membuka popup kita.
+        document.addEventListener('click', (e) => {
+            const k = e.target && e.target.closest && e.target.closest('[data-aistim-saldo-ppob]');
+            if (!k) return;
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            if (keluarEl && keluarEl.contains(e.target)) bukaPopup();
+        }, true);
 
-    // tunggu kartu stats muncul; kalau sampai batas waktu tidak ada, pakai kartu sederhana
-    const mulai = Date.now();
-    const pemeriksa = setInterval(() => {
-        const habis = Date.now() - mulai > MAKS_TUNGGU_MS;
-        if (pasang(habis) || habis) clearInterval(pemeriksa);
-    }, 400);
+        // tunggu kartu stats muncul; kalau sampai batas waktu tidak ada, pakai kartu sederhana
+        const mulai = Date.now();
+        const pemeriksa = setInterval(() => {
+            const habis = Date.now() - mulai > MAKS_TUNGGU_MS;
+            if (pasang(habis) || habis) clearInterval(pemeriksa);
+        }, 400);
+    }
 
+    // saldo dicek di semua halaman (popup peringatan); kartu & pengeluaran hanya di Home
     setInterval(() => { if (!document.hidden) muatSaldo(); }, SALDO_TIAP_MS);
-    setInterval(() => { if (!document.hidden) muatPengeluaran(); }, PENGELUARAN_TIAP_MS);
-    // kartu stats bisa digambar ulang oleh halaman (ganti outlet/periode): pasang lagi bila kartu kita hilang
-    setInterval(() => {
-        if (kartu && !document.body.contains(kartu)) { kartu = null; pasang(false); }
-    }, 2000);
+    if (!DI_HOME) muatSaldo();   // halaman lain: cek langsung saat dibuka (popup "pertama dibuka")
+    if (DI_HOME) {
+        setInterval(() => { if (!document.hidden) muatPengeluaran(); }, PENGELUARAN_TIAP_MS);
+        // kartu stats bisa digambar ulang oleh halaman (ganti outlet/periode): pasang lagi bila kartu kita hilang
+        setInterval(() => {
+            if (kartu && !document.body.contains(kartu)) { kartu = null; pasang(false); }
+        }, 2000);
+    }
 })();
