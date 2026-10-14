@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - PPOB (No Faktur + Outlet)
 // @namespace    http://tampermonkey.net/
-// @version      1.19.0
-// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Filter Toko (outlet) ditambahkan di form pencarian: tombol Toko membuka daftar outlet (diambil dari /outlets/list_nama_outlet/new hanya setelah diklik) dan menyaring baris tabel yang sedang tampil berdasarkan outlet notanya. Transaksi berstatus Error diberi keterangan "Sudah dibatalkan" / "Belum dibatalkan" di kolom Status (dicek dari status nota di /penjualans; bila belum dibatalkan, halaman nota dicek: peringatan "telah dibatalkan" lalu akun "Retur Penjualan" di rincian transaksi => "Sudah diretur"). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan.
+// @version      1.19.2
+// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Filter Toko (outlet) ditambahkan di bagian paling atas form pencarian: tombol Toko membuka daftar outlet (diambil dari /outlets/list_nama_outlet/new hanya setelah diklik) dan menyaring baris tabel yang sedang tampil berdasarkan outlet notanya. Transaksi berstatus Error diberi keterangan "Sudah dibatalkan" / "Belum dibatalkan" di kolom Status (dicek dari status nota di /penjualans; bila belum dibatalkan, halaman nota dicek: peringatan "telah dibatalkan" lalu akun "Retur Penjualan" di rincian transaksi => "Sudah diretur"). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan.
 // @author       You
 // @match        https://trial.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -18,7 +18,7 @@
     if (!/^\/penjualans(\/aktifitas_ppob\/new|\/index\/new)?\/?$/.test(location.pathname)) return;
     if (window.__aistimPpob) return;
     window.__aistimPpob = true;
-    console.log('[ppob.js] v1.19.0 aktif di ' + location.pathname);
+    console.log('[ppob.js] v1.19.2 aktif di ' + location.pathname);
 
     const TABEL = '#data_table';
     const KOLOM_FAKTUR = 2;   // kolom ke-2 = "No Faktur" (No | No Faktur | Status | ...)
@@ -606,10 +606,11 @@
     setInterval(() => { if (!document.hidden) muatSaldo(); }, SALDO_TIAP_MS);
 
     // ---------- Filter Toko (outlet) ----------
-    // Tombol "Toko" membuka daftar outlet. Daftar lengkap diambil dari /outlets/list_nama_outlet/new (endpoint pemilih outlet Erzap)
+    // Tombol "Toko" membuka daftar outlet. Daftar lengkap diambil dari /outlets/list_nama_outlet/new (endpoint pemilih outlet Erzap, seperti di halaman /penjualans)
     // HANYA setelah tombol diklik pertama kali, lalu disimpan selama halaman terbuka. Memilih outlet menyaring baris tabel yang sedang
     // tampil (berdasarkan outlet nota di atas No Faktur); tidak ikut terkirim ke server.
-    const TOKO_URL = '/outlets/list_nama_outlet/new?exclude=&term=&scope=stok_gudang_cabang';
+    // sama dengan pemilih outlet di halaman /penjualans (scope kosong = semua outlet)
+    const TOKO_URL = '/outlets/list_nama_outlet/new?exclude=&term=&scope=';
     let filterToko = '';
     let kolomToko = null, btnToko = null, infoToko = null, panelToko = null, listToko = null, cariToko = null;
     let daftarToko = null, memuatToko = false, galatToko = '', tandaPanel = '';
@@ -725,12 +726,12 @@
         const status = document.getElementById('pencarian_status');
         const asal = status && (status.closest('.field2') || status.parentNode);
         if (asal && asal.parentNode) {
-            // di form pencarian, tepat setelah kolom Status; tampil seperti kolom lain (kelas kolom, label & kontrol disalin)
+            // di form pencarian, PALING ATAS (sebelum kolom Status); tampil seperti kolom lain (kelas kolom, label & kontrol disalin)
             kolomToko.className = asal.className || 'field2';
             const labelAsal = asal.querySelector('label');
             if (labelAsal && labelAsal.className) label.className = labelAsal.className;
             if (status.className) btnToko.className = status.className;
-            asal.parentNode.insertBefore(kolomToko, asal.nextSibling);
+            asal.parentNode.insertBefore(kolomToko, asal.parentNode.firstElementChild || asal);   // kolom pertama form
         } else {
             // form pencarian tidak dikenali: pasang batang filter sendiri di atas tabel
             kolomToko.className = 'aistim_ppob_toko_bar';
