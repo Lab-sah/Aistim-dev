@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.4.1
-// @description  [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
+// @version      1.5.0
+// @description  [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -113,6 +113,14 @@
     ui.style.cssText = 'position:fixed;left:8px;bottom:70px;z-index:99990;font-family:sans-serif;';
     ui.innerHTML = '<button id="rk_btn" type="button" style="padding:8px 12px;border:none;border-radius:20px;background:#343a40;color:#fff;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.4);">&#9210; Rekam</button>';
     const btn = ui.firstChild;
+    // tombol testurl tepat di bawah tombol Rekam (Rekam tidak bergeser)
+    const btnUrl = document.createElement('button');
+    btnUrl.id = 'rk_testurl';
+    btnUrl.type = 'button';
+    btnUrl.textContent = 'testurl';
+    btnUrl.style.cssText = 'position:absolute;top:100%;left:0;margin-top:6px;padding:6px 12px;border:none;border-radius:20px;background:#343a40;color:#fff;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,.4);';
+    btnUrl.addEventListener('click', tampilTestUrl);
+    ui.appendChild(btnUrl);
 
     function perbaruiTombol() {
         btn.innerHTML = merekam ? '&#9209; Stop (' + log.length + ')' : '&#9210; Rekam';
@@ -164,6 +172,69 @@
             catch (e) { ta.select(); document.execCommand('copy'); }
             bd.querySelector('#rk_salin').textContent = 'Tersalin ✓';
         };
+    }
+
+    // ----- testurl: popup input link -> fetch (GET, sesi login) -> tampilkan outputnya -----
+    function tampilTestUrl() {
+        if (document.getElementById('rk_testurl_pop')) return;
+        const gaya = (b) => 'padding:6px 14px;border:0;border-radius:4px;background:' + b + ';color:#fff;cursor:pointer;';
+        const bd = document.createElement('div');
+        bd.id = 'rk_testurl_pop';
+        bd.style.cssText = 'position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;';
+        const kotak = document.createElement('div');
+        kotak.style.cssText = 'background:#fff;color:#111;width:94%;max-width:900px;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;max-height:90vh;font:13px sans-serif;';
+        const judul = document.createElement('div');
+        judul.style.cssText = 'font-weight:bold;';
+        judul.textContent = 'testurl';
+        const baris = document.createElement('div');
+        baris.style.cssText = 'display:flex;gap:6px;';
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.placeholder = 'Link, mis. /penjualans?pencarian[kode]=PJ131026-PMRA1-0001';
+        inp.style.cssText = 'flex:1;padding:6px;border:1px solid #94a3b8;border-radius:4px;';
+        const bGo = document.createElement('button');
+        bGo.type = 'button'; bGo.textContent = 'Ambil'; bGo.style.cssText = gaya('#2563eb');
+        const bSalin = document.createElement('button');
+        bSalin.type = 'button'; bSalin.textContent = 'Salin'; bSalin.style.cssText = gaya('#28a745');
+        const bTutup = document.createElement('button');
+        bTutup.type = 'button'; bTutup.textContent = 'Tutup'; bTutup.style.cssText = gaya('#64748b');
+        baris.appendChild(inp); baris.appendChild(bGo); baris.appendChild(bSalin); baris.appendChild(bTutup);
+        const info = document.createElement('div');
+        info.style.cssText = 'color:#475569;';
+        const out = document.createElement('textarea');
+        out.readOnly = true;
+        out.style.cssText = 'flex:1;min-height:320px;width:100%;box-sizing:border-box;padding:6px;border:1px solid #cbd5e1;border-radius:4px;font:12px monospace;white-space:pre;';
+        kotak.appendChild(judul); kotak.appendChild(baris); kotak.appendChild(info); kotak.appendChild(out);
+        bd.appendChild(kotak);
+        document.body.appendChild(bd);
+        inp.focus();
+
+        const tutup = () => bd.remove();
+        async function ambil() {
+            const v = inp.value.trim();
+            if (!v) { info.textContent = 'Isi link dulu.'; return; }
+            let url;
+            try { url = new URL(v, location.origin).href; } catch (e) { info.textContent = 'Link tidak valid.'; return; }
+            info.textContent = 'Mengambil ' + url + ' ...';
+            out.value = '';
+            const mulai = Date.now();
+            try {
+                const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+                const teks = await res.text();
+                info.textContent = 'HTTP ' + res.status + ' ' + res.statusText + ' | ' + (res.headers.get('content-type') || '-') + ' | ' + teks.length + ' karakter | ' + (Date.now() - mulai) + ' ms' + (res.redirected ? ' | dialihkan ke ' + res.url : '');
+                out.value = teks;
+            } catch (err) {
+                info.textContent = 'Gagal: ' + err.message + ' (link luar domain biasanya diblokir CORS)';
+            }
+        }
+        bGo.onclick = ambil;
+        bTutup.onclick = tutup;
+        bSalin.onclick = async () => {
+            try { await navigator.clipboard.writeText(out.value); } catch (e) { out.select(); document.execCommand('copy'); }
+            info.textContent = 'Output disalin.';
+        };
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') ambil(); if (e.key === 'Escape') tutup(); });
+        bd.addEventListener('mousedown', (e) => { if (e.target === bd) tutup(); });
     }
 
     function tampilkanHasil() {

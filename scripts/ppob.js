@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - PPOB (No Faktur + Outlet)
 // @namespace    http://tampermonkey.net/
-// @version      1.10.2
-// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: lonceng bersuara "Cek saldo bosku" + tulisan peringatan. Tombol testurl: fetch link apa pun dan tampilkan outputnya.
+// @version      1.11.0
+// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: lonceng bersuara "Cek saldo bosku" + tulisan peringatan.
 // @author       You
 // @match        https://trial.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -18,7 +18,7 @@
     if (!/^\/penjualans(\/aktifitas_ppob\/new|\/index\/new)?\/?$/.test(location.pathname)) return;
     if (window.__aistimPpob) return;
     window.__aistimPpob = true;
-    console.log('[ppob.js] v1.10.2 aktif di ' + location.pathname);
+    console.log('[ppob.js] v1.11.0 aktif di ' + location.pathname);
 
     const TABEL = '#data_table';
     const KOLOM_FAKTUR = 2;   // kolom ke-2 = "No Faktur" (No | No Faktur | Status | ...)
@@ -552,79 +552,12 @@
         }, 8500);
     }
 
-    // ---------- Tombol "testurl": popup berisi input link, fetch (GET) lalu tampilkan outputnya ----------
-    function pasangTestUrl() {
-        const tombol = document.createElement('button');
-        tombol.type = 'button';
-        tombol.id = 'aistim_ppob_testurl';
-        tombol.textContent = 'testurl';
-        tombol.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483000;padding:6px 12px;border:0;border-radius:6px;background:#334155;color:#fff;font:600 12px sans-serif;cursor:pointer;opacity:.85';
-        document.body.appendChild(tombol);
-
-        let lapisan = null;
-        function tutup() { if (lapisan) { lapisan.remove(); lapisan = null; } }
-
-        tombol.addEventListener('click', () => {
-            if (lapisan) return;
-            lapisan = document.createElement('div');
-            lapisan.style.cssText = 'position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px';
-            const kotak = document.createElement('div');
-            kotak.style.cssText = 'background:#fff;color:#111;width:min(900px,100%);max-height:90vh;display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:8px;font:13px sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.4)';
-            const bt = (atr, teks, warna) => buat('button', Object.assign({ type: 'button', teks: teks, gaya: 'padding:6px 14px;border:0;border-radius:4px;background:' + warna + ';color:#fff;cursor:pointer' }, atr));
-            kotak.appendChild(buat('div', { gaya: 'display:flex;justify-content:space-between;align-items:center' }, [
-                buat('b', { teks: 'testurl' }),
-                buat('button', { type: 'button', 'data-x': '', teks: '×', gaya: 'border:0;background:none;font-size:18px;cursor:pointer' })
-            ]));
-            kotak.appendChild(buat('div', { gaya: 'display:flex;gap:6px' }, [
-                buat('input', { type: 'text', 'data-url': '', placeholder: 'Link, mis. /penjualans?pencarian[kode]=PJ131026-PMRA1-0001', gaya: 'flex:1;padding:6px;border:1px solid #94a3b8;border-radius:4px' }),
-                bt({ 'data-go': '' }, 'Ambil', '#2563eb'),
-                bt({ 'data-salin': '' }, 'Salin', '#64748b')
-            ]));
-            kotak.appendChild(buat('div', { 'data-info': '', gaya: 'color:#475569' }));
-            kotak.appendChild(buat('textarea', { 'data-out': '', readonly: '', gaya: 'flex:1;min-height:320px;width:100%;box-sizing:border-box;padding:6px;border:1px solid #cbd5e1;border-radius:4px;font:12px monospace;white-space:pre' }));
-            lapisan.appendChild(kotak);
-            document.body.appendChild(lapisan);
-            lapisan.addEventListener('mousedown', (e) => { if (e.target === lapisan) tutup(); });
-            kotak.querySelector('[data-x]').addEventListener('click', tutup);
-
-            const inp = kotak.querySelector('[data-url]');
-            const out = kotak.querySelector('[data-out]');
-            const info = kotak.querySelector('[data-info]');
-            inp.focus();
-
-            async function ambil() {
-                const v = inp.value.trim();
-                if (!v) { info.textContent = 'Isi link dulu.'; return; }
-                let url;
-                try { url = new URL(v, location.origin).href; } catch (e) { info.textContent = 'Link tidak valid.'; return; }
-                info.textContent = 'Mengambil ' + url + ' ...';
-                out.value = '';
-                const mulai = Date.now();
-                try {
-                    const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
-                    const teks = await res.text();
-                    info.textContent = 'HTTP ' + res.status + ' ' + res.statusText + ' | ' + (res.headers.get('content-type') || '-') + ' | ' + teks.length + ' karakter | ' + (Date.now() - mulai) + ' ms' + (res.redirected ? ' | dialihkan ke ' + res.url : '');
-                    out.value = teks;
-                } catch (err) {
-                    info.textContent = 'Gagal: ' + err.message + ' (link luar domain biasanya diblokir CORS)';
-                }
-            }
-            kotak.querySelector('[data-go]').addEventListener('click', ambil);
-            inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') ambil(); if (e.key === 'Escape') tutup(); });
-            kotak.querySelector('[data-salin]').addEventListener('click', () => {
-                out.select();
-                try { navigator.clipboard.writeText(out.value); info.textContent = 'Output disalin.'; } catch (e) { document.execCommand('copy'); }
-            });
-        });
-    }
-
     // Baris tabel digambar ulang (DataTables: ganti halaman, cari, urut) -> proses lagi
     if (!/\/aktifitas_ppob\//.test(location.pathname)) {
         halamanCari();
         return;
     }
 
-    try { pasangTestUrl(); } catch (e) { console.warn('[ppob.js] tombol testurl gagal dipasang: ' + e.message); }
 
     let tunda = 0;
     new MutationObserver(function () {
