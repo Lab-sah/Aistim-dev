@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Hasil Koreksi SO - Daftar Stok Opnam
+// @name         Erzap - Stok Opnams
 // @namespace    http://tampermonkey.net/
-// @version      1.1.7
-// @description  Telusuri semua halaman Daftar Stok Opnam, filter tanggal & Gudang, lihat Jumlah SKU/Nilai/Selisih tiap SO, ekspor ke XLSX. Panel filter tanggal/gudang otomatis muat di layar HP.
+// @version      1.1.10
+// @description  Telusuri semua halaman Daftar Stok Opnam, filter tanggal & Gudang, filter Outlet di form Pencarian, lihat Jumlah SKU/Nilai/Selisih tiap SO, ekspor ke XLSX. Panel filter tanggal/gudang otomatis muat di layar HP.
 // @match        https://*.erzap.com/stok_opnams*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -944,8 +944,92 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         judul.appendChild(btn);
     }
 
-    pasangTombol();
 
-    const observer = new MutationObserver(pasangTombol);
+    // ---------- Filter Outlet di form Pencarian bawaan halaman ----------
+    // Tabel tidak punya kolom outlet: outlet = bagian nama gudang setelah " - "
+    // (mis. "TOKO PANDAAN - P17 PARTDISTRO PANDAAN" -> "P17 PARTDISTRO PANDAAN");
+    // gudang tanpa pola itu dipakai apa adanya. Menyaring baris tabel yang sedang
+    // tampil (di sisi browser), tidak ikut terkirim ke server.
+    const KOLOM_GUDANG = 6;   // No | Hapus | No Formulir | Tanggal | Formulir | Status | Gudang
+    let filterOutlet = '';
+    let selectOutlet = null;
+
+    function outletDariGudang(gudang) {
+        const i = gudang.indexOf(' - ');
+        return (i >= 0 ? gudang.slice(i + 3) : gudang).trim();
+    }
+
+    function barisTabelSO() {
+        return Array.from(document.querySelectorAll('#data_table tbody tr')).filter(tr => tr.cells.length > KOLOM_GUDANG);
+    }
+
+    function terapkanFilterOutlet() {
+        const jumlah = {};
+        barisTabelSO().forEach(tr => {
+            const o = outletDariGudang(tr.cells[KOLOM_GUDANG].textContent.trim());
+            if (o) jumlah[o] = (jumlah[o] || 0) + 1;
+            const baru = (!filterOutlet || o === filterOutlet) ? '' : 'none';
+            if (tr.style.display !== baru) tr.style.display = baru;
+        });
+        if (!selectOutlet) return;
+        // opsi: outlet dari gudang di dropdown Gudang bawaan + yang ada di tabel
+        const nama = new Set(Object.keys(jumlah));
+        const selGudang = document.getElementById('pencarian_idgudang');
+        if (selGudang) Array.from(selGudang.options).forEach(op => {
+            const o = outletDariGudang(op.textContent.trim());
+            if (op.value && o) nama.add(o);
+        });
+        if (filterOutlet) nama.add(filterOutlet);
+        const daftar = Array.from(nama).sort();
+        const tanda = daftar.join('|');
+        if (selectOutlet.dataset.tanda === tanda) return;
+        selectOutlet.dataset.tanda = tanda;
+        selectOutlet.textContent = '';
+        const semua = document.createElement('option');
+        semua.value = '';
+        semua.textContent = '-- Semua --';
+        selectOutlet.appendChild(semua);
+        daftar.forEach(o => {
+            const op = document.createElement('option');
+            op.value = o;
+            op.textContent = o;
+            selectOutlet.appendChild(op);
+        });
+        selectOutlet.value = filterOutlet;
+    }
+
+    function pasangFilterOutlet() {
+        if (selectOutlet && document.body.contains(selectOutlet)) return;
+        const selGudang = document.getElementById('pencarian_idgudang');
+        if (!selGudang) return;
+        const asal = selGudang.closest('.field2') || selGudang.parentNode;
+        if (!asal || !asal.parentNode) return;
+        const kolom = document.createElement('div');
+        kolom.className = asal.className || 'field2';
+        const label = document.createElement('label');
+        label.textContent = 'Outlet';
+        label.setAttribute('for', 'aistim_filter_outlet');
+        const labelAsal = asal.querySelector('label');
+        if (labelAsal && labelAsal.className) label.className = labelAsal.className;
+        selectOutlet = document.createElement('select');
+        selectOutlet.id = 'aistim_filter_outlet';
+        if (selGudang.className) selectOutlet.className = selGudang.className;
+        selectOutlet.addEventListener('change', () => {
+            filterOutlet = selectOutlet.value;
+            terapkanFilterOutlet();
+        });
+        kolom.appendChild(label);
+        kolom.appendChild(selectOutlet);
+        asal.parentNode.insertBefore(kolom, asal.nextSibling);   // tepat setelah kolom Gudang
+    }
+
+    function prosesFilterOutlet() {
+        try { pasangFilterOutlet(); terapkanFilterOutlet(); } catch (e) { console.warn('[tombol_so_list.js] filter outlet gagal: ' + e.message); }
+    }
+
+    pasangTombol();
+    prosesFilterOutlet();
+
+    const observer = new MutationObserver(() => { pasangTombol(); prosesFilterOutlet(); });
     observer.observe(document.body, { childList: true, subtree: true });
 })();

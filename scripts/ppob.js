@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - PPOB (No Faktur + Outlet)
 // @namespace    http://tampermonkey.net/
-// @version      1.19.3
+// @version      1.19.4
 // @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Filter Toko (outlet) ditambahkan di bagian paling atas form pencarian: tombol Toko membuka daftar outlet (diambil dari /outlets/list_nama_outlet/new hanya setelah diklik) dan menyaring baris tabel yang sedang tampil berdasarkan outlet notanya. Transaksi berstatus Error diberi keterangan "Sudah dibatalkan" / "Belum dibatalkan" di kolom Status (dicek dari status nota di /penjualans; bila belum dibatalkan, halaman nota dicek: peringatan "telah dibatalkan" lalu akun "Retur Penjualan" di rincian transaksi => "Sudah diretur"). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan.
 // @author       You
 // @match        https://trial.erzap.com/penjualans*
@@ -18,7 +18,7 @@
     if (!/^\/penjualans(\/aktifitas_ppob\/new|\/index\/new)?\/?$/.test(location.pathname)) return;
     if (window.__aistimPpob) return;
     window.__aistimPpob = true;
-    console.log('[ppob.js] v1.19.3 aktif di ' + location.pathname);
+    console.log('[ppob.js] v1.19.4 aktif di ' + location.pathname);
 
     const TABEL = '#data_table';
     const KOLOM_FAKTUR = 2;   // kolom ke-2 = "No Faktur" (No | No Faktur | Status | ...)
@@ -390,7 +390,8 @@
     function tulisBatal(el, n) {
         const batal = !!(n && n.batal), retur = !batal && !!(n && n.retur);
         el.textContent = batal ? '\u2714 Sudah dibatalkan' : retur ? '\u2714 Sudah diretur' : '\u2716 Belum dibatalkan';
-        el.style.color = batal ? '#198754' : retur ? '#fd7e14' : '#dc3545';   // dibatalkan hijau, diretur oranye, belum dibatalkan merah
+        el.style.color = batal ? '#198754' : retur ? '#ffd500' : '#dc3545';   // dibatalkan hijau, diretur kuning terang, belum dibatalkan merah
+        el.style.textShadow = retur ? '0 0 1px rgba(0,0,0,.55)' : '';          // kuning terang di latar putih: beri tepi tipis agar tetap terbaca
         el.title = retur ? 'Ada akun "Retur Penjualan" di rincian transaksi nota'
                          : 'Status nota di penjualan: ' + ((n && n.statusNota) || (batal ? 'Dibatalkan' : '-'));
     }
