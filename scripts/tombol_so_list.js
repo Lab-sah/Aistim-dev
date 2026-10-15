@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Stok Opnams
 // @namespace    http://tampermonkey.net/
-// @version      1.1.10
-// @description  Telusuri semua halaman Daftar Stok Opnam, filter tanggal & Gudang, filter Outlet di form Pencarian, lihat Jumlah SKU/Nilai/Selisih tiap SO, ekspor ke XLSX. Panel filter tanggal/gudang otomatis muat di layar HP.
+// @version      1.1.13
+// @description  Telusuri semua halaman Daftar Stok Opnam, filter tanggal & Gudang, filter Outlet di form Pencarian (mengisi dropdown Gudang), lihat Jumlah SKU/Nilai/Selisih tiap SO, ekspor ke XLSX. Panel filter tanggal/gudang otomatis muat di layar HP.
 // @match        https://*.erzap.com/stok_opnams*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -946,87 +946,123 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 
     // ---------- Filter Outlet di form Pencarian bawaan halaman ----------
-    // Tabel tidak punya kolom outlet: outlet = bagian nama gudang setelah " - "
-    // (mis. "TOKO PANDAAN - P17 PARTDISTRO PANDAAN" -> "P17 PARTDISTRO PANDAAN");
-    // gudang tanpa pola itu dipakai apa adanya. Menyaring baris tabel yang sedang
-    // tampil (di sisi browser), tidak ikut terkirim ke server.
-    const KOLOM_GUDANG = 6;   // No | Hapus | No Formulir | Tanggal | Formulir | Status | Gudang
-    let filterOutlet = '';
-    let selectOutlet = null;
+    // Sama seperti pemilih Outlet di halaman Lihat Stok: daftar outlet diambil dari
+    // /outlets/list_nama_outlet/new (hanya saat dropdown pertama kali dibuka), lalu
+    // memilih outlet mengisi dropdown Gudang bawaan dengan gudang milik outlet itu
+    // (/produk_gudangs/fetch_gudang_outlets/new). Penyaringan tetap dilakukan server
+    // lewat tombol Filter bawaan -- tidak ada penyaringan tabel di sisi browser.
+    const SCOPE_OUTLET = 'stok_gudang_cabang';
+    let selectOutlet = null, daftarOutlet = null, memuatOutlet = false, opsiGudangAsli = null;
 
-    function outletDariGudang(gudang) {
-        const i = gudang.indexOf(' - ');
-        return (i >= 0 ? gudang.slice(i + 3) : gudang).trim();
-    }
-
-    function barisTabelSO() {
-        return Array.from(document.querySelectorAll('#data_table tbody tr')).filter(tr => tr.cells.length > KOLOM_GUDANG);
-    }
-
-    function terapkanFilterOutlet() {
-        const jumlah = {};
-        barisTabelSO().forEach(tr => {
-            const o = outletDariGudang(tr.cells[KOLOM_GUDANG].textContent.trim());
-            if (o) jumlah[o] = (jumlah[o] || 0) + 1;
-            const baru = (!filterOutlet || o === filterOutlet) ? '' : 'none';
-            if (tr.style.display !== baru) tr.style.display = baru;
-        });
+    function isiOpsiOutlet() {
         if (!selectOutlet) return;
-        // opsi: outlet dari gudang di dropdown Gudang bawaan + yang ada di tabel
-        const nama = new Set(Object.keys(jumlah));
-        const selGudang = document.getElementById('pencarian_idgudang');
-        if (selGudang) Array.from(selGudang.options).forEach(op => {
-            const o = outletDariGudang(op.textContent.trim());
-            if (op.value && o) nama.add(o);
-        });
-        if (filterOutlet) nama.add(filterOutlet);
-        const daftar = Array.from(nama).sort();
-        const tanda = daftar.join('|');
-        if (selectOutlet.dataset.tanda === tanda) return;
-        selectOutlet.dataset.tanda = tanda;
+        const pilih = selectOutlet.value;
         selectOutlet.textContent = '';
         const semua = document.createElement('option');
         semua.value = '';
-        semua.textContent = '-- Semua --';
+        semua.textContent = memuatOutlet ? 'Memuat outlet...' : '-- Semua --';
         selectOutlet.appendChild(semua);
-        daftar.forEach(o => {
+        (daftarOutlet || []).forEach(o => {
             const op = document.createElement('option');
-            op.value = o;
-            op.textContent = o;
+            op.value = o.id;
+            op.textContent = o.nama;
             selectOutlet.appendChild(op);
         });
-        selectOutlet.value = filterOutlet;
+        selectOutlet.value = pilih;
+    }
+
+    async function muatDaftarOutlet() {
+        if (daftarOutlet || memuatOutlet) return;
+        memuatOutlet = true;
+        isiOpsiOutlet();
+        try {
+            const res = await fetch('/outlets/list_nama_outlet/new?exclude=&term=&scope=' + SCOPE_OUTLET, { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'text/plain, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest' } });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+            const daftar = Array.from(doc.querySelectorAll('tr.data_outlet')).map(tr => ({
+                id: tr.getAttribute('data-idoutlet'),
+                nama: (tr.getAttribute('data-nama') || (tr.cells[1] ? tr.cells[1].textContent : '')).replace(/\s+/g, ' ').trim()
+            })).filter(o => o.id && o.nama);
+            if (!daftar.length) throw new Error('daftar outlet kosong');
+            daftarOutlet = daftar;
+        } catch (e) {
+            console.warn('[tombol_so_list.js] daftar outlet gagal dimuat: ' + e.message);
+        } finally {
+            memuatOutlet = false;
+            isiOpsiOutlet();
+        }
+    }
+
+    // Ganti isi dropdown Gudang bawaan (opsiGudangAsli = salinan aslinya untuk "-- Semua --")
+    function isiGudang(opsi, pilihSatu) {
+        const sel = document.getElementById('pencarian_idgudang');
+        if (!sel) return;
+        sel.textContent = '';
+        opsi.forEach(o => {
+            const op = document.createElement('option');
+            op.value = o.value;
+            op.textContent = o.label;
+            sel.appendChild(op);
+        });
+        sel.value = pilihSatu || '';
+    }
+
+    async function pilihOutlet() {
+        const sel = document.getElementById('pencarian_idgudang');
+        if (!sel) return;
+        if (!opsiGudangAsli) opsiGudangAsli = Array.from(sel.options).map(op => ({ value: op.value, label: op.textContent }));
+        const id = selectOutlet.value;
+        if (!id) { isiGudang(opsiGudangAsli, ''); return; }
+        try {
+            const form = sel.closest('form');
+            const token = form && form.querySelector('input[name="authenticity_token"]');
+            const q = new URLSearchParams({
+                authenticity_token: token ? token.value : '',
+                scope: SCOPE_OUTLET, model: 'pencarian', field: 'idgudang', css_class: '', prompt: 'true'
+            });
+            q.append('idoutlets[]', id);
+            const res = await fetch('/produk_gudangs/fetch_gudang_outlets/new?' + q.toString(), { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'text/plain, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest' } });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+            const opsi = Array.from(doc.querySelectorAll('option')).map(op => ({ value: op.value, label: op.textContent.trim() }));
+            const gudang = opsi.filter(o => o.value);
+            if (!gudang.length) throw new Error('outlet ini tidak punya gudang');
+            isiGudang([{ value: '', label: '-- Semua --' }].concat(gudang), gudang.length === 1 ? gudang[0].value : '');
+        } catch (e) {
+            console.warn('[tombol_so_list.js] gudang outlet gagal dimuat: ' + e.message);
+            isiGudang(opsiGudangAsli, '');
+        }
     }
 
     function pasangFilterOutlet() {
         if (selectOutlet && document.body.contains(selectOutlet)) return;
         const selGudang = document.getElementById('pencarian_idgudang');
-        if (!selGudang) return;
-        const asal = selGudang.closest('.field2') || selGudang.parentNode;
+        const asal = selGudang && (selGudang.closest('.field2') || selGudang.parentNode);
         if (!asal || !asal.parentNode) return;
         const kolom = document.createElement('div');
         kolom.className = asal.className || 'field2';
         const label = document.createElement('label');
         label.textContent = 'Outlet';
         label.setAttribute('for', 'aistim_filter_outlet');
-        const labelAsal = asal.querySelector('label');
-        if (labelAsal && labelAsal.className) label.className = labelAsal.className;
         selectOutlet = document.createElement('select');
         selectOutlet.id = 'aistim_filter_outlet';
         if (selGudang.className) selectOutlet.className = selGudang.className;
-        selectOutlet.addEventListener('change', () => {
-            filterOutlet = selectOutlet.value;
-            terapkanFilterOutlet();
-        });
+        selectOutlet.addEventListener('mousedown', muatDaftarOutlet);
+        selectOutlet.addEventListener('focus', muatDaftarOutlet);
+        selectOutlet.addEventListener('change', pilihOutlet);
         kolom.appendChild(label);
+        kolom.appendChild(document.createElement('br'));
         kolom.appendChild(selectOutlet);
-        asal.parentNode.insertBefore(kolom, asal.nextSibling);   // tepat setelah kolom Gudang
+        asal.parentNode.insertBefore(kolom, asal);   // tepat sebelum kolom Gudang
+        isiOpsiOutlet();
+        console.log('[tombol_so_list.js] filter Outlet dipasang di form Pencarian');
     }
 
     function prosesFilterOutlet() {
-        try { pasangFilterOutlet(); terapkanFilterOutlet(); } catch (e) { console.warn('[tombol_so_list.js] filter outlet gagal: ' + e.message); }
+        try { pasangFilterOutlet(); } catch (e) { console.warn('[tombol_so_list.js] filter outlet gagal: ' + e.message); }
     }
 
+    console.log('[tombol_so_list.js] v1.1.13 aktif');
     pasangTombol();
     prosesFilterOutlet();
 
