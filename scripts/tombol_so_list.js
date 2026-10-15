@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Stok Opnams
 // @namespace    http://tampermonkey.net/
-// @version      1.1.13
+// @version      1.1.14
 // @description  Telusuri semua halaman Daftar Stok Opnam, filter tanggal & Gudang, filter Outlet di form Pencarian (mengisi dropdown Gudang), lihat Jumlah SKU/Nilai/Selisih tiap SO, ekspor ke XLSX. Panel filter tanggal/gudang otomatis muat di layar HP.
 // @match        https://*.erzap.com/stok_opnams*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -1053,7 +1053,11 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         kolom.appendChild(label);
         kolom.appendChild(document.createElement('br'));
         kolom.appendChild(selectOutlet);
-        asal.parentNode.insertBefore(kolom, asal);   // tepat sebelum kolom Gudang
+        // tepat di bawah kolom No Formulir (cadangan: sebelum kolom Gudang)
+        const kode = document.getElementById('pencarian_kode');
+        const kolomKode = kode && kode.closest('.field2');
+        if (kolomKode && kolomKode.parentNode === asal.parentNode) asal.parentNode.insertBefore(kolom, kolomKode.nextSibling);
+        else asal.parentNode.insertBefore(kolom, asal);
         isiOpsiOutlet();
         console.log('[tombol_so_list.js] filter Outlet dipasang di form Pencarian');
     }
@@ -1062,7 +1066,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         try { pasangFilterOutlet(); } catch (e) { console.warn('[tombol_so_list.js] filter outlet gagal: ' + e.message); }
     }
 
-    console.log('[tombol_so_list.js] v1.1.13 aktif');
+    console.log('[tombol_so_list.js] v1.1.14 aktif');
     pasangTombol();
     prosesFilterOutlet();
 
