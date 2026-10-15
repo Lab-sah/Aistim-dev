@@ -7,6 +7,7 @@
     "kelolaservis.js",
     "servisindex.js",
     "pemindahan.js",
+    "barcode.js",
     "tombol_so_list.js",
     "smart_repair.js",
     "rak_barang.js",
