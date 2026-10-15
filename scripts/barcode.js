@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Barcode (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      2.0.0
-// @description  [v2.0.0] Ganti dari satu tombol di bawah tabel -> link "Cetak Barcode" di tiap baris produk Daftar Barang Pemindahan, meniru fitur cetak barcode native di Faktur Pembelian (modal jumlah label + SN kalau produk pakai SN, lalu AJAX ke /produks/get_zpl_raw/new dan kirim ke printer via write_raw_printer_zpl). Modal dibuat sendiri (prefix bc_) supaya tidak gantung ke openBarcodeModal/#barcodeModal yang belum pasti ada di halaman ini. idproduk/is_sn/jumlah diambil dari input tersembunyi baris (searching_barcode_produk_id, produk_is_sn, jumlah_produk).
+// @version      2.0.1
+// @description  [v2.0.1] Pindah link "Cetak Barcode" dari kolom kosong paling kanan ke kolom "Barcode - Nama Barang - Kode Ref" (gabung dengan info nama produk, mirip posisinya di Faktur Pembelian). [v2.0.0] Ganti dari satu tombol di bawah tabel -> link "Cetak Barcode" di tiap baris produk Daftar Barang Pemindahan, meniru fitur cetak barcode native di Faktur Pembelian (modal jumlah label + SN kalau produk pakai SN, lalu AJAX ke /produks/get_zpl_raw/new dan kirim ke printer via write_raw_printer_zpl). Modal dibuat sendiri (prefix bc_) supaya tidak gantung ke openBarcodeModal/#barcodeModal yang belum pasti ada di halaman ini. idproduk/is_sn/jumlah diambil dari input tersembunyi baris (searching_barcode_produk_id, produk_is_sn, jumlah_produk).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -28,7 +28,7 @@
         '#bc_dialog .bc_tombol button{padding:8px 14px;border-radius:4px;border:1px solid #ccc;',
         'background:#f5f5f5;cursor:pointer;font-size:14px;}',
         '#bc_dialog .bc_tombol .bc_primary{background:#0d6efd;color:#fff;border-color:#0d6efd;}',
-        '.bc_print_barcode{cursor:pointer;white-space:nowrap;margin-left:6px;}'
+        '.bc_print_barcode{cursor:pointer;white-space:nowrap;}'
     ].join('');
 
     var DIALOG_HTML =
@@ -136,13 +136,13 @@
             var jumlah = tr.find('input.jumlah_produk').first().val() || '1';
             var sn = tr.find('input.searching_sn').first().val() || '';
 
-            var targetTd = tr.find('td').last();
+            var targetTd = tr.find('.div_wrapper_search_produk_nama').first().closest('td');
             if (targetTd.length === 0) {
                 return;
             }
 
             var link = $(
-                '<a href="#" class="bc_print_barcode" title="Cetak Barcode">' +
+                '<a href="#" class="bc_print_barcode" title="Cetak Barcode" style="display:block;margin-top:4px">' +
                     '<i class="fa fa-print" aria-hidden="true" style="font-size:12px"></i> Cetak Barcode' +
                 '</a>'
             );
