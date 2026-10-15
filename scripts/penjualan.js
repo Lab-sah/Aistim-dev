@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.0.1
-// @description  [v1.0.1] Tombol 'Batal' kini selalu dipasang begitu 'Duplikasi Penjualan' ketemu (sebelumnya butuh tombol 'Batalkan' asli ketemu dulu di halaman, sehingga kadang tidak muncul). Klik: coba tombol 'Batalkan' asli dulu, kalau tidak ada baru panggil show_popup_batal() langsung. [v1.0.0] Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'.
+// @version      1.0.2
+// @description  [v1.0.2] Tambah fallback terakhir: kalau tombol 'Batalkan' asli & show_popup_batal() tidak ketemu, langsung redirect ke /penjualans/void_penjualan/{id} (id diambil dari URL halaman). [v1.0.1] Tombol 'Batal' kini selalu dipasang begitu 'Duplikasi Penjualan' ketemu (sebelumnya butuh tombol 'Batalkan' asli ketemu dulu di halaman, sehingga kadang tidak muncul). [v1.0.0] Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'.
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -29,12 +29,14 @@
         btnBatal.addEventListener('click', function (e) {
             e.preventDefault();
 
+            const m = location.pathname.match(/\/penjualans\/(\d+)/);
+            const id = m ? m[1] : '';
+            if (!id) { console.warn('[penjualan.js] ID penjualan tidak ditemukan di URL'); return; }
+
             const asli = document.querySelector('a[href*="/void_penjualan/"]');
             if (asli) { asli.click(); return; }
 
             if (typeof window.show_popup_batal === 'function') {
-                const m = location.pathname.match(/\/penjualans\/(\d+)/);
-                const id = m ? m[1] : '';
                 const h1 = document.querySelector('.left h1');
                 const km = h1 && h1.textContent.match(/Data Penjualan\s*-\s*(\S+)/);
                 const kode = km ? km[1] : '';
@@ -42,7 +44,7 @@
                 return;
             }
 
-            console.warn('[penjualan.js] tidak menemukan cara memicu Pembatalan Penjualan di halaman ini');
+            window.location.href = '/penjualans/void_penjualan/' + id;
         });
 
         const kolom = document.createElement('div');
@@ -58,7 +60,7 @@
         try { pasangTombolBatal(); } catch (e) { console.warn('[penjualan.js] gagal pasang tombol Batal: ' + e.message); }
     }
 
-    console.log('[penjualan.js] v1.0.1 aktif');
+    console.log('[penjualan.js] v1.0.2 aktif');
     proses();
 
     const observer = new MutationObserver(proses);
