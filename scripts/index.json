@@ -20,6 +20,7 @@
     "rekapservis.js",
     "rekapstokmin.js",
     "rakstok_lama.js",
-    "home.js"
+    "home.js",
+    "penjualan.js"
   ]
 }
