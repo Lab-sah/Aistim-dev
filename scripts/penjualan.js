@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Erzap - Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.0.2
-// @description  [v1.0.2] Tambah fallback terakhir: kalau tombol 'Batalkan' asli & show_popup_batal() tidak ketemu, langsung redirect ke /penjualans/void_penjualan/{id} (id diambil dari URL halaman). [v1.0.1] Tombol 'Batal' kini selalu dipasang begitu 'Duplikasi Penjualan' ketemu (sebelumnya butuh tombol 'Batalkan' asli ketemu dulu di halaman, sehingga kadang tidak muncul). [v1.0.0] Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'.
+// @version      1.0.3
+// @description  [v1.0.3] FIX: tambah @world main -- show_popup_batal() adalah fungsi milik halaman (main world), userscript jalan di isolated world jadi window.show_popup_batal selalu undefined dari sana walau fungsinya ada di halaman. Hapus fallback redirect langsung ke /void_penjualan/{id} (bukan endpoint GET yang valid, bikin error 500); kalau tombol Batalkan asli & show_popup_batal berdua tidak ketemu, tampil alert bahwa transaksi ini tidak bisa dibatalkan dari sini. [v1.0.2] Tambah fallback redirect ke void_penjualan/{id} (ternyata salah, lihat v1.0.3). [v1.0.1] Tombol 'Batal' selalu dipasang begitu 'Duplikasi Penjualan' ketemu. [v1.0.0] Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'.
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
+// @world        main
 // @grant        none
 // ==/UserScript==
 
@@ -44,7 +45,8 @@
                 return;
             }
 
-            window.location.href = '/penjualans/void_penjualan/' + id;
+            console.warn('[penjualan.js] tombol Batalkan asli & show_popup_batal tidak ketemu -- transaksi ini mungkin tidak bisa dibatalkan dari sini');
+            alert('Transaksi ini tidak bisa dibatalkan dari sini.');
         });
 
         const kolom = document.createElement('div');
@@ -60,7 +62,7 @@
         try { pasangTombolBatal(); } catch (e) { console.warn('[penjualan.js] gagal pasang tombol Batal: ' + e.message); }
     }
 
-    console.log('[penjualan.js] v1.0.2 aktif');
+    console.log('[penjualan.js] v1.0.3 aktif');
     proses();
 
     const observer = new MutationObserver(proses);
