@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.11.0
+// @version      1.12.0
 // @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerima Piutang" (total "Total Diterima" hari ini dari Laporan Rekap Piutang Penerimaan /laporans/rekap_piutang/new, form pencariannya dibaca lalu tanggal di-set ke hari ini); klik baris "N transaksi hari ini" = popup log (Pelanggan, Outlet, No Faktur, Log Transaksi, Total Diterima) + tombol ke Rekap Piutang. Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu PPOB & Penerima Piutang hanya di Home. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -250,6 +250,30 @@
     // "Total Diterima" cell: "Rp 493,000.00 Bank Transfer - BCA ..." (nominal + keterangan metode bayar nempel) -> ambil nominalnya saja
     const angkaDariRp = (t) => { const m = /Rp\s*([\d.,]+)/.exec(String(t || '')); return m ? (parseFloat(m[1].replace(/,/g, '')) || 0) : keAngka(t); };
 
+    // Halaman Rekap Piutang punya blok "Rekapitulasi" (Total Piutang Diterima / Total Potongan) yang sudah dihitung
+    // server — dipakai sebagai angka resmi (jumlah manual per-baris sempat meleset, kemungkinan ada potongan/baris
+    // yang tidak ikut terhitung). Cari elemen daun berteks label itu, lalu ambil angka "Rp ..." di teks yang sama,
+    // sibling berikutnya, atau gabungan teks induknya (markup persisnya tidak diketahui, jadi dicoba beberapa cara).
+    function angkaSetelahLabel(doc, labelRegex) {
+        const semua = Array.from(doc.querySelectorAll('body *')).filter((e) => e.children.length === 0);
+        for (const e of semua) {
+            const t = rapih(e.textContent);
+            if (!labelRegex.test(t)) continue;
+            let m = /Rp\s*([\d.,]+)/.exec(t);
+            if (m) return parseFloat(m[1].replace(/,/g, '')) || 0;
+            let sib = e.nextElementSibling;
+            for (let i = 0; i < 3 && sib; i++, sib = sib.nextElementSibling) {
+                m = /Rp\s*([\d.,]+)/.exec(rapih(sib.textContent));
+                if (m) return parseFloat(m[1].replace(/,/g, '')) || 0;
+            }
+            if (e.parentElement) {
+                m = /Rp\s*([\d.,]+)/.exec(rapih(e.parentElement.textContent).replace(t, ''));
+                if (m) return parseFloat(m[1].replace(/,/g, '')) || 0;
+            }
+        }
+        return null;
+    }
+
     async function ambilPiutang() {
         const f = await ambilFormPiutang();
         const hariIni = tglHariIni();
@@ -268,17 +292,19 @@
         const iTotal = th.indexOf('total diterima');
         const iLog = th.indexOf('log transaksi');
         if (iTotal < 0) throw new Error('kolom Total Diterima tidak ditemukan');
-        let total = 0;
+        let totalBaris = 0;
         const daftar = [];
         tabel.querySelectorAll('tbody tr').forEach((tr) => {
             const c = Array.from(tr.cells);
             if (c.length <= Math.max(iTotal, iFaktur, iOutlet, iPelanggan, iLog)) return;   // baris pesan kosong ("tidak ada data")
             const sel = (i) => (i >= 0 && c[i] ? rapih(c[i].textContent) : '');
             const nilai = angkaDariRp(sel(iTotal));
-            total += nilai;
+            totalBaris += nilai;
             daftar.push({ faktur: sel(iFaktur), outlet: sel(iOutlet), pelanggan: sel(iPelanggan), total: nilai, log: sel(iLog) });
         });
-        return { total: total, jumlah: daftar.length, daftar: daftar };
+        const totalResmi = angkaSetelahLabel(doc, /total\s+piutang\s+diterima/i);
+        const potongan = angkaSetelahLabel(doc, /total\s+potongan/i);
+        return { total: totalResmi != null ? totalResmi : totalBaris, potongan: potongan, jumlah: daftar.length, daftar: daftar };
     }
 
     async function muatPiutang() {
@@ -294,7 +320,7 @@
             if (popupPiutangBuka) isiPopupPiutang();
             piutangUtama.textContent = fmtRp(h.total);
             piutangKedua.textContent = h.jumlah + ' transaksi hari ini';
-            piutangKartu.title = h.jumlah + ' transaksi penerimaan piutang hari ini (klik untuk melihat daftar)';
+            piutangKartu.title = h.jumlah + ' transaksi penerimaan piutang hari ini' + (h.potongan ? ' · Total Potongan ' + fmtRp(h.potongan) : '') + ' (klik untuk melihat daftar)';
         } catch (err) {
             if (!piutangTerbaca) piutangUtama.textContent = 'Rp -';
             piutangKartu.title = 'Gagal memuat Penerima Piutang: ' + err.message;
@@ -451,7 +477,7 @@
             return;
         }
         const d = dataPiutang;
-        isi.appendChild(el('div', { gaya: 'padding:8px 12px;background:#f3f8ff;border-bottom:1px solid #dbe7f7;font-size:13px', teks: d.jumlah + ' transaksi, total ' + fmtRp(d.total) }));
+        isi.appendChild(el('div', { gaya: 'padding:8px 12px;background:#f3f8ff;border-bottom:1px solid #dbe7f7;font-size:13px', teks: d.jumlah + ' transaksi, Total Piutang Diterima ' + fmtRp(d.total) + (d.potongan ? ' · Total Potongan ' + fmtRp(d.potongan) : '') }));
         if (!d.daftar.length) {
             isi.appendChild(el('div', { teks: 'Belum ada penerimaan piutang hari ini.', gaya: 'padding:18px;color:#555' }));
             return;
