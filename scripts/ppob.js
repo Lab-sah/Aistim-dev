@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - PPOB (No Faktur + Outlet)
 // @namespace    http://tampermonkey.net/
-// @version      1.19.6
+// @version      1.19.7
 // @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Filter Toko (outlet) ditambahkan di bagian paling atas form pencarian: tombol Toko membuka daftar outlet (diambil dari /outlets/list_nama_outlet/new hanya setelah diklik) dan menyaring baris tabel yang sedang tampil berdasarkan outlet notanya. Transaksi berstatus Error diberi keterangan "Sudah dibatalkan" / "Belum dibatalkan" di kolom Status (dicek dari status nota di /penjualans; bila belum dibatalkan, halaman nota dicek: peringatan "telah dibatalkan" lalu akun "Retur Penjualan" di rincian transaksi => "Sudah diretur"). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan.
 // @author       You
 // @match        https://trial.erzap.com/penjualans*
@@ -18,7 +18,7 @@
     if (!/^\/penjualans(\/aktifitas_ppob\/new|\/index\/new)?\/?$/.test(location.pathname)) return;
     if (window.__aistimPpob) return;
     window.__aistimPpob = true;
-    console.log('[ppob.js] v1.19.6 aktif di ' + location.pathname);
+    console.log('[ppob.js] v1.19.7 aktif di ' + location.pathname);
 
     const TABEL = '#data_table';
     const KOLOM_FAKTUR = 2;   // kolom ke-2 = "No Faktur" (No | No Faktur | Status | ...)
@@ -390,13 +390,13 @@
     function tulisBatal(el, n) {
         const batal = !!(n && n.batal), retur = !batal && !!(n && n.retur);
         el.textContent = batal ? '\u2714 Sudah dibatalkan' : retur ? '\u2714 Sudah diretur' : '\u2716 Belum dibatalkan';
-        el.style.color = retur ? '#000' : batal ? '#198754' : '#dc3545';   // dibatalkan hijau, diretur hitam di atas kuning, belum dibatalkan merah
-        el.style.background = retur ? '#ffd500' : '';                     // diretur: latar kuning tegas biar jelas
+        el.style.color = retur ? '#000' : '#fff';                          // diretur: hitam di atas kuning; dibatalkan/belum: putih di atas hijau/merah
+        el.style.background = batal ? '#198754' : retur ? '#ffd500' : '#dc3545';   // dibatalkan hijau, diretur kuning, belum dibatalkan merah
         el.style.textShadow = '';
-        el.style.padding = retur ? '1px 6px' : '';
-        el.style.borderRadius = retur ? '3px' : '';
+        el.style.padding = '1px 6px';
+        el.style.borderRadius = '3px';
         el.style.display = 'block';          // selalu baris baru di bawah status (bukan nempel di samping "Error")
-        el.style.width = retur ? 'fit-content' : '';   // badge kuning menyesuaikan lebar teks, bukan melebar penuh
+        el.style.width = 'fit-content';       // badge menyesuaikan lebar teks, bukan melebar penuh
         el.title = retur ? 'Ada akun "Retur Penjualan" di rincian transaksi nota'
                          : 'Status nota di penjualan: ' + ((n && n.statusNota) || (batal ? 'Dibatalkan' : '-'));
     }
@@ -418,7 +418,7 @@
 
     const st = document.createElement('style');
     st.textContent = '.aistim_ppob_outlet{margin-bottom:3px;font-size:12px;font-weight:600;white-space:normal;word-break:break-word}' +
-        '.aistim_ppob_batal{margin-top:3px;font-size:12px;font-weight:700;white-space:normal}' +
+        '.aistim_ppob_batal{margin-top:3px;font-size:12px;font-weight:400;white-space:normal}' +
         '.aistim_ppob_toko_info{margin-top:2px;font-size:11px;color:#666}' +
         '.aistim_ppob_toko_item{padding:6px 10px;cursor:pointer;border-bottom:1px solid #f1f1f1}.aistim_ppob_toko_item:hover{background:#eef4ff}' +
         '.aistim_ppob_toko_bar{display:flex;align-items:center;gap:8px;margin:0 0 8px}' +
