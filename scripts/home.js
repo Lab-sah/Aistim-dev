@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.9.0
-// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerima Piutang" (total Debit hari ini di Dana Masuk yang Keterangannya memuat "piutang", dari /main/table_data_transaksi_hari_ini/new?layout=simple&target=2). Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu PPOB & Penerima Piutang hanya di Home. Tidak jalan di halaman Login.
+// @version      1.11.0
+// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerima Piutang" (total "Total Diterima" hari ini dari Laporan Rekap Piutang Penerimaan /laporans/rekap_piutang/new, form pencariannya dibaca lalu tanggal di-set ke hari ini); klik baris "N transaksi hari ini" = popup log (Pelanggan, Outlet, No Faktur, Log Transaksi, Total Diterima) + tombol ke Rekap Piutang. Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu PPOB & Penerima Piutang hanya di Home. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -213,50 +213,97 @@
         }
     }
 
-    // ---------- kartu "Penerima Piutang": total Debit hari ini di Dana Masuk yang Keterangannya memuat "piutang" ----------
-    // Sumber sama dengan popup bawaan Erzap saat kartu "Dana Masuk" di-klik (target=2 dikonfirmasi lewat rekaman: /jurnals/*
-    // dengan keterangan "Penerimaan Piutang Usaha dari ..."), tabel kolom: No | No Jurnal | Tanggal Jurnal | Tanggal Transaksi
-    // | Posisi Saldo | Debit | Kredit | Keterangan — sudah scoped "hari ini" oleh server, tidak perlu paging.
-    const PIUTANG_URL = '/main/table_data_transaksi_hari_ini/new?layout=simple&target=2';
+    // ---------- kartu "Penerima Piutang": total "Total Diterima" hari ini dari Laporan Rekap Piutang (Penerimaan) ----------
+    // /laporans/rekap_piutang/new — tidak otomatis "hari ini" begitu dibuka polos (dikonfirmasi manual), jadi form
+    // pencariannya dibaca dulu (field lain dibiarkan default persis seperti form aslinya, sama seperti ppob.js baca
+    // form pencarian /penjualans), lalu tanggal_dari/tanggal_sampai di-set ke hari ini saja sebelum di-submit (POST).
+    // Tabel kolom: No | Voucher No | Tanggal Jurnal | No Faktur | Outlet | Pelanggan | Total Diterima | Log Transaksi.
+    const REKAP_PIUTANG_URL = '/laporans/rekap_piutang/new';
     let piutangKartu = null, piutangUtama = null, piutangKedua = null;
     let jalanPiutang = false, piutangTerbaca = false;
+    let dataPiutang = null, galatPiutang = '';   // dataPiutang.daftar dipakai popup log (klik baris "N transaksi hari ini")
+
+    let formPiutang = null;   // promise {action, field: {nama: nilai bawaan}, dari, sampai}
+    function ambilFormPiutang() {
+        if (!formPiutang) formPiutang = bacaFormPiutang().catch((err) => { formPiutang = null; throw err; });
+        return formPiutang;
+    }
+    async function bacaFormPiutang() {
+        const res = await fetch(REKAP_PIUTANG_URL, { credentials: 'same-origin', cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status + ' saat membuka form Rekap Piutang');
+        const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+        const form = doc.getElementById('pencarian_rekap_piutang') || Array.from(doc.querySelectorAll('form')).find((f) => f.querySelector('[name^="laporan["]'));
+        if (!form) throw new Error('form Rekap Piutang tidak ditemukan');
+        const field = {};
+        form.querySelectorAll('input[name], select[name], textarea[name]').forEach((el) => {
+            if (/^(checkbox|radio)$/i.test(el.type) && !el.checked) return;
+            if (/^(file|submit|button)$/i.test(el.type) || !/^[A-Za-z]/.test(el.name)) return;
+            field[el.name] = el.tagName === 'SELECT' ? ((el.querySelector('option[selected]') || {}).value || '') : el.value;
+        });
+        const nama = Object.keys(field);
+        const dari = nama.find((n) => /^laporan\[tanggal[^\]]*(dari|awal|from|mulai)[^\]]*\]$/i.test(n));
+        const sampai = nama.find((n) => /^laporan\[tanggal[^\]]*(sampai|akhir|to)[^\]]*\]$/i.test(n));
+        if (!dari) throw new Error('kolom tanggal dari di form Rekap Piutang tidak ditemukan');
+        return { action: new URL(form.getAttribute('action') || REKAP_PIUTANG_URL, location.origin).href, field: field, dari: dari, sampai: sampai };
+    }
+
+    // "Total Diterima" cell: "Rp 493,000.00 Bank Transfer - BCA ..." (nominal + keterangan metode bayar nempel) -> ambil nominalnya saja
+    const angkaDariRp = (t) => { const m = /Rp\s*([\d.,]+)/.exec(String(t || '')); return m ? (parseFloat(m[1].replace(/,/g, '')) || 0) : keAngka(t); };
 
     async function ambilPiutang() {
-        const res = await fetch(PIUTANG_URL, { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'text/html' } });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const f = await ambilFormPiutang();
+        const hariIni = tglHariIni();
+        const body = new URLSearchParams(f.field);
+        body.set(f.dari, hariIni);
+        if (f.sampai) body.set(f.sampai, hariIni);
+        const res = await fetch(f.action, { method: 'POST', credentials: 'same-origin', cache: 'no-store', body: body });
+        if (!res.ok) throw new Error('HTTP ' + res.status + ' saat memuat Rekap Piutang');
         const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
-        const tabel = doc.querySelector('table');
-        if (!tabel) throw new Error('tabel Dana Masuk tidak ditemukan');
+        const tabel = Array.from(doc.querySelectorAll('table')).find((t) => Array.from(t.querySelectorAll('thead th, thead td')).some((x) => /^total diterima$/i.test(rapih(x.textContent))));
+        if (!tabel) throw new Error('tabel Rekap Piutang tidak ditemukan');
         const th = Array.from(tabel.querySelectorAll('thead th, thead td')).map((x) => rapih(x.textContent).toLowerCase());
-        const iKet = th.indexOf('keterangan');
-        const iDebit = th.indexOf('debit');
-        if (iKet < 0 || iDebit < 0) throw new Error('kolom Keterangan/Debit tidak ditemukan');
-        let total = 0, jumlah = 0;
+        const iFaktur = th.indexOf('no faktur');
+        const iOutlet = th.indexOf('outlet');
+        const iPelanggan = th.indexOf('pelanggan');
+        const iTotal = th.indexOf('total diterima');
+        const iLog = th.indexOf('log transaksi');
+        if (iTotal < 0) throw new Error('kolom Total Diterima tidak ditemukan');
+        let total = 0;
+        const daftar = [];
         tabel.querySelectorAll('tbody tr').forEach((tr) => {
             const c = Array.from(tr.cells);
-            if (c.length <= Math.max(iKet, iDebit)) return;   // baris pesan kosong ("tidak ada data")
-            if (!/piutang/i.test(rapih(c[iKet].textContent))) return;
-            total += keAngka(c[iDebit].textContent);
-            jumlah++;
+            if (c.length <= Math.max(iTotal, iFaktur, iOutlet, iPelanggan, iLog)) return;   // baris pesan kosong ("tidak ada data")
+            const sel = (i) => (i >= 0 && c[i] ? rapih(c[i].textContent) : '');
+            const nilai = angkaDariRp(sel(iTotal));
+            total += nilai;
+            daftar.push({ faktur: sel(iFaktur), outlet: sel(iOutlet), pelanggan: sel(iPelanggan), total: nilai, log: sel(iLog) });
         });
-        return { total: total, jumlah: jumlah };
+        return { total: total, jumlah: daftar.length, daftar: daftar };
     }
 
     async function muatPiutang() {
         if (!piutangKartu || !document.body.contains(piutangKartu) || jalanPiutang) return;
         jalanPiutang = true;
+        if (popupPiutangBuka) isiPopupPiutang();
+        perbaruiSegarPiutang();
         try {
             const h = await ambilPiutang();
             piutangTerbaca = true;
+            dataPiutang = h;
+            galatPiutang = '';
+            if (popupPiutangBuka) isiPopupPiutang();
             piutangUtama.textContent = fmtRp(h.total);
             piutangKedua.textContent = h.jumlah + ' transaksi hari ini';
-            piutangKartu.title = h.jumlah + ' transaksi penerimaan piutang hari ini (dari Dana Masuk)';
+            piutangKartu.title = h.jumlah + ' transaksi penerimaan piutang hari ini (klik untuk melihat daftar)';
         } catch (err) {
             if (!piutangTerbaca) piutangUtama.textContent = 'Rp -';
             piutangKartu.title = 'Gagal memuat Penerima Piutang: ' + err.message;
+            galatPiutang = err.message;
+            if (popupPiutangBuka) isiPopupPiutang();
             console.warn('[home.js] penerima piutang: ' + err.message);
         } finally {
             jalanPiutang = false;
+            perbaruiSegarPiutang();
         }
     }
 
@@ -275,6 +322,8 @@
         piutangKartu = hasil.kartu;
         piutangUtama = hasil.saldo;
         piutangKedua = hasil.keluar;
+        piutangKedua.style.cursor = 'pointer';
+        piutangKedua.style.textDecoration = 'underline dotted';
         muatPiutang();
         return true;
     }
@@ -378,6 +427,93 @@
         isiPopup();
         if (!dataKeluar && !jalanKeluar) muatPengeluaran();
         perbaruiSegar();
+    }
+
+    // ---------- popup: log Penerima Piutang hari ini (klik baris "N transaksi hari ini") ----------
+    let popupPiutangBuka = null;   // {lapisan, isi, segar}
+
+    function isiPopupPiutang() {
+        if (!popupPiutangBuka) return;
+        const isi = popupPiutangBuka.isi;
+        isi.textContent = '';
+        if (!dataPiutang) {
+            if (galatPiutang) {
+                isi.appendChild(el('div', { teks: 'Gagal memuat: ' + galatPiutang, gaya: 'padding:18px;color:#dc3545' }));
+            } else {
+                const memuat = el('div', { gaya: 'padding:22px 18px;color:#555;display:flex;align-items:center;font-size:14px' });
+                const ik = ikonSync();
+                ik.style.fontSize = '20px';
+                ik.style.marginRight = '10px';
+                memuat.appendChild(ik);
+                memuat.appendChild(document.createTextNode('Memuat penerimaan piutang hari ini ...'));
+                isi.appendChild(memuat);
+            }
+            return;
+        }
+        const d = dataPiutang;
+        isi.appendChild(el('div', { gaya: 'padding:8px 12px;background:#f3f8ff;border-bottom:1px solid #dbe7f7;font-size:13px', teks: d.jumlah + ' transaksi, total ' + fmtRp(d.total) }));
+        if (!d.daftar.length) {
+            isi.appendChild(el('div', { teks: 'Belum ada penerimaan piutang hari ini.', gaya: 'padding:18px;color:#555' }));
+            return;
+        }
+        const th = (t, kanan) => el('th', { teks: t, gaya: 'position:sticky;top:0;background:#eef0f4;padding:6px 8px;border-bottom:1px solid #cfd4dc;text-align:' + (kanan ? 'right' : 'left') + ';white-space:nowrap' });
+        const tabel = el('table', { gaya: 'width:100%;border-collapse:collapse;font-size:12px' }, [
+            el('thead', {}, [el('tr', {}, [th('Pelanggan'), th('Outlet'), th('No Faktur'), th('Log Transaksi'), th('Total Diterima', true)])])
+        ]);
+        const tb = el('tbody');
+        d.daftar.forEach((b) => {
+            const td = (t, extra) => el('td', { teks: t, gaya: 'padding:5px 8px;border-bottom:1px solid #eceff3;' + (extra || '') });
+            tb.appendChild(el('tr', {}, [
+                td(b.pelanggan), td(b.outlet, 'white-space:nowrap'), td(b.faktur, 'white-space:nowrap'), td(b.log, 'white-space:nowrap'),
+                td(fmtRp(b.total), 'text-align:right;white-space:nowrap')
+            ]));
+        });
+        tabel.appendChild(tb);
+        isi.appendChild(tabel);
+    }
+
+    function perbaruiSegarPiutang() {
+        if (!popupPiutangBuka) return;
+        const b = popupPiutangBuka.segar;
+        b.textContent = '';
+        if (jalanPiutang) b.appendChild(ikonSync());
+        b.appendChild(document.createTextNode(jalanPiutang ? 'Memuat ...' : '↻ Muat ulang'));
+        b.disabled = jalanPiutang;
+        b.style.opacity = jalanPiutang ? '.6' : '';
+        b.style.cursor = jalanPiutang ? 'default' : 'pointer';
+    }
+
+    function tutupPopupPiutang() {
+        if (popupPiutangBuka) { popupPiutangBuka.lapisan.remove(); popupPiutangBuka = null; }
+        document.removeEventListener('keydown', tekanTombolPiutang, true);
+    }
+    function tekanTombolPiutang(e) { if (e.key === 'Escape') tutupPopupPiutang(); }
+
+    function bukaPopupPiutang() {
+        if (popupPiutangBuka) return;
+        const lapisan = el('div', { gaya: 'position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px' });
+        const kotak = el('div', { gaya: 'background:#fff;color:#222;width:min(900px,100%);max-height:88vh;display:flex;flex-direction:column;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.4);font:13px sans-serif;overflow:hidden' });
+        const bTutup = el('button', { type: 'button', teks: '×', gaya: 'border:0;background:none;font-size:22px;line-height:1;cursor:pointer;color:#666' });
+        const judul = el('div', { gaya: 'display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #ddd' }, [
+            el('b', { teks: 'Penerima Piutang hari ini (' + tglHariIni() + ')' }), bTutup
+        ]);
+        const isi = el('div', { gaya: 'overflow:auto;flex:1;min-height:80px' });
+        const bBuka = el('a', { href: REKAP_PIUTANG_URL, target: '_blank', rel: 'noopener', teks: 'Buka Rekap Piutang', gaya: 'padding:6px 14px;border-radius:4px;background:#0d6efd;color:#fff;text-decoration:none;cursor:pointer' });
+        const bSegar = el('button', { type: 'button', teks: '↻ Muat ulang', gaya: 'padding:6px 14px;border:1px solid #b6d4fe;border-radius:4px;background:#fff;color:#0d6efd;cursor:pointer' });
+        const bTutup2 = el('button', { type: 'button', teks: 'Tutup', gaya: 'padding:6px 14px;border:0;border-radius:4px;background:#64748b;color:#fff;cursor:pointer' });
+        const kaki = el('div', { gaya: 'display:flex;gap:8px;justify-content:flex-end;padding:10px 12px;border-top:1px solid #ddd' }, [bSegar, bBuka, bTutup2]);
+        kotak.appendChild(judul); kotak.appendChild(isi); kotak.appendChild(kaki);
+        lapisan.appendChild(kotak);
+        document.body.appendChild(lapisan);
+        popupPiutangBuka = { lapisan: lapisan, isi: isi, segar: bSegar };
+        bTutup.addEventListener('click', tutupPopupPiutang);
+        bTutup2.addEventListener('click', tutupPopupPiutang);
+        bSegar.addEventListener('click', () => { dataPiutang = null; galatPiutang = ''; isiPopupPiutang(); muatPiutang(); });
+        lapisan.addEventListener('mousedown', (e) => { if (e.target === lapisan) tutupPopupPiutang(); });
+        document.addEventListener('keydown', tekanTombolPiutang, true);
+        isiPopupPiutang();
+        if (!dataPiutang && !jalanPiutang) muatPiutang();
+        perbaruiSegarPiutang();
     }
 
     // ---------- popup peringatan: saldo PPOB Rp 5 juta ke bawah ----------
@@ -587,6 +723,7 @@
             e.stopImmediatePropagation();
             e.preventDefault();
             if (keluarEl && keluarEl.contains(e.target)) bukaPopup();
+            else if (piutangKedua && piutangKedua.contains(e.target)) bukaPopupPiutang();
         }, true);
 
         // tunggu kartu stats muncul; kalau sampai batas waktu tidak ada, pakai kartu sederhana
