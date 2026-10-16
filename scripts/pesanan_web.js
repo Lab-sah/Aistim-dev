@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.26.0
+// @version      1.26.1
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -14,6 +14,9 @@
     // Hanya di jendela utama, dan bukan di halaman cetak/nota
     if (window.top !== window) return;
     if (/[?&]layout=/.test(location.search) || /\/nota/i.test(location.pathname)) return;
+    // Halaman Login (belum ada sesi): jangan polling /penjualans dulu. Fetch ke endpoint yang butuh
+    // login akan dibalas 401 oleh server, dan itu memicu modal "Login" bawaan Erzap muncul sendiri.
+    if (document.querySelector('input[type="password"]')) return;
     if (window.__aistimPesananWeb) return;
     window.__aistimPesananWeb = true;
 
