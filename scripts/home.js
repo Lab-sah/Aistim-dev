@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.7.1
-// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi); kartu PPOB hanya di Home.
+// @version      1.8.0
+// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu PPOB hanya di Home. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -316,6 +316,23 @@
 
     // ---------- popup peringatan: saldo PPOB Rp 5 juta ke bawah ----------
     // Muncul saat Home pertama dibuka, lalu diulang tiap 5 menit selama saldo masih di bawah batas; berhenti (dan popup ditutup) setelah saldo diisi.
+    // Hanya untuk user tertentu: nama/jabatan user yang login (label "NAMA (JABATAN)" di header) memuat salah satu kata ini.
+    const NAMA_IZIN_NOTIF = ['SURYO', 'SENTOT', 'MANAJEMEN PUSAT'];
+    // Label user login: elemen daun (tanpa anak) berpola "NAMA (JABATAN)", mis. "SENTOT ARI HANDOKO (STAF IT)"
+    const RE_LABEL_USER = /^[A-Z][A-Z.' -]{2,60}\([^()]{2,40}\)$/;
+    function labelUserAktif() {
+        const semua = document.querySelectorAll('label, a, span, div, button');
+        for (const e of semua) {
+            if (e.children.length) continue;
+            const t = rapih(e.textContent);
+            if (RE_LABEL_USER.test(t)) return t;
+        }
+        return '';
+    }
+    function bolehNotifSaldo() {
+        const label = labelUserAktif().toUpperCase();
+        return !!label && NAMA_IZIN_NOTIF.some((n) => label.indexOf(n) !== -1);
+    }
     const NOTIF_BATAS = 5000000;   // peringatan bila saldo sama dengan atau di bawah batas ini (5 juta ke bawah)
     const NOTIF_ULANG_MS = 5 * 60 * 1000;
     let notifTerakhir = 0;      // waktu popup terakhir ditampilkan (0 = belum pernah di halaman ini)
@@ -357,6 +374,7 @@
             tutupNotif();
             return;
         }
+        if (!bolehNotifSaldo()) return;   // bukan user yang diizinkan lihat popup peringatan saldo
         if (Date.now() - notifTerakhir >= NOTIF_ULANG_MS) {   // pertama terbaca (notifTerakhir = 0) langsung tampil
             notifTerakhir = Date.now();
             tampilNotif(saldo);
