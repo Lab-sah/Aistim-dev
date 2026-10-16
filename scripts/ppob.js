@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - PPOB (No Faktur + Outlet)
 // @namespace    http://tampermonkey.net/
-// @version      1.19.5
+// @version      1.19.6
 // @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Filter Toko (outlet) ditambahkan di bagian paling atas form pencarian: tombol Toko membuka daftar outlet (diambil dari /outlets/list_nama_outlet/new hanya setelah diklik) dan menyaring baris tabel yang sedang tampil berdasarkan outlet notanya. Transaksi berstatus Error diberi keterangan "Sudah dibatalkan" / "Belum dibatalkan" di kolom Status (dicek dari status nota di /penjualans; bila belum dibatalkan, halaman nota dicek: peringatan "telah dibatalkan" lalu akun "Retur Penjualan" di rincian transaksi => "Sudah diretur"). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan.
 // @author       You
 // @match        https://trial.erzap.com/penjualans*
@@ -18,7 +18,7 @@
     if (!/^\/penjualans(\/aktifitas_ppob\/new|\/index\/new)?\/?$/.test(location.pathname)) return;
     if (window.__aistimPpob) return;
     window.__aistimPpob = true;
-    console.log('[ppob.js] v1.19.5 aktif di ' + location.pathname);
+    console.log('[ppob.js] v1.19.6 aktif di ' + location.pathname);
 
     const TABEL = '#data_table';
     const KOLOM_FAKTUR = 2;   // kolom ke-2 = "No Faktur" (No | No Faktur | Status | ...)
@@ -395,7 +395,8 @@
         el.style.textShadow = '';
         el.style.padding = retur ? '1px 6px' : '';
         el.style.borderRadius = retur ? '3px' : '';
-        el.style.display = retur ? 'inline-block' : '';
+        el.style.display = 'block';          // selalu baris baru di bawah status (bukan nempel di samping "Error")
+        el.style.width = retur ? 'fit-content' : '';   // badge kuning menyesuaikan lebar teks, bukan melebar penuh
         el.title = retur ? 'Ada akun "Retur Penjualan" di rincian transaksi nota'
                          : 'Status nota di penjualan: ' + ((n && n.statusNota) || (batal ? 'Dibatalkan' : '-'));
     }
