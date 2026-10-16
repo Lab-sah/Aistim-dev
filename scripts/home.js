@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.8.0
-// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu PPOB hanya di Home. Tidak jalan di halaman Login.
+// @version      1.9.0
+// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerima Piutang" (total Debit hari ini di Dana Masuk yang Keterangannya memuat "piutang", dari /main/table_data_transaksi_hari_ini/new?layout=simple&target=2). Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu PPOB & Penerima Piutang hanya di Home. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -213,6 +213,72 @@
         }
     }
 
+    // ---------- kartu "Penerima Piutang": total Debit hari ini di Dana Masuk yang Keterangannya memuat "piutang" ----------
+    // Sumber sama dengan popup bawaan Erzap saat kartu "Dana Masuk" di-klik (target=2 dikonfirmasi lewat rekaman: /jurnals/*
+    // dengan keterangan "Penerimaan Piutang Usaha dari ..."), tabel kolom: No | No Jurnal | Tanggal Jurnal | Tanggal Transaksi
+    // | Posisi Saldo | Debit | Kredit | Keterangan — sudah scoped "hari ini" oleh server, tidak perlu paging.
+    const PIUTANG_URL = '/main/table_data_transaksi_hari_ini/new?layout=simple&target=2';
+    let piutangKartu = null, piutangUtama = null, piutangKedua = null;
+    let jalanPiutang = false, piutangTerbaca = false;
+
+    async function ambilPiutang() {
+        const res = await fetch(PIUTANG_URL, { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'text/html' } });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+        const tabel = doc.querySelector('table');
+        if (!tabel) throw new Error('tabel Dana Masuk tidak ditemukan');
+        const th = Array.from(tabel.querySelectorAll('thead th, thead td')).map((x) => rapih(x.textContent).toLowerCase());
+        const iKet = th.indexOf('keterangan');
+        const iDebit = th.indexOf('debit');
+        if (iKet < 0 || iDebit < 0) throw new Error('kolom Keterangan/Debit tidak ditemukan');
+        let total = 0, jumlah = 0;
+        tabel.querySelectorAll('tbody tr').forEach((tr) => {
+            const c = Array.from(tr.cells);
+            if (c.length <= Math.max(iKet, iDebit)) return;   // baris pesan kosong ("tidak ada data")
+            if (!/piutang/i.test(rapih(c[iKet].textContent))) return;
+            total += keAngka(c[iDebit].textContent);
+            jumlah++;
+        });
+        return { total: total, jumlah: jumlah };
+    }
+
+    async function muatPiutang() {
+        if (!piutangKartu || !document.body.contains(piutangKartu) || jalanPiutang) return;
+        jalanPiutang = true;
+        try {
+            const h = await ambilPiutang();
+            piutangTerbaca = true;
+            piutangUtama.textContent = fmtRp(h.total);
+            piutangKedua.textContent = h.jumlah + ' transaksi hari ini';
+            piutangKartu.title = h.jumlah + ' transaksi penerimaan piutang hari ini (dari Dana Masuk)';
+        } catch (err) {
+            if (!piutangTerbaca) piutangUtama.textContent = 'Rp -';
+            piutangKartu.title = 'Gagal memuat Penerima Piutang: ' + err.message;
+            console.warn('[home.js] penerima piutang: ' + err.message);
+        } finally {
+            jalanPiutang = false;
+        }
+    }
+
+    // kartu disisipkan tepat di sebelah kanan kartu PPOB; butuh kartu PPOB sudah terpasang dulu
+    function pasangPiutang() {
+        if (document.querySelector('[data-aistim-piutang]')) return true;
+        if (!kartu || !document.body.contains(kartu)) return false;
+        const asal = cariKartuAsli();
+        const opsi = { label: 'Penerima Piutang', attr: 'data-aistim-piutang', placeholder: 'Rp ...' };
+        let hasil = asal ? bangunDariSalinan(asal, opsi) : null;
+        if (!hasil) hasil = bangunSederhana(opsi);
+        if (!hasil) return false;
+        kartu.parentNode.insertBefore(hasil.kartu, kartu.nextSibling);
+        hasil.kartu.style.textDecoration = 'none';
+        hasil.kartu.querySelectorAll('*').forEach((e) => { e.style.textDecoration = 'none'; });
+        piutangKartu = hasil.kartu;
+        piutangUtama = hasil.saldo;
+        piutangKedua = hasil.keluar;
+        muatPiutang();
+        return true;
+    }
+
     // ---------- popup: daftar transaksi PPOB hari ini (klik baris "Transaksi hari ini") ----------
     let dataKeluar = null, galatKeluar = '', popupBuka = null;   // popupBuka = {lapisan, isi}
 
@@ -385,13 +451,16 @@
 
     // ---------- cari kartu stats yang sudah ada (label_transaksi) ----------
     // Kartu = elemen anak dari baris yang sama dengan kartu lain; tiap kartu memuat satu .label_transaksi
+    // Kartu buatan kita sendiri (PPOB / Penerima Piutang) punya class label_transaksi juga (hasil clone) -> disisihkan,
+    // supaya tidak ikut ter-"temukan" sebagai kartu asli dan ter-clone ulang.
+    const BUATAN_SENDIRI = '[data-aistim-saldo-ppob], [data-aistim-piutang]';
     function cariKartuAsli() {
-        const labels = Array.from(document.querySelectorAll('.label_transaksi'));
+        const labels = Array.from(document.querySelectorAll('.label_transaksi')).filter((e) => !e.closest(BUATAN_SENDIRI));
         if (!labels.length) return null;
         let el = labels[labels.length - 1];
         while (el && el.parentElement && el.parentElement !== document.body) {
             const induk = el.parentElement;
-            const saudara = Array.from(induk.children).filter((c) => c.querySelector('.label_transaksi') || c.classList.contains('label_transaksi'));
+            const saudara = Array.from(induk.children).filter((c) => !c.matches(BUATAN_SENDIRI) && (c.querySelector('.label_transaksi') || c.classList.contains('label_transaksi')));
             if (saudara.length >= 2) return { kartu: el, induk: induk, daftar: saudara };
             el = induk;
         }
@@ -428,43 +497,52 @@
     }
 
     // ---------- bangun kartu: salin kartu asli supaya tampilannya sama ----------
-    function bangunDariSalinan(asal) {
+    // opsi: {label, attr, placeholder} — dipakai juga untuk kartu "Penerima Piutang" di samping kartu PPOB
+    function bangunDariSalinan(asal, opsi) {
+        opsi = opsi || {};
+        const labelTeks = opsi.label || LABEL;
+        const attr = opsi.attr || 'data-aistim-saldo-ppob';
+        const placeholder = opsi.placeholder || 'Saldo (...)';
         const salinan = asal.kartu.cloneNode(true);
         bersihkanPemicu(salinan);
         salinan.removeAttribute('id');
         salinan.querySelectorAll('[id]').forEach((e) => e.removeAttribute('id'));   // hindari id ganda
         salinan.querySelectorAll('canvas, svg, img').forEach((e) => e.remove());      // grafik/ikon milik kartu asli
-        salinan.setAttribute('data-aistim-saldo-ppob', '1');
+        salinan.setAttribute(attr, '1');
 
-        const label = salinan.matches('.label_transaksi') ? salinan : salinan.querySelector('.label_transaksi');
-        if (!label) return null;
-        label.textContent = LABEL;
+        const lbl = salinan.matches('.label_transaksi') ? salinan : salinan.querySelector('.label_transaksi');
+        if (!lbl) return null;
+        lbl.textContent = labelTeks;
 
         // angka: daun teks pertama yang memuat digit; daun angka lain (persen/keterangan) dikosongkan
-        const angka = daunTeks(salinan).filter((e) => e !== label && !label.contains(e) && /\d/.test(e.textContent));
+        const angka = daunTeks(salinan).filter((e) => e !== lbl && !lbl.contains(e) && /\d/.test(e.textContent));
         let utama = angka[0] || null;
         angka.slice(1).forEach((e) => { e.textContent = ''; });
         if (!utama) {
             utama = document.createElement('div');
             utama.style.cssText = 'font-weight:700;font-size:1.4em;';
-            label.parentNode.insertBefore(utama, label.nextSibling);
+            lbl.parentNode.insertBefore(utama, lbl.nextSibling);
         }
-        utama.textContent = 'Saldo (...)';
+        utama.textContent = placeholder;
         const kedua = buatBarisKeluar(utama);
         utama.parentNode.insertBefore(kedua, utama.nextSibling);
         return { kartu: salinan, saldo: utama, keluar: kedua };
     }
 
     // ---------- cadangan: kartu sederhana bila susunan halaman tidak dikenali ----------
-    function bangunSederhana() {
+    function bangunSederhana(opsi) {
+        opsi = opsi || {};
+        const labelTeks = opsi.label || LABEL;
+        const attr = opsi.attr || 'data-aistim-saldo-ppob';
+        const placeholder = opsi.placeholder || 'Saldo (...)';
         const k = document.createElement('div');
-        k.setAttribute('data-aistim-saldo-ppob', '1');
+        k.setAttribute(attr, '1');
         k.style.cssText = 'display:inline-block;margin:8px;padding:10px 16px;border:1px solid #cfe2ff;border-left:4px solid #0d6efd;border-radius:4px;background:#f3f8ff;font-family:inherit;';
         const l = document.createElement('div');
-        l.textContent = LABEL;
+        l.textContent = labelTeks;
         l.style.cssText = 'font-size:12px;font-weight:600;color:#555;';
         const n = document.createElement('div');
-        n.textContent = 'Saldo (...)';
+        n.textContent = placeholder;
         n.style.cssText = 'font-size:20px;font-weight:700;';
         const kedua = buatBarisKeluar(n);
         k.appendChild(l);
@@ -504,7 +582,7 @@
         // Penangkap klik (fase capture, paling awal): klik di dalam kartu PPOB tidak boleh sampai ke penanganan klik bawaan Erzap
         // (yang akan memuat /main/table_data_transaksi_hari_ini/new?layout=simple&target=N). Hanya baris "Transaksi hari ini" membuka popup kita.
         document.addEventListener('click', (e) => {
-            const k = e.target && e.target.closest && e.target.closest('[data-aistim-saldo-ppob]');
+            const k = e.target && e.target.closest && e.target.closest('[data-aistim-saldo-ppob], [data-aistim-piutang]');
             if (!k) return;
             e.stopImmediatePropagation();
             e.preventDefault();
@@ -515,7 +593,9 @@
         const mulai = Date.now();
         const pemeriksa = setInterval(() => {
             const habis = Date.now() - mulai > MAKS_TUNGGU_MS;
-            if (pasang(habis) || habis) clearInterval(pemeriksa);
+            const siap = pasang(habis);
+            if (siap) pasangPiutang();   // disisipkan tepat di sebelah kanan kartu PPOB
+            if (siap || habis) clearInterval(pemeriksa);
         }, 400);
     }
 
@@ -523,10 +603,11 @@
     setInterval(() => { if (!document.hidden) muatSaldo(); }, SALDO_TIAP_MS);
     if (!DI_HOME) muatSaldo();   // halaman lain: cek langsung saat dibuka (popup "pertama dibuka")
     if (DI_HOME) {
-        setInterval(() => { if (!document.hidden) muatPengeluaran(); }, PENGELUARAN_TIAP_MS);
+        setInterval(() => { if (!document.hidden) { muatPengeluaran(); muatPiutang(); } }, PENGELUARAN_TIAP_MS);
         // kartu stats bisa digambar ulang oleh halaman (ganti outlet/periode): pasang lagi bila kartu kita hilang
         setInterval(() => {
-            if (kartu && !document.body.contains(kartu)) { kartu = null; pasang(false); }
+            if (kartu && !document.body.contains(kartu)) { kartu = null; piutangKartu = null; pasang(false); pasangPiutang(); }
+            else if (!piutangKartu || !document.body.contains(piutangKartu)) { piutangKartu = null; pasangPiutang(); }
         }, 2000);
     }
 })();
