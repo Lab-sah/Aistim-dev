@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.12.0
+// @version      1.13.0
 // @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerima Piutang" (total "Total Diterima" hari ini dari Laporan Rekap Piutang Penerimaan /laporans/rekap_piutang/new, form pencariannya dibaca lalu tanggal di-set ke hari ini); klik baris "N transaksi hari ini" = popup log (Pelanggan, Outlet, No Faktur, Log Transaksi, Total Diterima) + tombol ke Rekap Piutang. Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu PPOB & Penerima Piutang hanya di Home. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -250,10 +250,13 @@
     // "Total Diterima" cell: "Rp 493,000.00 Bank Transfer - BCA ..." (nominal + keterangan metode bayar nempel) -> ambil nominalnya saja
     const angkaDariRp = (t) => { const m = /Rp\s*([\d.,]+)/.exec(String(t || '')); return m ? (parseFloat(m[1].replace(/,/g, '')) || 0) : keAngka(t); };
 
-    // Halaman Rekap Piutang punya blok "Rekapitulasi" (Total Piutang Diterima / Total Potongan) yang sudah dihitung
-    // server — dipakai sebagai angka resmi (jumlah manual per-baris sempat meleset, kemungkinan ada potongan/baris
-    // yang tidak ikut terhitung). Cari elemen daun berteks label itu, lalu ambil angka "Rp ..." di teks yang sama,
-    // sibling berikutnya, atau gabungan teks induknya (markup persisnya tidak diketahui, jadi dicoba beberapa cara).
+    // Halaman Rekap Piutang punya blok "Rekapitulasi" (Total Piutang Diterima / Total Potongan) yang sudah dihitung —
+    // dua kali dicoba baca dari HTML mentah (fetch) dan angkanya selalu meleset dari yang tampil di halaman asli,
+    // jadi kemungkinan besar angka itu dihitung lewat JavaScript punya Erzap SETELAH halaman dimuat, bukan dari
+    // server. Makanya dibaca lewat iframe tersembunyi yang BENERAN memuat & submit form (javascript halaman jalan
+    // seperti biasa), bukan fetch() HTML mentah — sama seperti cadangan iframe di ppob.js. Cari elemen daun berteks
+    // label itu, lalu ambil angka "Rp ..." di teks yang sama, sibling berikutnya, atau gabungan teks induknya
+    // (markup persisnya tidak diketahui, jadi dicoba beberapa cara).
     function angkaSetelahLabel(doc, labelRegex) {
         const semua = Array.from(doc.querySelectorAll('body *')).filter((e) => e.children.length === 0);
         for (const e of semua) {
@@ -274,24 +277,33 @@
         return null;
     }
 
-    async function ambilPiutang() {
-        const f = await ambilFormPiutang();
-        const hariIni = tglHariIni();
-        const body = new URLSearchParams(f.field);
-        body.set(f.dari, hariIni);
-        if (f.sampai) body.set(f.sampai, hariIni);
-        const res = await fetch(f.action, { method: 'POST', credentials: 'same-origin', cache: 'no-store', body: body });
-        if (!res.ok) throw new Error('HTTP ' + res.status + ' saat memuat Rekap Piutang');
-        const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+    function setNilaiForm(el, nilai) {
+        el.value = nilai;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    async function tungguDi(fn, ms, pesan) {
+        const mulai = Date.now();
+        for (;;) {
+            let v = null;
+            try { v = fn(); } catch (e) { v = null; }
+            if (v) return v;
+            if (Date.now() - mulai > ms) throw new Error(pesan);
+            await tidur(300);
+        }
+    }
+
+    function ekstrakRekapPiutang(doc) {
         const tabel = Array.from(doc.querySelectorAll('table')).find((t) => Array.from(t.querySelectorAll('thead th, thead td')).some((x) => /^total diterima$/i.test(rapih(x.textContent))));
-        if (!tabel) throw new Error('tabel Rekap Piutang tidak ditemukan');
+        const totalResmi = angkaSetelahLabel(doc, /total\s+piutang\s+diterima/i);
+        if (!tabel || totalResmi == null) return null;   // belum halaman hasil (masih form kosong) -> tungguDi coba lagi
         const th = Array.from(tabel.querySelectorAll('thead th, thead td')).map((x) => rapih(x.textContent).toLowerCase());
         const iFaktur = th.indexOf('no faktur');
         const iOutlet = th.indexOf('outlet');
         const iPelanggan = th.indexOf('pelanggan');
         const iTotal = th.indexOf('total diterima');
         const iLog = th.indexOf('log transaksi');
-        if (iTotal < 0) throw new Error('kolom Total Diterima tidak ditemukan');
+        if (iTotal < 0) return null;
         let totalBaris = 0;
         const daftar = [];
         tabel.querySelectorAll('tbody tr').forEach((tr) => {
@@ -302,9 +314,38 @@
             totalBaris += nilai;
             daftar.push({ faktur: sel(iFaktur), outlet: sel(iOutlet), pelanggan: sel(iPelanggan), total: nilai, log: sel(iLog) });
         });
-        const totalResmi = angkaSetelahLabel(doc, /total\s+piutang\s+diterima/i);
         const potongan = angkaSetelahLabel(doc, /total\s+potongan/i);
-        return { total: totalResmi != null ? totalResmi : totalBaris, potongan: potongan, jumlah: daftar.length, daftar: daftar };
+        return { total: totalResmi, totalBaris: totalBaris, potongan: potongan, jumlah: daftar.length, daftar: daftar };
+    }
+
+    async function ambilPiutang() {
+        const f = await ambilFormPiutang();
+        const hariIni = tglHariIni();
+        const fr = document.createElement('iframe');
+        fr.style.cssText = 'position:fixed;left:-10000px;top:0;width:1400px;height:1400px;border:0;opacity:0;pointer-events:none';
+        fr.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(fr);
+        try {
+            fr.src = REKAP_PIUTANG_URL;
+            const form = await tungguDi(() => {
+                const d = fr.contentDocument;
+                return d && d.readyState === 'complete' && d.getElementById('pencarian_rekap_piutang');
+            }, 20000, 'halaman Rekap Piutang tidak termuat');
+            const kolomDari = form.querySelector('[name="' + f.dari + '"]');
+            const kolomSampai = f.sampai ? form.querySelector('[name="' + f.sampai + '"]') : null;
+            if (!kolomDari) throw new Error('kolom tanggal dari tidak ditemukan di form');
+            setNilaiForm(kolomDari, hariIni);
+            if (kolomSampai) setNilaiForm(kolomSampai, hariIni);
+            // tombol Filter di halaman ini: <div class="bt_filter"> (dikonfirmasi dari rekaman klik), tanpa teks (ikon saja)
+            const tombol = fr.contentDocument.querySelector('.bt_filter') ||
+                           form.querySelector('button[type="submit"], input[type="submit"]') ||
+                           Array.from(form.querySelectorAll('button, input[type="submit"]')).find((b) => /filter|cari/i.test((b.textContent || '') + ' ' + (b.value || '')));
+            if (tombol) tombol.click(); else if (form.requestSubmit) form.requestSubmit(); else form.submit();
+            // hasil = halaman baru (POST) yang javascript-nya sudah selesai menghitung Rekapitulasi; dicoba berulang
+            return await tungguDi(() => { const d = fr.contentDocument; return d && d.readyState === 'complete' && ekstrakRekapPiutang(d); }, 25000, 'hasil Rekap Piutang tidak muncul');
+        } finally {
+            fr.remove();
+        }
     }
 
     async function muatPiutang() {
