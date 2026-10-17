@@ -22,6 +22,7 @@
     "rekapstokmin.js",
     "rakstok_lama.js",
     "home.js",
-    "penjualan.js"
+    "penjualan.js",
+    "grafik.js"
   ]
 }
