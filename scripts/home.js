@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.21.0
+// @version      1.21.1
 // @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerimaan Piutang" (Laporan Rekap Piutang, Tipe Rekap Penerimaan Piutang) dan "Pembayaran Hutang" (Laporan Rekap Hutang, Tipe Rekap Pembayaran Hutang): total dari blok Rekapitulasi, semua untuk hari ini, klik baris nota = popup daftar; lalu kartu "Pendapatan Lain-Lain" (Daftar Data Jurnal, gabungan Akun Pendapatan Lain + Bunga + Sewa, Dasar Filter Tanggal Transaksi, kolom Total dijumlah semua halaman). Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu-kartu ini hanya di Home. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -20,7 +20,7 @@
     const DI_HOME = location.pathname === '/';   // kartu PPOB hanya di Home; popup peringatan saldo di semua halaman
     if (window.__aistimHome) return;
     window.__aistimHome = true;
-    console.log('[home.js] v1.21.0 aktif di ' + location.pathname);
+    console.log('[home.js] v1.21.1 aktif di ' + location.pathname);
 
     const SALDO_URL = '/main/check_balance_ppob/new';
     const PPOB_URL = '/penjualans/aktifitas_ppob/new';
@@ -417,7 +417,13 @@
     ];
 
     async function ambilPendapatanLain(cfg) {
-        const hasil = await Promise.allSettled(AKUN_PENDAPATAN.map((akun) => ambilJurnalAkun(cfg, akun)));
+        // berurutan seperti manual (Pendapatan Lain, lalu Bunga, lalu Sewa): filter Daftar Jurnal bisa disimpan di sesi
+        // server, jadi kalau dijalankan bersamaan hasil satu akun bisa tertimpa filter akun lain
+        const hasil = [];
+        for (const akun of AKUN_PENDAPATAN) {
+            try { hasil.push({ status: 'fulfilled', value: await ambilJurnalAkun(cfg, akun) }); }
+            catch (e) { hasil.push({ status: 'rejected', reason: e }); }
+        }
         let kolom = null;
         const baris = [], catatan = [], dilihat = new Set();
         hasil.forEach((h, i) => {
