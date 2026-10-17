@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.7.2
+// @version      1.7.3
 // @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel. Tombol "Data Pembelian" mengambil daftar barang dengan cara yang sama dari Faktur Pembelian (No Faktur atau link /faktur_pembelians/<ID>).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
@@ -1072,10 +1072,21 @@
     // Dua kolom Periode (dari - sampai); kosong kalau tidak ketemu pasti dua (lebih baik
     // melewatkan pencarian per tanggal daripada mengisi kolom yang salah).
     function cari_input_periode($form) {
-        var $input = $form.find('input[name$="[tanggal_dari]"], input[name$="[tanggal_sampai]"]');
-        if ($input.length === 2) {
-            return $input;
+        // Nama field Periode di form Pencarian Erzap (pola yang sama dipakai ppob.js untuk /penjualans):
+        // pencarian[tanggal_dari] / pencarian[tanggal_sampai], atau variasinya (tanggal_awal, tanggal_akhir, ...).
+        var $teks = $form.find('input').filter(function () {
+            return (this.type || 'text').toLowerCase() === 'text';
+        });
+        var $dari = $teks.filter(function () {
+            return /^pencarian\[tanggal[^\]]*(dari|awal|from|mulai)[^\]]*\]$/i.test(this.name);
+        }).first();
+        var $sampai = $teks.filter(function () {
+            return /^pencarian\[tanggal[^\]]*(sampai|akhir|to)[^\]]*\]$/i.test(this.name);
+        }).first();
+        if ($dari.length > 0 && $sampai.length > 0) {
+            return $([$dari[0], $sampai[0]]);
         }
+        var $input;
         var $label = cari_label_doc($form, 'periode');
         if ($label.length === 0) {
             return $();
@@ -1086,6 +1097,43 @@
         }
         $input = $kontainer.find('input[type="text"], input:not([type])');
         return $input.length === 2 ? $input : $();
+    }
+
+    // Rentang tanggal yang dicoba berurutan untuk No Faktur. Petunjuk bulan dari nomornya kalau ada:
+    // "J1026-68557" (huruf + MMYY + "-") atau "JKTDM.10.26.009518" (".MM.YY."); nomor lain (mis. "00999")
+    // tidak punya petunjuk. Sisanya melebar bertahap (3 bulan, 12 bulan, 2 tahun) - bertahap karena
+    // tidak diketahui apakah server membatasi lebar rentang.
+    function rentang_tanggal_faktur(kode) {
+        var hasil = [];
+        var m = /^[A-Za-z]+(\d{2})(\d{2})-/.exec(kode) || /[.\/-](\d{2})[.\/-](\d{2})[.\/-]/.exec(kode);
+        if (m) {
+            var bulan = parseInt(m[1], 10);
+            var tahun = 2000 + parseInt(m[2], 10);
+            if (bulan >= 1 && bulan <= 12) {
+                hasil.push([new Date(tahun, bulan - 1, 1), new Date(tahun, bulan, 0)]);
+                hasil.push([new Date(tahun, bulan - 2, 1), new Date(tahun, bulan + 1, 0)]);
+            }
+        }
+        var hari_ini = new Date();
+        hasil.push([new Date(hari_ini.getFullYear(), hari_ini.getMonth() - 3, 1), hari_ini]);
+        hasil.push([new Date(hari_ini.getFullYear() - 1, hari_ini.getMonth(), 1), hari_ini]);
+        hasil.push([new Date(hari_ini.getFullYear() - 2, 0, 1), hari_ini]);
+        return hasil;
+    }
+
+    // Isi kolom "No Faktur" pada baris-baris hasil pencarian (untuk pesan gagal/diagnostik).
+    function daftar_no_faktur_hasil(html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var daftar = [];
+        Array.prototype.forEach.call(doc.querySelectorAll('tr'), function (tr) {
+            var idx = indeks_kolom(tr, 'no faktur');
+            if (idx >= 0 && idx < tr.cells.length) {
+                // Nomornya biasanya berupa link; teks lain di sel (mis. "Ditutup - Hutang") tidak ikut.
+                var link = tr.cells[idx].querySelector('a');
+                daftar.push($.trim((link || tr.cells[idx]).textContent).replace(/\s+/g, ' '));
+            }
+        });
+        return daftar;
     }
 
     // resolve(id) kalau ketemu tepat 1 faktur; reject(pesan) kalau tidak/ambigu/gagal
@@ -1109,12 +1157,9 @@
                 $field.val(kode);
                 var $periode = cari_input_periode($form);
                 // Percobaan pertama memakai isian Periode bawaan form (kosong = seperti klik cari manual);
-                // kalau tidak ketemu dan kolom Periode dikenali, coba rentang tanggal dari kodenya.
-                // No Faktur yang bukan pola kode (mis. "00999") tidak memberi petunjuk bulan, jadi
-                // rentang terakhir diperlebar ke 2 tahun ke belakang.
-                var hari_ini = new Date();
-                var rentang_lebar = [new Date(hari_ini.getFullYear() - 2, 0, 1), hari_ini];
-                var percobaan = [null].concat($periode.length === 2 ? rentang_tanggal_kode(kode).concat([rentang_lebar]) : []);
+                // kalau tidak ketemu dan kolom Periode dikenali, coba rentang tanggal (lihat rentang_tanggal_faktur).
+                var percobaan = [null].concat($periode.length === 2 ? rentang_tanggal_faktur(kode) : []);
+                var hasil_terakhir = null; // No Faktur di baris hasil pencarian terakhir, untuk pesan gagal
                 var metode = ($form.attr('method') || 'post').toUpperCase();
                 var aksi = $form.attr('action');
                 if (!aksi || aksi === '#') {
@@ -1124,7 +1169,21 @@
                 var i = 0;
                 (function coba() {
                     if (i >= percobaan.length) {
-                        d.reject('No Faktur ' + kode + ' tidak ditemukan di Faktur Pembelian. Cek lagi nomornya, atau tempel link fakturnya.');
+                        var rincian = '';
+                        if ($periode.length !== 2) {
+                            rincian = ' Kolom Periode di form tidak dikenali, jadi hanya dicari dengan Periode bawaan form.';
+                        }
+                        if (hasil_terakhir && hasil_terakhir.length > 0) {
+                            rincian += ' Hasil pencarian terakhir berisi ' + hasil_terakhir.length + ' baris, No Faktur: ' +
+                                hasil_terakhir.slice(0, 3).join(', ') + (hasil_terakhir.length > 3 ? ', ...' : '') + '.';
+                        } else {
+                            rincian += ' Server tidak mengembalikan satu pun baris.';
+                        }
+                        console.warn('[lihat-barang] No Faktur ' + kode + ' tidak ketemu. Percobaan:', percobaan.length,
+                            '| kolom Periode dikenali:', $periode.length === 2, '| aksi:', metode + ' ' + aksi,
+                            '| No Faktur di hasil terakhir:', hasil_terakhir);
+                        d.reject('No Faktur ' + kode + ' tidak ditemukan di Faktur Pembelian.' + rincian +
+                            ' Cek lagi nomornya, atau tempel link fakturnya.');
                         return;
                     }
                     var r = percobaan[i++];
@@ -1140,6 +1199,7 @@
                     tulis_status('Mencari kode ' + kode + (r ? ' (' + format_tgl(r[0]) + ' s/d ' + format_tgl(r[1]) + ')' : '') + ' ...');
                     $.ajax({ url: aksi, type: metode, dataType: 'text', data: data })
                         .done(function (html) {
+                            hasil_terakhir = daftar_no_faktur_hasil(html);
                             var ids = id_dari_hasil_cari(html, kode, POLA_HREF_FAKTUR_PEMBELIAN, 'no faktur');
                             if (ids.length === 1) {
                                 d.resolve(ids[0]);
