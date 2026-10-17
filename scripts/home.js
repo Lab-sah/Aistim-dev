@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.18.1
-// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerima Piutang" (Laporan Rekap Piutang, Tipe Rekap Penerimaan Piutang) dan "Pembayaran Hutang" (Laporan Rekap Hutang, Tipe Rekap Pembayaran Hutang): total dari blok Rekapitulasi, periode bisa dipilih Harian/Mingguan/Bulanan per kartu, klik baris nota = popup daftar; lalu kartu "Pendapatan Lain-Lain" (sumber data belum diatur). Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu PPOB & Penerima Piutang hanya di Home. Tidak jalan di halaman Login.
+// @version      1.19.0
+// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerima Piutang" (Laporan Rekap Piutang, Tipe Rekap Penerimaan Piutang) dan "Pembayaran Hutang" (Laporan Rekap Hutang, Tipe Rekap Pembayaran Hutang): total dari blok Rekapitulasi, periode dipilih per kartu (Hari ini/Kemarin/Mingguan/Bulanan), klik baris nota = popup daftar; lalu kartu "Pendapatan Lain-Lain" (Daftar Data Jurnal, Akun Pendapatan Lain, Dasar Filter Tanggal Transaksi, kolom Total dijumlah semua halaman). Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu PPOB & Penerima Piutang hanya di Home. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -20,7 +20,7 @@
     const DI_HOME = location.pathname === '/';   // kartu PPOB hanya di Home; popup peringatan saldo di semua halaman
     if (window.__aistimHome) return;
     window.__aistimHome = true;
-    console.log('[home.js] v1.18.1 aktif di ' + location.pathname);
+    console.log('[home.js] v1.19.0 aktif di ' + location.pathname);
 
     const SALDO_URL = '/main/check_balance_ppob/new';
     const PPOB_URL = '/penjualans/aktifitas_ppob/new';
@@ -225,7 +225,10 @@
           periode: ['harian', 'mingguan', 'bulanan'] },
         { id: 'hutang', label: 'Pembayaran Hutang', attr: 'data-aistim-hutang', url: '/laporans/rekap_hutang/new',
           form: 'pencarian_rekap_hutang', tipe: /pembayaran/i, judul: /rekap\s*pembayaran\s*hutang/i,
-          periode: ['harian', 'kemarin', 'mingguan', 'bulanan'] }
+          periode: ['harian', 'kemarin', 'mingguan', 'bulanan'] },
+        // bukan halaman Laporan Rekap: Daftar Data Jurnal dengan Akun = Pendapatan Lain, Dasar Filter = Tanggal Transaksi
+        { id: 'pendapatan_lain', label: 'Pendapatan Lain-Lain', attr: 'data-aistim-pendapatan-lain', url: '/jurnals?id=new',
+          ambil: ambilPendapatanLain, satuan: 'jurnal', periode: ['harian', 'mingguan', 'bulanan'] }
     ];
     const PERIODE = { harian: 'Hari ini', kemarin: 'Kemarin', mingguan: 'Minggu ini', bulanan: 'Bulan ini' };
     const NAMA_PERIODE = { harian: 'Hari ini', kemarin: 'Kemarin', mingguan: 'Mingguan', bulanan: 'Bulanan' };
@@ -361,10 +364,144 @@
         }
     }
 
+    // ---------- Pendapatan Lain-Lain: Daftar Data Jurnal (/jurnals) ----------
+    // Bukan laporan rekap: form Pencarian di kanan (Dasar Filter Periode, Periode dari s/d, Akun [autocomplete], Keterangan,
+    // tombol #bt_filter_pencarian_jurnal), tabel No | Lihat | Edit | No Voucher | Tanggal | Total | Jenis Pembayaran |
+    // Keterangan | Outlet | Tanggal Dibuat. Nama field form belum diketahui pasti, jadi dicari dari teks labelnya.
+    // Tabel bisa berhalaman: semua halaman dibaca dan kolom Total dijumlahkan (tiap voucher dihitung sekali).
+
+    // input teks pertama setelah label berteks `pola` (mis. "Akun :") di dalam root
+    function inputSetelahLabel(root, pola) {
+        const lbl = Array.from(root.querySelectorAll('label, span, div, td, th, b, p')).find((e) => e.children.length === 0 && pola.test(rapih(e.textContent)));
+        if (!lbl) return null;
+        return Array.from(root.querySelectorAll('input[type="text"], input:not([type]), textarea'))
+            .find((x) => lbl.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING) || null;
+    }
+
+    // isi kolom autocomplete jQuery UI seperti diketik manual, lalu klik pilihan yang cocok `polaItem`
+    async function pilihAutocomplete(input, teks, polaItem) {
+        const doc = input.ownerDocument;
+        input.focus();
+        input.value = teks;
+        input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'n' }));
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'n' }));
+        const item = await tungguDi(() => Array.from(doc.querySelectorAll('.ui-autocomplete .ui-menu-item'))
+            .find((li) => li.offsetParent !== null && polaItem.test(rapih(li.textContent))), 8000, 'pilihan Akun tidak muncul');
+        const target = item.querySelector('a, div') || item;
+        ['mouseover', 'mouseenter', 'mousemove'].forEach((t) => target.dispatchEvent(new MouseEvent(t, { bubbles: true })));
+        target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await tidur(400);
+    }
+
+    // tabel daftar jurnal di dokumen (tabel yang punya kolom No Voucher & Keterangan, baris terbanyak)
+    function bacaTabelJurnal(doc) {
+        const tabel = Array.from(doc.querySelectorAll('table')).filter((t) => {
+            const th = Array.from(t.querySelectorAll('thead th, thead td')).map((x) => rapih(x.textContent).toLowerCase());
+            return th.indexOf('no voucher') >= 0 && th.indexOf('keterangan') >= 0;
+        }).sort((a, b) => b.querySelectorAll('tbody tr').length - a.querySelectorAll('tbody tr').length)[0];
+        if (!tabel) return null;
+        const kolom = Array.from(tabel.querySelectorAll('thead th, thead td')).map((x) => rapih(x.textContent));
+        const baris = [];
+        tabel.querySelectorAll('tbody tr').forEach((tr) => {
+            if (tr.cells.length < Math.max(3, kolom.length - 1)) return;   // baris pesan kosong ("tidak ada data")
+            baris.push(Array.from(tr.cells).map((c) => rapih(c.textContent)));
+        });
+        return { kolom: kolom, baris: baris };
+    }
+    const sidikTabel = (doc) => { const t = bacaTabelJurnal(doc); return t ? t.baris.length + '|' + (t.baris[0] || []).join('|') : ''; };
+
+    async function ambilPendapatanLain(cfg, periode) {
+        const fr = document.createElement('iframe');
+        fr.style.cssText = 'position:fixed;left:-10000px;top:0;width:1400px;height:1400px;border:0;opacity:0;pointer-events:none';
+        fr.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(fr);
+        // tunggu isi tabel berganti (submit = dokumen baru, atau tabel diganti lewat ajax); maks `ms`, lalu lanjut
+        const tungguBerganti = async (docAwal, sidikAwal, ms) => {
+            await tungguDi(() => {
+                const d = fr.contentDocument;
+                if (!d || d.readyState !== 'complete') return false;
+                return (d !== docAwal && bacaTabelJurnal(d)) || (d === docAwal && sidikTabel(d) !== sidikAwal);
+            }, ms, '').catch(() => {});
+            await tidur(800);
+        };
+        try {
+            fr.src = cfg.url;
+            const tombol = await tungguDi(() => {
+                const d = fr.contentDocument;
+                return d && d.readyState === 'complete' && d.getElementById('bt_filter_pencarian_jurnal');
+            }, 40000, 'halaman Daftar Jurnal tidak termuat');
+            const doc = fr.contentDocument;
+            const form = tombol.closest('form') || doc.body;
+            // Dasar Filter Periode = Tanggal Transaksi
+            const rTrx = Array.from(form.querySelectorAll('input[type="radio"]')).find((x) => /tanggal\s*transaksi/i.test(labelRadio(x)));
+            if (rTrx && !rTrx.checked) rTrx.click();
+            // Periode: dua kolom tanggal (datepicker) pertama = dari, sampai
+            const kolomTgl = Array.from(form.querySelectorAll('input')).filter((x) =>
+                /hasDatepicker|tanggal/i.test(x.className) || /^\d{2}[-\/]\d{2}[-\/]\d{4}$|^\d{4}-\d{2}-\d{2}$/.test(rapih(x.value)));
+            if (kolomTgl.length < 2) throw new Error('kolom Periode tidak ditemukan');
+            const contoh = rapih(kolomTgl[0].value), r = rentangPeriode(periode);
+            setNilaiForm(kolomTgl[0], tglFormatSama(contoh, r[0]));
+            setNilaiForm(kolomTgl[1], tglFormatSama(contoh, r[1]));
+            // Akun = Pendapatan Lain (autocomplete); kalau pilihan tidak muncul, cadangan: Keterangan "Pendapatan Lain-lain"
+            const kolomAkun = inputSetelahLabel(form, /^akun\s*:?$/i);
+            let lewatAkun = false;
+            if (kolomAkun) {
+                try { await pilihAutocomplete(kolomAkun, 'Pendapatan Lain', /pendapatan\s*lain/i); lewatAkun = true; } catch (e) { kolomAkun.value = ''; }
+            }
+            if (!lewatAkun) {
+                const kolomKet = inputSetelahLabel(form, /^keterangan\s*:?$/i);
+                if (!kolomKet) throw new Error('kolom Akun / Keterangan tidak ditemukan');
+                setNilaiForm(kolomKet, 'Pendapatan Lain-lain');
+            }
+            const docAwal = fr.contentDocument, sidikAwal = sidikTabel(docAwal);
+            tombol.click();
+            await tungguBerganti(docAwal, sidikAwal, 15000);
+            // baca semua halaman
+            const daftar = [], dilihat = new Set();
+            let kolom = [], jumlahData = null;
+            for (let hal = 0; hal < 60; hal++) {
+                const d = fr.contentDocument;
+                const t = bacaTabelJurnal(d);
+                if (!t) throw new Error('tabel Daftar Jurnal tidak ditemukan');
+                kolom = t.kolom;
+                const iVoucher = kolom.findIndex((k) => /^no voucher$/i.test(k));
+                t.baris.forEach((b) => { const k = b[iVoucher] || b.join('|'); if (!dilihat.has(k)) { dilihat.add(k); daftar.push(b); } });
+                // "Menampilkan data 1 - 50 dari total data 804 ..." (kalau ada) -> berhenti begitu semua terbaca
+                const teks = teksHalaman(d);
+                const mJml = /menampilkan/i.test(teks) ? /dari\s*(?:total\s*data\s*)?([\d.,]+)/i.exec(teks.replace(/.*menampilkan/i, '')) : null;
+                if (mJml) jumlahData = parseInt(mJml[1].replace(/[.,]/g, ''), 10);
+                if (jumlahData != null && daftar.length >= jumlahData) break;
+                // halaman berikutnya: tombol/link "Selanjutnya" / "Next" / "›" / "»" setelah tabel, yang tidak nonaktif
+                const elTabel = Array.from(d.querySelectorAll('table')).find((x) => x.contains(d.querySelector('tbody tr')) && bacaTabelJurnal(d));
+                const setelahTabel = (x) => !elTabel || (elTabel.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING);
+                const cocokLanjut = (x) => /^(selanjutnya|next|›|»|→)/i.test(rapih(x.textContent)) && setelahTabel(x) &&
+                    !/disabled/i.test(x.className + ' ' + (x.parentElement ? x.parentElement.className : ''));
+                const lanjut = Array.from(d.querySelectorAll('a, button')).find(cocokLanjut) || Array.from(d.querySelectorAll('li, span')).find(cocokLanjut);
+                if (!lanjut) break;
+                const sidik = sidikTabel(d);
+                lanjut.click();
+                await tungguBerganti(d, sidik, 15000);
+                if (fr.contentDocument === d && sidikTabel(d) === sidik) break;   // tidak berpindah halaman
+            }
+            const iKet = kolom.findIndex((k) => /^keterangan$/i.test(k));
+            const iTotal = kolom.findIndex((k) => /^total$/i.test(k));
+            if (iTotal < 0) throw new Error('kolom Total tidak ditemukan');
+            // pengaman: kalau filter Akun/Keterangan tidak jalan, tabel berisi semua jurnal -> jangan tampilkan angka salah.
+            // Toleransi kecil untuk jurnal manual ber-akun Pendapatan Lain yang keterangannya bebas.
+            const bukan = iKet < 0 ? 0 : daftar.filter((b) => !/pendapatan\s*lain/i.test(b[iKet] || '')).length;
+            if (bukan > Math.max(2, daftar.length * 0.2)) throw new Error('filter Akun Pendapatan Lain tidak jalan (' + bukan + ' jurnal lain ikut di hasil)');
+            const total = daftar.reduce((n, b) => { const m = /Rp\s*([\d.,]+)/.exec(b[iTotal] || ''); return n + (m ? angkaRp(m[1]) : 0); }, 0);
+            return { total: total, labelTotal: 'Total Pendapatan Lain-Lain', potongan: 0, jumlah: daftar.length, kolom: kolom, baris: daftar };
+        } finally {
+            fr.remove();
+        }
+    }
+
     function tampilRekap(s) {
         const d = s.data;
         s.utama.textContent = fmtRp(d.total);
-        s.kedua.textContent = d.jumlah + ' nota · ' + PERIODE[s.periode];
+        s.kedua.textContent = d.jumlah + ' ' + (s.cfg.satuan || 'nota') + ' · ' + PERIODE[s.periode];
         s.kartu.title = d.labelTotal + ' ' + PERIODE[s.periode].toLowerCase() + ' (' + teksPeriode(s.periode) + ')' +
             (d.potongan ? ' · Total Potongan ' + fmtRp(d.potongan) : '') + ' — klik baris nota untuk melihat daftar';
     }
@@ -385,7 +522,7 @@
         if (s.popup) isiPopupRekap(s);
         perbaruiSegarRekap(s);
         try {
-            const p = antreanRekap.then(() => ambilRekap(s.cfg, periode));
+            const p = antreanRekap.then(() => (s.cfg.ambil || ambilRekap)(s.cfg, periode));
             antreanRekap = p.catch(() => {});
             const h = await p;
             if (periode === s.periode) { s.data = h; s.galat = ''; tampilRekap(s); }
@@ -417,11 +554,6 @@
         if (s.popup) isiPopupRekap(s);
         muatRekap(s);
     }
-
-    // kartu tanpa sumber data (placeholder), dipasang setelah kartu laporan rekap
-    const KARTU_TAMBAHAN = [
-        { label: 'Pendapatan Lain-Lain', attr: 'data-aistim-pendapatan-lain' }
-    ];
 
     // kotak kartu yang kelihatan (berbingkai) untuk menaruh dropdown periode di pojok kanan atasnya: mulai dari wadah
     // bersama label + angka, naik ke elemen berbingkai terdekat di dalam kartu (kalau tidak ada, pakai wadah bersama itu)
@@ -475,20 +607,6 @@
                 if (s.data) tampilRekap(s); else muatRekap(s);
             }
             sebelum = s.kartu;
-        }
-        for (const k of KARTU_TAMBAHAN) {
-            let ada = document.querySelector('[' + k.attr + ']');
-            if (!ada) {
-                const asal = cariKartuAsli();
-                const opsi = { label: k.label, attr: k.attr, placeholder: 'Rp -' };
-                const hasil = (asal && bangunDariSalinan(asal, opsi)) || bangunSederhana(opsi);
-                hasil.keluar.textContent = 'sumber data belum diatur';
-                hasil.kartu.title = k.label + ': sumber data belum diatur';
-                sebelum.parentNode.insertBefore(hasil.kartu, sebelum.nextSibling);
-                rapikanKartu(hasil.kartu);
-                ada = hasil.kartu;
-            }
-            sebelum = ada;
         }
         return true;
     }
@@ -616,14 +734,14 @@
         }
         const d = s.data;
         isi.appendChild(el('div', { gaya: 'padding:8px 12px;background:#f3f8ff;border-bottom:1px solid #dbe7f7;font-size:13px', teks:
-            d.jumlah + ' nota · ' + d.labelTotal + ' ' + fmtRp(d.total) + (d.potongan ? ' · Total Potongan ' + fmtRp(d.potongan) : '') +
+            d.jumlah + ' ' + (s.cfg.satuan || 'nota') + ' · ' + d.labelTotal + ' ' + fmtRp(d.total) + (d.potongan ? ' · Total Potongan ' + fmtRp(d.potongan) : '') +
             (d.baris.length < d.jumlah ? ' (daftar di bawah: ' + d.baris.length + ' teratas, selengkapnya di halaman laporan)' : '') }));
         if (!d.baris.length) {
             isi.appendChild(el('div', { teks: 'Tidak ada nota pada periode ini.', gaya: 'padding:18px;color:#555' }));
             return;
         }
         // kolom ditampilkan apa adanya dari laporan Erzap (kecuali "No"); kolom nominal rata kanan
-        const idx = d.kolom.map((k, i) => i).filter((i) => !/^no$/i.test(d.kolom[i]));
+        const idx = d.kolom.map((k, i) => i).filter((i) => d.kolom[i] && !/^no$/i.test(d.kolom[i]));   // tanpa "No" & kolom tombol tanpa judul (Lihat/Edit)
         const kanan = (k) => /total|diterima|dibayar|nominal|jumlah/i.test(k);
         const tabel = el('table', { gaya: 'width:100%;border-collapse:collapse;font-size:12px' }, [
             el('thead', {}, [el('tr', {}, idx.map((i) => el('th', { teks: d.kolom[i], gaya: 'position:sticky;top:0;background:#eef0f4;padding:6px 8px;border-bottom:1px solid #cfd4dc;white-space:nowrap;text-align:' + (kanan(d.kolom[i]) ? 'right' : 'left') })))])
