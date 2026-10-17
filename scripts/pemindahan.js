@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.7.0
-// @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel. Tombol "Data Pembelian" mengambil daftar barang dengan cara yang sama dari Faktur Pembelian (No Faktur, ID, atau link /faktur_pembelians/<ID>).
+// @version      1.7.2
+// @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel. Tombol "Data Pembelian" mengambil daftar barang dengan cara yang sama dari Faktur Pembelian (No Faktur atau link /faktur_pembelians/<ID>).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -131,10 +131,8 @@
         'Kosongkan untuk memakai halaman ini, atau masukkan <b>Kode</b> Pemindahan Barang lain ' +
         '(mis. <code>PG0926-21559</code>), ID-nya (mis. <code>404128</code>) atau link lengkapnya, lalu klik Tampilkan.';
     var PLACEHOLDER_BARANG = 'mis. PG0926-21559 / 404128 / link';
-    var PETUNJUK_PEMBELIAN =
-        'Masukkan <b>No Faktur</b> Pembelian (mis. <code>J1026-68557</code>), ID-nya (mis. <code>497029</code>) ' +
-        'atau link lengkapnya (mis. <code>https://trial.erzap.com/faktur_pembelians/497029</code>), lalu klik Tampilkan.';
-    var PLACEHOLDER_PEMBELIAN = 'mis. J1026-68557 / 497029 / link';
+    var PETUNJUK_PEMBELIAN = 'Masukkan <b>No Faktur</b> Pembelian (mis. <code>J1026-68557</code>)';
+    var PLACEHOLDER_PEMBELIAN = 'mis. J1026-68557 / 00999 / link';
     var mode_sumber = 'barang';
 
     var HTML_IDOUTLET_OWN ='pemindahan_barang_idoutlet_own '; // sesuai id yang dipakai fetch_produk_quick di halaman ini
@@ -635,10 +633,6 @@
 
     function normalisasi_link(input) {
         input = $.trim(input);
-        if (mode_sumber === 'pembelian') {
-            // Tidak ada "halaman ini" untuk Faktur Pembelian, jadi input kosong ditolak di pemanggil.
-            return /^\d+$/.test(input) ? location.origin + '/faktur_pembelians/' + input : input;
-        }
         if (input === '') {
             return window.location.href;
         }
@@ -915,12 +909,32 @@
     var POLA_HREF_PEMINDAHAN = /\/pemindahan_barangs\/(\d+)(?:[\/?#]|$)/;
     var POLA_HREF_FAKTUR_PEMBELIAN = /\/faktur_pembelians\/(\d+)(?:[\/?#]|$)/;
 
-    function id_dari_hasil_cari(html, kode, pola_href) {
+    function normalisasi_judul(teks) {
+        return $.trim(String(teks).replace(/[*:]/g, '')).toLowerCase();
+    }
+
+    // Posisi kolom dengan judul tertentu di tabel milik <tr> (-1 kalau tidak ada / <tr> itu sendiri header).
+    function indeks_kolom(tr, judul) {
+        var tabel = tr.closest('table');
+        var baris_header = tabel && (tabel.querySelector('thead tr') || tabel.rows[0]);
+        if (!baris_header || baris_header === tr) {
+            return -1;
+        }
+        return Array.prototype.findIndex.call(baris_header.cells, function (th) {
+            return normalisasi_judul(th.textContent) === judul;
+        });
+    }
+
+    // judul_kolom (opsional): kode HANYA dicocokkan di kolom itu. Penting untuk kode angka pendek
+    // (mis. No Faktur "1") yang kalau dicocokkan ke semua sel bisa kena kolom nomor urut "No".
+    function id_dari_hasil_cari(html, kode, pola_href, judul_kolom) {
         var doc = new DOMParser().parseFromString(html, 'text/html');
         var target = kode.toUpperCase();
         var ids = [];
         Array.prototype.forEach.call(doc.querySelectorAll('tr'), function (tr) {
-            var cocok = Array.prototype.some.call(tr.cells, function (td) {
+            var idx = judul_kolom ? indeks_kolom(tr, judul_kolom) : -1;
+            var sel_dicek = idx >= 0 && idx < tr.cells.length ? [tr.cells[idx]] : tr.cells;
+            var cocok = Array.prototype.some.call(sel_dicek, function (td) {
                 var teks = $.trim(td.textContent).toUpperCase();
                 if (teks === target) {
                     return true;
@@ -1089,14 +1103,18 @@
                 if ($field.length === 0 || $form.length === 0) {
                     console.warn('[lihat-barang] Form Pencarian Faktur Pembelian tidak dikenali. Field teks di halaman:',
                         $doc.find('input[type="text"]').map(function () { return this.name || this.id; }).get());
-                    d.reject('Kolom "No Faktur" di form Pencarian daftar Faktur Pembelian tidak ditemukan. Masukkan ID atau link-nya.');
+                    d.reject('Kolom "No Faktur" di form Pencarian daftar Faktur Pembelian tidak ditemukan. Tempel link fakturnya.');
                     return;
                 }
                 $field.val(kode);
                 var $periode = cari_input_periode($form);
                 // Percobaan pertama memakai isian Periode bawaan form (kosong = seperti klik cari manual);
                 // kalau tidak ketemu dan kolom Periode dikenali, coba rentang tanggal dari kodenya.
-                var percobaan = [null].concat($periode.length === 2 ? rentang_tanggal_kode(kode) : []);
+                // No Faktur yang bukan pola kode (mis. "00999") tidak memberi petunjuk bulan, jadi
+                // rentang terakhir diperlebar ke 2 tahun ke belakang.
+                var hari_ini = new Date();
+                var rentang_lebar = [new Date(hari_ini.getFullYear() - 2, 0, 1), hari_ini];
+                var percobaan = [null].concat($periode.length === 2 ? rentang_tanggal_kode(kode).concat([rentang_lebar]) : []);
                 var metode = ($form.attr('method') || 'post').toUpperCase();
                 var aksi = $form.attr('action');
                 if (!aksi || aksi === '#') {
@@ -1106,7 +1124,7 @@
                 var i = 0;
                 (function coba() {
                     if (i >= percobaan.length) {
-                        d.reject('Kode ' + kode + ' tidak ditemukan di Faktur Pembelian. Cek lagi kodenya, atau masukkan ID/link-nya.');
+                        d.reject('No Faktur ' + kode + ' tidak ditemukan di Faktur Pembelian. Cek lagi nomornya, atau tempel link fakturnya.');
                         return;
                     }
                     var r = percobaan[i++];
@@ -1122,12 +1140,13 @@
                     tulis_status('Mencari kode ' + kode + (r ? ' (' + format_tgl(r[0]) + ' s/d ' + format_tgl(r[1]) + ')' : '') + ' ...');
                     $.ajax({ url: aksi, type: metode, dataType: 'text', data: data })
                         .done(function (html) {
-                            var ids = id_dari_hasil_cari(html, kode, POLA_HREF_FAKTUR_PEMBELIAN);
+                            var ids = id_dari_hasil_cari(html, kode, POLA_HREF_FAKTUR_PEMBELIAN, 'no faktur');
                             if (ids.length === 1) {
                                 d.resolve(ids[0]);
                             } else if (ids.length > 1) {
-                                d.reject('Kode ' + kode + ' cocok dengan ' + ids.length + ' faktur (ID ' + ids.join(', ') +
-                                    '). Masukkan ID-nya langsung.');
+                                // No Faktur dari supplier bisa kembar antar faktur: pilihannya lewat link.
+                                d.reject('No Faktur ' + kode + ' cocok dengan ' + ids.length + ' faktur (ID ' + ids.join(', ') +
+                                    '). Tempel link salah satunya, mis. ' + location.origin + '/faktur_pembelians/' + ids[0] + '.');
                             } else {
                                 coba();
                             }
@@ -1144,11 +1163,15 @@
         var isi = $.trim($('#llb_input_link').val());
         var pembelian = mode_sumber === 'pembelian';
         if (pembelian && isi === '') {
-            $('#llb_status').text('Masukkan No Faktur, ID, atau link Faktur Pembelian dulu.');
+            $('#llb_status').text('Masukkan No Faktur Pembelian dulu.');
             return;
         }
-        if (POLA_KODE_PEMINDAHAN.test(isi)) {
-            var kode = isi.toUpperCase();
+        // Faktur Pembelian: apa pun yang bukan link dianggap No Faktur, BUKAN ID. No Faktur dari
+        // supplier bisa berupa angka saja (mis. 00999) dan kalau dianggap ID akan membuka faktur lain.
+        var adalah_link = /^(https?:)?\/\//i.test(isi) || isi.charAt(0) === '/';
+        if (pembelian ? !adalah_link : POLA_KODE_PEMINDAHAN.test(isi)) {
+            // Kode berpola (mis. J1026-68557) dibakukan ke huruf besar; nomor bebas dari supplier dikirim apa adanya.
+            var kode = POLA_KODE_PEMINDAHAN.test(isi) ? isi.toUpperCase() : isi;
             $('#llb_hasil').empty();
             // Hasil muatan sebelumnya jangan sampai ikut dimasukkan kalau pencarian kode ini gagal.
             data_lihat_barang_terakhir = [];
