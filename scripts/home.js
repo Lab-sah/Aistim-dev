@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.17.1
+// @version      1.17.2
 // @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerima Piutang" (Laporan Rekap Piutang, Tipe Rekap Penerimaan Piutang) dan "Pembayaran Hutang" (Laporan Rekap Hutang, Tipe Rekap Pembayaran Hutang): total dari blok Rekapitulasi, periode bisa dipilih Harian/Mingguan/Bulanan per kartu, klik baris nota = popup daftar; lalu kartu "Pendapatan Lain-Lain" (sumber data belum diatur). Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu PPOB & Penerima Piutang hanya di Home. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -20,7 +20,7 @@
     const DI_HOME = location.pathname === '/';   // kartu PPOB hanya di Home; popup peringatan saldo di semua halaman
     if (window.__aistimHome) return;
     window.__aistimHome = true;
-    console.log('[home.js] v1.17.1 aktif di ' + location.pathname);
+    console.log('[home.js] v1.17.2 aktif di ' + location.pathname);
 
     const SALDO_URL = '/main/check_balance_ppob/new';
     const PPOB_URL = '/penjualans/aktifitas_ppob/new';
@@ -409,6 +409,20 @@
         { label: 'Pendapatan Lain-Lain', attr: 'data-aistim-pendapatan-lain' }
     ];
 
+    // kotak kartu yang kelihatan (berbingkai) untuk menaruh dropdown periode di pojok kanan atasnya: mulai dari wadah
+    // bersama label + angka, naik ke elemen berbingkai terdekat di dalam kartu (kalau tidak ada, pakai wadah bersama itu)
+    function kotakKartu(kartuEl, angkaEl) {
+        const lbl = kartuEl.querySelector('.label_transaksi') || kartuEl;
+        let w = lbl === kartuEl ? kartuEl : lbl.parentNode;
+        while (w !== kartuEl && !w.contains(angkaEl)) w = w.parentNode;
+        for (let x = w; ; x = x.parentNode) {
+            const cs = getComputedStyle(x);
+            if (parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderRightWidth) > 0) return x;
+            if (x === kartuEl) break;
+        }
+        return w;
+    }
+
     function rapikanKartu(k) {
         k.style.textDecoration = 'none';
         k.querySelectorAll('*').forEach((e) => { e.style.textDecoration = 'none'; });
@@ -431,10 +445,9 @@
                 const pilihan = document.createElement('select');
                 pilihan.className = 'aistim_periode';
                 pilihan.title = 'Periode';
-                // pojok kanan atas kartu: diposisikan terhadap wadah isi kartu (label + angka), bukan kolom luar yang ber-padding
-                pilihan.style.cssText = 'position:absolute;top:0;right:0;z-index:2;font-size:11px;padding:1px 2px;border:1px solid #ccc;border-radius:3px;background:#fff;color:#333;cursor:pointer';
+                pilihan.style.cssText = 'position:absolute;top:8px;right:8px;z-index:2;font-size:11px;padding:1px 2px;border:1px solid #ccc;border-radius:3px;background:#fff;color:#333;cursor:pointer';
                 Object.keys(PERIODE).forEach((p) => { const o = document.createElement('option'); o.value = p; o.textContent = NAMA_PERIODE[p]; pilihan.appendChild(o); });
-                const wadah = hasil.saldo.parentNode;
+                const wadah = kotakKartu(hasil.kartu, hasil.saldo);
                 if (getComputedStyle(wadah).position === 'static') wadah.style.position = 'relative';
                 wadah.appendChild(pilihan);
                 s = s || { cfg: cfg, periode: periodeTersimpan(cfg.id), data: null, galat: '', jalan: false, popup: null };
