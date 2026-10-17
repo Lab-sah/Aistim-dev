@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.14.0
+// @version      1.15.0
 // @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerima Piutang" (total "Total Diterima" hari ini dari Laporan Rekap Piutang Penerimaan /laporans/rekap_piutang/new, form pencariannya dibaca lalu tanggal di-set ke hari ini); klik baris "N transaksi hari ini" = popup log (Pelanggan, Outlet, No Faktur, Log Transaksi, Total Diterima) + tombol ke Rekap Piutang. Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu PPOB & Penerima Piutang hanya di Home. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -20,7 +20,7 @@
     const DI_HOME = location.pathname === '/';   // kartu PPOB hanya di Home; popup peringatan saldo di semua halaman
     if (window.__aistimHome) return;
     window.__aistimHome = true;
-    console.log('[home.js] v1.14.0 aktif di ' + location.pathname);
+    console.log('[home.js] v1.15.0 aktif di ' + location.pathname);
 
     const SALDO_URL = '/main/check_balance_ppob/new';
     const PPOB_URL = '/penjualans/aktifitas_ppob/new';
@@ -261,11 +261,33 @@
         }
     }
 
+    // teks label sebuah radio: <label for=id>, <label> pembungkus, atau teks setelah radio sampai input berikutnya
+    function labelRadio(r) {
+        const doc = r.ownerDocument;
+        const lbl = (r.id && doc.querySelector('label[for="' + r.id + '"]')) || r.closest('label');
+        if (lbl) return rapih(lbl.textContent);
+        let t = '', n = r.nextSibling;
+        while (n && !(n.nodeType === 1 && n.matches('input')) && t.length < 60) { t += n.textContent || ''; n = n.nextSibling; }
+        return rapih(t);
+    }
+    // pilih radio bernama `nama` yang labelnya cocok `pola` (nilai radio tidak diketahui, jadi dicari dari labelnya)
+    function pilihRadio(form, nama, pola) {
+        const r = Array.from(form.querySelectorAll('input[type="radio"]')).find((x) => x.name === nama && pola.test(labelRadio(x)));
+        if (!r) return false;
+        if (!r.checked) r.click();
+        return true;
+    }
+
     // bolehTanpaRekap: setelah beberapa detik di halaman hasil, terima walau blok Rekapitulasi tidak ada (mis. tidak ada transaksi)
     function ekstrakRekapPiutang(doc, bolehTanpaRekap) {
+        const teks = rapih((doc.body && (doc.body.innerText || doc.body.textContent)) || '');
+        if (!/rekap\s*piutang\s*penerimaan/i.test(teks)) return null;   // hasil harus mode Tipe Rekap = Penerimaan Piutang
         const tabel = Array.from(doc.querySelectorAll('table')).find((t) => Array.from(t.querySelectorAll('thead th, thead td')).some((x) => /^total diterima$/i.test(rapih(x.textContent))));
         const totalResmi = angkaRekap(doc, 'total\\s*piutang\\s*diterima');
         if (!tabel || (totalResmi == null && !bolehTanpaRekap)) return null;   // belum halaman hasil -> tungguDi coba lagi
+        // tabel dipaging 50 baris/halaman ("Menampilkan data 1 - 50 dari total data 804 Nota"): jumlah nota diambil dari situ
+        const mJumlah = /total\s*data\s*([\d.,]+)/i.exec(teks);
+        const jumlahNota = mJumlah ? parseInt(mJumlah[1].replace(/[.,]/g, ''), 10) : null;
         const th = Array.from(tabel.querySelectorAll('thead th, thead td')).map((x) => rapih(x.textContent).toLowerCase());
         const iFaktur = th.indexOf('no faktur');
         const iOutlet = th.indexOf('outlet');
@@ -284,7 +306,7 @@
             daftar.push({ faktur: sel(iFaktur), outlet: sel(iOutlet), pelanggan: sel(iPelanggan), total: nilai, log: sel(iLog) });
         });
         const potongan = angkaRekap(doc, 'total\\s*potongan');
-        return { total: totalResmi != null ? totalResmi : totalBaris, totalBaris: totalBaris, potongan: potongan, jumlah: daftar.length, daftar: daftar };
+        return { total: totalResmi != null ? totalResmi : totalBaris, totalBaris: totalBaris, potongan: potongan, jumlah: jumlahNota != null ? jumlahNota : daftar.length, daftar: daftar };
     }
 
     async function ambilPiutang() {
@@ -301,12 +323,18 @@
             const kolomDari = form.querySelector('[name="laporan[tanggal_dari]"]') || Array.from(form.querySelectorAll('input[name]')).find((el) => /^laporan\[tanggal[^\]]*(dari|awal|mulai)/i.test(el.name));
             const kolomSampai = form.querySelector('[name="laporan[tanggal_sampai]"]') || Array.from(form.querySelectorAll('input[name]')).find((el) => /^laporan\[tanggal[^\]]*(sampai|akhir)/i.test(el.name));
             if (!kolomDari) throw new Error('kolom tanggal dari tidak ditemukan');
+            // setelan sesuai halaman asli: Tipe Rekap = Penerimaan Piutang, Dasar Filter Periode = Tanggal Jurnal
+            if (!pilihRadio(form, 'laporan[jenis_rekap]', /penerimaan/i)) throw new Error('pilihan Tipe Rekap "Penerimaan Piutang" tidak ditemukan');
+            pilihRadio(form, 'laporan[jenis_tanggal]', /jurnal/i);
             const hariIni = tglFormatSama(rapih(kolomDari.value));
             setNilaiForm(kolomDari, hariIni);
             if (kolomSampai) setNilaiForm(kolomSampai, hariIni);
-            // tombol Filter di halaman ini: <div class="bt_filter"> (dikonfirmasi dari rekaman klik), tanpa teks (ikon saja)
+            // tombol "Filter" (tombol biru di bawah form); cadangan: pembungkus .bt_filter / submit form
             const docAwal = fr.contentDocument;
-            const tombol = docAwal.querySelector('.bt_filter') ||
+            const teksTombol = (b) => rapih(b.textContent) || rapih(b.value || '');
+            const tombol = Array.from(docAwal.querySelectorAll('button, input[type="submit"], input[type="button"]')).find((b) => /^filter$/i.test(teksTombol(b))) ||
+                           Array.from(docAwal.querySelectorAll('a, .bt_filter')).find((b) => /^filter$/i.test(teksTombol(b))) ||
+                           docAwal.querySelector('.bt_filter') ||
                            form.querySelector('button[type="submit"], input[type="submit"]');
             if (tombol) tombol.click(); else if (form.requestSubmit) form.requestSubmit(); else form.submit();
             // Filter = submit POST -> dokumen baru di iframe. Tunggu dokumen berganti (maks 10 dtk; kalau ternyata ajax, lanjut saja),
@@ -334,7 +362,7 @@
             galatPiutang = '';
             if (popupPiutangBuka) isiPopupPiutang();
             piutangUtama.textContent = fmtRp(h.total);
-            piutangKedua.textContent = h.jumlah + ' transaksi hari ini';
+            piutangKedua.textContent = h.jumlah + ' nota hari ini';
             piutangKartu.title = h.jumlah + ' transaksi penerimaan piutang hari ini' + (h.potongan ? ' · Total Potongan ' + fmtRp(h.potongan) : '') + ' (klik untuk melihat daftar)';
         } catch (err) {
             if (!piutangTerbaca) {
@@ -495,7 +523,8 @@
             return;
         }
         const d = dataPiutang;
-        isi.appendChild(el('div', { gaya: 'padding:8px 12px;background:#f3f8ff;border-bottom:1px solid #dbe7f7;font-size:13px', teks: d.jumlah + ' transaksi, Total Piutang Diterima ' + fmtRp(d.total) + (d.potongan ? ' · Total Potongan ' + fmtRp(d.potongan) : '') }));
+        isi.appendChild(el('div', { gaya: 'padding:8px 12px;background:#f3f8ff;border-bottom:1px solid #dbe7f7;font-size:13px', teks: d.jumlah + ' nota, Total Piutang Diterima ' + fmtRp(d.total) + (d.potongan ? ' · Total Potongan ' + fmtRp(d.potongan) : '') +
+            (d.daftar.length < d.jumlah ? ' (daftar di bawah: ' + d.daftar.length + ' terbaru, selengkapnya di Rekap Piutang)' : '') }));
         if (!d.daftar.length) {
             isi.appendChild(el('div', { teks: 'Belum ada penerimaan piutang hari ini.', gaya: 'padding:18px;color:#555' }));
             return;
