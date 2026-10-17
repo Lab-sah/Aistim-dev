@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.15.0
+// @version      1.16.0
 // @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerima Piutang" (total "Total Diterima" hari ini dari Laporan Rekap Piutang Penerimaan /laporans/rekap_piutang/new, form pencariannya dibaca lalu tanggal di-set ke hari ini); klik baris "N transaksi hari ini" = popup log (Pelanggan, Outlet, No Faktur, Log Transaksi, Total Diterima) + tombol ke Rekap Piutang. Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu PPOB & Penerima Piutang hanya di Home. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -20,7 +20,7 @@
     const DI_HOME = location.pathname === '/';   // kartu PPOB hanya di Home; popup peringatan saldo di semua halaman
     if (window.__aistimHome) return;
     window.__aistimHome = true;
-    console.log('[home.js] v1.15.0 aktif di ' + location.pathname);
+    console.log('[home.js] v1.16.0 aktif di ' + location.pathname);
 
     const SALDO_URL = '/main/check_balance_ppob/new';
     const PPOB_URL = '/penjualans/aktifitas_ppob/new';
@@ -400,6 +400,32 @@
         return true;
     }
 
+    // ---------- kartu tambahan di kanan Penerima Piutang (berurutan); sumber datanya belum diatur ----------
+    const KARTU_TAMBAHAN = [
+        { label: 'Pembayaran Hutang', attr: 'data-aistim-hutang' },
+        { label: 'Pendapatan Lain-Lain', attr: 'data-aistim-pendapatan-lain' }
+    ];
+    function pasangKartuTambahan() {
+        let sebelum = piutangKartu;
+        if (!sebelum || !document.body.contains(sebelum)) return false;
+        for (const k of KARTU_TAMBAHAN) {
+            let ada = document.querySelector('[' + k.attr + ']');
+            if (!ada) {
+                const asal = cariKartuAsli();
+                const opsi = { label: k.label, attr: k.attr, placeholder: 'Rp -' };
+                const hasil = (asal && bangunDariSalinan(asal, opsi)) || bangunSederhana(opsi);
+                hasil.keluar.textContent = 'sumber data belum diatur';
+                hasil.kartu.title = k.label + ': sumber data belum diatur';
+                sebelum.parentNode.insertBefore(hasil.kartu, sebelum.nextSibling);
+                hasil.kartu.style.textDecoration = 'none';
+                hasil.kartu.querySelectorAll('*').forEach((e) => { e.style.textDecoration = 'none'; });
+                ada = hasil.kartu;
+            }
+            sebelum = ada;
+        }
+        return true;
+    }
+
     // ---------- popup: daftar transaksi PPOB hari ini (klik baris "Transaksi hari ini") ----------
     let dataKeluar = null, galatKeluar = '', popupBuka = null;   // popupBuka = {lapisan, isi}
 
@@ -662,7 +688,7 @@
     // Kartu = elemen anak dari baris yang sama dengan kartu lain; tiap kartu memuat satu .label_transaksi
     // Kartu buatan kita sendiri (PPOB / Penerima Piutang) punya class label_transaksi juga (hasil clone) -> disisihkan,
     // supaya tidak ikut ter-"temukan" sebagai kartu asli dan ter-clone ulang.
-    const BUATAN_SENDIRI = '[data-aistim-saldo-ppob], [data-aistim-piutang]';
+    const BUATAN_SENDIRI = '[data-aistim-saldo-ppob], [data-aistim-piutang], [data-aistim-hutang], [data-aistim-pendapatan-lain]';
     function cariKartuAsli() {
         const labels = Array.from(document.querySelectorAll('.label_transaksi')).filter((e) => !e.closest(BUATAN_SENDIRI));
         if (!labels.length) return null;
@@ -791,7 +817,7 @@
         // Penangkap klik (fase capture, paling awal): klik di dalam kartu PPOB tidak boleh sampai ke penanganan klik bawaan Erzap
         // (yang akan memuat /main/table_data_transaksi_hari_ini/new?layout=simple&target=N). Hanya baris "Transaksi hari ini" membuka popup kita.
         document.addEventListener('click', (e) => {
-            const k = e.target && e.target.closest && e.target.closest('[data-aistim-saldo-ppob], [data-aistim-piutang]');
+            const k = e.target && e.target.closest && e.target.closest(BUATAN_SENDIRI);
             if (!k) return;
             e.stopImmediatePropagation();
             e.preventDefault();
@@ -804,7 +830,7 @@
         const pemeriksa = setInterval(() => {
             const habis = Date.now() - mulai > MAKS_TUNGGU_MS;
             const siap = pasang(habis);
-            if (siap) pasangPiutang();   // disisipkan tepat di sebelah kanan kartu PPOB
+            if (siap) { pasangPiutang(); pasangKartuTambahan(); }   // disisipkan berurutan di sebelah kanan kartu PPOB
             if (siap || habis) clearInterval(pemeriksa);
         }, 400);
     }
@@ -818,6 +844,7 @@
         setInterval(() => {
             if (kartu && !document.body.contains(kartu)) { kartu = null; piutangKartu = null; pasang(false); pasangPiutang(); }
             else if (!piutangKartu || !document.body.contains(piutangKartu)) { piutangKartu = null; pasangPiutang(); }
+            pasangKartuTambahan();
         }, 2000);
     }
 })();
