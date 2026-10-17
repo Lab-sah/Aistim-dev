@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.21.1
+// @version      1.21.2
 // @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerimaan Piutang" (Laporan Rekap Piutang, Tipe Rekap Penerimaan Piutang) dan "Pembayaran Hutang" (Laporan Rekap Hutang, Tipe Rekap Pembayaran Hutang): total dari blok Rekapitulasi, semua untuk hari ini, klik baris nota = popup daftar; lalu kartu "Pendapatan Lain-Lain" (Daftar Data Jurnal, gabungan Akun Pendapatan Lain + Bunga + Sewa, Dasar Filter Tanggal Transaksi, kolom Total dijumlah semua halaman). Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu-kartu ini hanya di Home. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -20,7 +20,7 @@
     const DI_HOME = location.pathname === '/';   // kartu PPOB hanya di Home; popup peringatan saldo di semua halaman
     if (window.__aistimHome) return;
     window.__aistimHome = true;
-    console.log('[home.js] v1.21.1 aktif di ' + location.pathname);
+    console.log('[home.js] v1.21.2 aktif di ' + location.pathname);
 
     const SALDO_URL = '/main/check_balance_ppob/new';
     const PPOB_URL = '/penjualans/aktifitas_ppob/new';
@@ -275,13 +275,15 @@
     const teksHalaman = (doc) => rapih((doc.body && (doc.body.innerText || doc.body.textContent)) || '');
     const angkaRp = (s) => parseFloat(String(s).replace(/,/g, '')) || 0;
 
+    // teks halaman hasil yang menandakan memang tidak ada nota pada periode itu
+    const POLA_KOSONG = /total\s*data\s*0(?!\d)|tidak\s*ada\s*data|data\s*tidak\s*(ada|ditemukan)|no\s*data\s*available|belum\s*ada\s*(data|transaksi)/i;
+
     // bolehTanpaRekap: setelah beberapa detik di halaman hasil, terima walau blok Rekapitulasi tidak ada (mis. tidak ada nota)
-    function ekstrakRekap(doc, cfg, bolehTanpaRekap) {
+    // segar: halaman ini sudah hasil filter (dokumen berganti / judul menyebut hari ini), bukan halaman awal sebelum Filter
+    function ekstrakRekap(doc, cfg, bolehTanpaRekap, segar) {
         const teks = teksHalaman(doc);
-        if (!cfg.judul.test(teks)) return null;   // hasil harus mode Tipe Rekap yang benar
         // "Rekapitulasi Total Piutang Diterima : Rp 107,916,550.00 Total Potongan : Rp 4,001.00" -> yang terakhir di halaman
         const rekap = Array.from(teks.matchAll(/rekapitulasi\s*([^:]{3,60}?)\s*:\s*Rp\s*([\d.,]+)/gi)).pop();
-        if (!rekap && !bolehTanpaRekap) return null;
         const tabel = Array.from(doc.querySelectorAll('table'))
             .filter((t) => Array.from(t.querySelectorAll('thead th, thead td')).some((x) => /^no faktur$/i.test(rapih(x.textContent))))
             .sort((a, b) => b.querySelectorAll('tbody tr').length - a.querySelectorAll('tbody tr').length)[0];
@@ -291,6 +293,12 @@
             if (tr.cells.length < Math.max(3, kolom.length - 1)) return;   // baris pesan kosong ("tidak ada data")
             baris.push(Array.from(tr.cells).map((c) => rapih(c.textContent)));
         });
+        // Tidak ada nota: halaman hasil tanpa baris & tanpa Rekapitulasi (judul laporan pun bisa tidak tampil) -> 0, bukan gagal
+        if ((!rekap || angkaRp(rekap[2]) === 0) && !baris.length) {
+            return segar && (POLA_KOSONG.test(teks) || bolehTanpaRekap) ? { total: 0, labelTotal: 'Total', potongan: 0, jumlah: 0, kolom: kolom, baris: [] } : null;
+        }
+        if (!cfg.judul.test(teks)) return null;   // ada data: harus mode Tipe Rekap yang benar
+        if (!rekap && !bolehTanpaRekap) return null;
         const mPot = /total\s*potongan\s*:\s*Rp\s*([\d.,]+)/i.exec(teks);
         const mJml = /total\s*data\s*([\d.,]+)/i.exec(teks);
         return {
@@ -340,8 +348,9 @@
                 const d = fr.contentDocument;
                 if (!d || d.readyState !== 'complete') return null;
                 const lama = Date.now() - tHalaman;
-                if (d === docAwal && !adaJudulHariIni(teksHalaman(d)) && lama < 10000) return null;
-                return ekstrakRekap(d, cfg, lama > 12000);
+                const segar = d !== docAwal || adaJudulHariIni(teksHalaman(d));
+                if (!segar && lama < 10000) return null;
+                return ekstrakRekap(d, cfg, lama > 12000, segar);
             }, 45000, 'hasil laporan tidak muncul');
             console.log('[home.js] ' + cfg.label + ': halaman ' + detik(tHalaman - tMulai) + ', filter+hasil ' + detik(Date.now() - tHalaman));
             return hasil;
@@ -542,7 +551,7 @@
     function tampilRekap(s) {
         const d = s.data;
         s.utama.textContent = fmtRp(d.total);
-        s.kedua.textContent = d.jumlah + ' ' + (s.cfg.satuan || 'nota') + ' hari ini';
+        s.kedua.textContent = d.jumlah ? d.jumlah + ' ' + (s.cfg.satuan || 'nota') + ' hari ini' : 'Tidak ada ' + (s.cfg.satuan || 'nota') + ' hari ini';
         s.kartu.title = d.labelTotal + ' hari ini (' + tglHariIni() + ')' +
             (d.potongan ? ' · Total Potongan ' + fmtRp(d.potongan) : '') + ' — klik baris ' + (s.cfg.satuan || 'nota') + ' untuk melihat daftar' +
             (d.catatan && d.catatan.length ? '\nTidak ikut terhitung: ' + d.catatan.join('; ') : '');
