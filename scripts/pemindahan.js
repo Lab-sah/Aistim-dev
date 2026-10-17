@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.0
-// @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel.
+// @version      1.6.0
+// @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel. Tombol "Data Pembelian" mengambil daftar barang dengan cara yang sama dari Faktur Pembelian (ID atau link /faktur_pembelians/<ID>).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -14,7 +14,7 @@
     'use strict';
 
     var STYLE = [
-        '#bt_lihat_barang{cursor:pointer;}',
+        '#bt_lihat_barang, #bt_pembelian{cursor:pointer;}',
         '#overlay_modal_umum{display:none;position:fixed;top:0;left:0;width:100%;height:100%;',
         'background:rgba(0,0,0,0.5);z-index:99998;}',
         '.mib_modal{display:none;position:fixed;top:50%;left:50%;',
@@ -105,13 +105,12 @@
         '<div id="overlay_modal_umum"></div>' +
         '<div id="modal_lihat_barang" class="mib_modal">' +
             '<div class="mib_header">' +
-                '<span>Lihat Data Barang</span>' +
+                '<span id="llb_judul">Lihat Data Barang</span>' +
                 '<span class="mib_close" id="llb_btn_close_x">&times;</span>' +
             '</div>' +
             '<div class="mib_body">' +
-                '<p>Kosongkan untuk memakai halaman ini, atau masukkan <b>Kode</b> Pemindahan Barang lain ' +
-                '(mis. <code>PG0926-21559</code>), ID-nya (mis. <code>404128</code>) atau link lengkapnya, lalu klik Tampilkan.</p>' +
-                '<input type="text" id="llb_input_link" placeholder="mis. PG0926-21559 / 404128 / link">' +
+                '<p id="llb_petunjuk"></p>' +
+                '<input type="text" id="llb_input_link">' +
                 '<div id="llb_status"></div>' +
                 '<div id="llb_header"></div>' +
                 '<button type="button" id="llb_btn_simpan_header">Simpan</button>' +
@@ -125,7 +124,20 @@
             '</div>' +
         '</div>';
 
-    var HTML_IDOUTLET_OWN = 'pemindahan_barang_idoutlet_own '; // sesuai id yang dipakai fetch_produk_quick di halaman ini
+    // Modal yang sama dipakai dua tombol: 'barang' (Lihat Data Barang, sumber = Pemindahan Barang)
+    // dan 'pembelian' (Data Pembelian, sumber = Faktur Pembelian). Bedanya cuma teks petunjuk,
+    // cara membentuk link, dan cara membaca baris barang dari halaman sumber.
+    var PETUNJUK_BARANG =
+        'Kosongkan untuk memakai halaman ini, atau masukkan <b>Kode</b> Pemindahan Barang lain ' +
+        '(mis. <code>PG0926-21559</code>), ID-nya (mis. <code>404128</code>) atau link lengkapnya, lalu klik Tampilkan.';
+    var PLACEHOLDER_BARANG = 'mis. PG0926-21559 / 404128 / link';
+    var PETUNJUK_PEMBELIAN =
+        'Masukkan <b>ID</b> Faktur Pembelian (mis. <code>497029</code>) atau link lengkapnya ' +
+        '(mis. <code>https://trial.erzap.com/faktur_pembelians/497029</code>), lalu klik Tampilkan.';
+    var PLACEHOLDER_PEMBELIAN = 'mis. 497029 / link faktur pembelian';
+    var mode_sumber = 'barang';
+
+    var HTML_IDOUTLET_OWN ='pemindahan_barang_idoutlet_own '; // sesuai id yang dipakai fetch_produk_quick di halaman ini
     var HTML_IDGUDANG = 'pemindahan_barang_idgudang_asal';
 
     // Beberapa hal yang dipicu tombol Masukkan (ganti Outlet/Gudang, tambah_baris, dst)
@@ -623,6 +635,10 @@
 
     function normalisasi_link(input) {
         input = $.trim(input);
+        if (mode_sumber === 'pembelian') {
+            // Tidak ada "halaman ini" untuk Faktur Pembelian, jadi input kosong ditolak di pemanggil.
+            return /^\d+$/.test(input) ? location.origin + '/faktur_pembelians/' + input : input;
+        }
         if (input === '') {
             return window.location.href;
         }
@@ -649,9 +665,119 @@
         $('#llb_hasil').html(html);
     }
 
+    // Hasil ekstrak_*: { rows: [{barcode, jumlah, keterangan}], tr_list: <tr> asli yang bisa disalin V2 }.
+    // tr_list sama panjang dengan rows kalau semua baris punya field produk lengkap; kalau kosong/beda
+    // panjang, "Masukkan ke Tabel" jatuh ke V1 (scan ulang barcode + jumlah), lihat masukkan_sesuai_sumber.
+    function ekstrak_baris_pemindahan($wrap) {
+        var rows = [];
+        var tr_list = [];
+        $wrap.find('#pemindahan_barang_detail tbody tr').each(function () {
+            if (!/^tr_\d+$/.test(this.id || '')) {
+                return;
+            }
+            var data = ambil_data_baris(this);
+            if (data) {
+                rows.push(data);
+                tr_list.push(this);
+            }
+        });
+        return { rows: rows, tr_list: tr_list };
+    }
+
+    // Halaman Faktur Pembelian (/faktur_pembelians/<ID>) belum pernah kelihatan HTML aslinya di sini,
+    // jadi dicoba dua cara berurutan:
+    //   1) baris berisi field produk yang sama dengan form Pemindahan (.data_produk_id, .jumlah_produk, ...)
+    //      -> bisa disalin langsung (V2);
+    //   2) tabel biasa: kolom Barcode / Jumlah(Qty) / Keterangan dicari lewat teks header
+    //      -> cuma barcode + jumlah yang dipakai, dimasukkan lewat scan ulang (V1).
+    // Kalau dua-duanya tidak mengenali apa pun, header tabel yang ada dicetak ke console untuk dicek.
+    function ekstrak_baris_pembelian($wrap) {
+        var rows = [];
+        var tr_list = [];
+
+        $wrap.find('tr').each(function () {
+            if ($.trim($(this).find('.data_produk_id').val() || '') === '') {
+                return;
+            }
+            var data = ambil_data_baris(this);
+            if (!data) {
+                return;
+            }
+            // Beda dengan Pemindahan: sel terakhir di sini belum tentu Keterangan.
+            var $ket = $(this).find('input[name$="[keterangan]"], textarea[name$="[keterangan]"]').first();
+            data.keterangan = $ket.length > 0 ? $ket.val() : '';
+            rows.push(data);
+            tr_list.push(this);
+        });
+        if (rows.length > 0) {
+            return { rows: rows, tr_list: tr_list };
+        }
+
+        function teks_sel($sel) {
+            return $.trim($sel.find('input, textarea').first().val() || $sel.text());
+        }
+
+        $wrap.find('table').each(function () {
+            var $table = $(this);
+            var $head = $table.find('thead tr').last();
+            if ($head.length === 0) {
+                $head = $table.find('tr').first();
+            }
+            var kol = { barcode: -1, jumlah: -1, keterangan: -1 };
+            $head.children('th, td').each(function (i) {
+                var t = $.trim($(this).text()).toLowerCase();
+                if (kol.barcode < 0 && t.indexOf('barcode') !== -1) {
+                    kol.barcode = i;
+                } else if (kol.jumlah < 0 && /^(jumlah|qty)/.test(t)) {
+                    kol.jumlah = i;
+                } else if (kol.keterangan < 0 && t.indexOf('keterangan') !== -1) {
+                    kol.keterangan = i;
+                }
+            });
+            if (kol.barcode < 0 || kol.jumlah < 0) {
+                return;
+            }
+            $table.find('tr').each(function () {
+                var $cells = $(this).children('td');
+                if (this === $head[0] || $cells.length <= Math.max(kol.barcode, kol.jumlah)) {
+                    return;
+                }
+                // Sel produk di Erzap berbentuk "Barcode - Nama Barang - Kode Ref": ambil barcode-nya saja.
+                var barcode = $.trim(teks_sel($cells.eq(kol.barcode)).split(/\s+-\s+/)[0]);
+                if (barcode === '') {
+                    return;
+                }
+                var teks_jumlah = teks_sel($cells.eq(kol.jumlah));
+                var angka = /-?\d[\d.,]*/.exec(teks_jumlah);
+                rows.push({
+                    barcode: barcode,
+                    jumlah: angka ? angka[0] : teks_jumlah,
+                    keterangan: kol.keterangan >= 0 && kol.keterangan < $cells.length ? teks_sel($cells.eq(kol.keterangan)) : ''
+                });
+            });
+            if (rows.length > 0) {
+                return false; // tabel pertama yang cocok sudah cukup
+            }
+        });
+
+        if (rows.length === 0) {
+            var header_tabel = [];
+            $wrap.find('table').each(function () {
+                header_tabel.push($(this).find('tr').first().children().map(function () {
+                    return $.trim($(this).text());
+                }).get());
+            });
+            console.warn('[lihat-barang] Faktur Pembelian: tidak ada baris barang yang dikenali. Header tabel di halaman:', header_tabel);
+        }
+        return { rows: rows, tr_list: [] };
+    }
+
     function muat_data_dari_link(link) {
         $('#llb_status').text('Memuat data dari ' + link + ' ...');
         $('#llb_hasil').empty();
+        // Data dari muatan sebelumnya jangan sampai ikut dimasukkan kalau muatan baru ini gagal.
+        data_lihat_barang_terakhir = [];
+        data_tr_barang_terakhir = [];
         $('#llb_btn_tampilkan').prop('disabled', true);
 
         $.ajax({
@@ -659,22 +785,16 @@
             dataType: 'html',
             success: function (html) {
                 var $wrap = $('<div>').append($($.parseHTML(html)));
-                var rows = [];
-                var tr_list = [];
-                $wrap.find('#pemindahan_barang_detail tbody tr').each(function () {
-                    if (!/^tr_\d+$/.test(this.id || '')) {
-                        return;
-                    }
-                    var data = ambil_data_baris(this);
-                    if (data) {
-                        rows.push(data);
-                        tr_list.push(this);
-                    }
-                });
-                data_tr_barang_terakhir = tr_list;
+                var hasil = mode_sumber === 'pembelian' ? ekstrak_baris_pembelian($wrap) : ekstrak_baris_pemindahan($wrap);
+                var rows = hasil.rows;
+                data_tr_barang_terakhir = hasil.tr_list;
                 // Cuma daftar barang yang diambil dari halaman/link ini. Dari/Ke Outlet &
                 // Gudang selalu dari pengaturan tersimpan user (lihat render_header_lihat_barang).
-                $('#llb_status').text('Ditemukan ' + rows.length + ' barang.');
+                var pesan = 'Ditemukan ' + rows.length + ' barang.';
+                if (mode_sumber === 'pembelian' && rows.length === 0) {
+                    pesan += ' Isi halaman Faktur Pembelian belum dikenali (detail di console, F12).';
+                }
+                $('#llb_status').text(pesan);
                 render_hasil_lihat_barang(rows);
                 log_nilai_dropdown_halaman('SESUDAH fetch selesai (' + link + ')');
             },
@@ -699,9 +819,14 @@
         });
     }
 
-    function buka_modal_lihat_barang() {
-        log_nilai_dropdown_halaman('SEBELUM buka modal');
-        $('#llb_input_link').val('');
+    function buka_modal_dengan_mode(mode) {
+        var pembelian = mode === 'pembelian';
+        mode_sumber = mode;
+        data_lihat_barang_terakhir = [];
+        data_tr_barang_terakhir = [];
+        $('#llb_judul').text(pembelian ? 'Data Pembelian' : 'Lihat Data Barang');
+        $('#llb_petunjuk').html(pembelian ? PETUNJUK_PEMBELIAN : PETUNJUK_BARANG);
+        $('#llb_input_link').val('').attr('placeholder', pembelian ? PLACEHOLDER_PEMBELIAN : PLACEHOLDER_BARANG);
         $('#llb_status').text('');
         $('#llb_hasil').empty();
         $('#llb_progress').hide().text('');
@@ -710,7 +835,18 @@
         var bisa_impor = $('#term_produk_quick').length > 0 && !$('#term_produk_quick').is(':disabled');
         $('#llb_btn_masukkan_v2').toggle(bisa_impor);
         buka_modal('#modal_lihat_barang');
+    }
+
+    function buka_modal_lihat_barang() {
+        log_nilai_dropdown_halaman('SEBELUM buka modal');
+        buka_modal_dengan_mode('barang');
         muat_data_dari_link(window.location.href);
+    }
+
+    // Faktur Pembelian tidak punya "halaman ini" untuk dimuat otomatis: tunggu user mengisi ID/link.
+    function buka_modal_pembelian() {
+        buka_modal_dengan_mode('pembelian');
+        $('#llb_input_link').trigger('focus');
     }
 
     // ---------- Cari transfer lewat KODE No Pemindahan (mis. PG0926-21559) ----------
@@ -859,7 +995,17 @@
 
     function tampilkan_dari_input_link() {
         var isi = $.trim($('#llb_input_link').val());
-        if (POLA_KODE_PEMINDAHAN.test(isi)) {
+        if (mode_sumber === 'pembelian') {
+            if (isi === '') {
+                $('#llb_status').text('Masukkan ID atau link Faktur Pembelian dulu.');
+                return;
+            }
+            // Pola kode Pemindahan (mis. PG0926-21559) hanya berlaku untuk Pemindahan Barang.
+            if (POLA_KODE_PEMINDAHAN.test(isi)) {
+                $('#llb_status').text('Pencarian lewat kode belum didukung untuk Faktur Pembelian. Masukkan ID atau link-nya.');
+                return;
+            }
+        } else if (POLA_KODE_PEMINDAHAN.test(isi)) {
             var kode = isi.toUpperCase();
             $('#llb_hasil').empty();
             $('#llb_btn_tampilkan').prop('disabled', true);
@@ -880,9 +1026,22 @@
 
     var TOMBOL_MODAL_LIHAT_BARANG = '#llb_btn_masukkan_v2, #llb_btn_tampilkan, #llb_btn_tutup';
 
+    // Tombol "Masukkan ke Tabel": baris yang punya field produk lengkap (tr_list sama panjang dengan
+    // rows) disalin langsung (V2); kalau sumbernya cuma tabel teks (mis. Faktur Pembelian yang
+    // tidak punya field form) barcode + jumlahnya di-scan ulang satu-satu (V1).
+    function masukkan_sesuai_sumber() {
+        var bisa_salin_langsung = data_tr_barang_terakhir.length > 0 &&
+            data_tr_barang_terakhir.length === data_lihat_barang_terakhir.length;
+        if (bisa_salin_langsung) {
+            masukkan_hasil_ke_table_v2();
+        } else {
+            masukkan_hasil_ke_table();
+        }
+    }
+
     // ---------- V1: scan ulang tiap barcode (lewat fetch_produk_quick / simulasi Enter) ----------
-    // Sudah tidak dipakai di UI (tombolnya dilepas atas permintaan), tapi fungsinya
-    // sengaja tidak dihapus kalau-kalau dibutuhkan lagi.
+    // Tidak ada tombolnya sendiri di UI (dilepas atas permintaan); dipakai sebagai cadangan oleh
+    // masukkan_sesuai_sumber kalau sumber datanya tidak punya field produk yang bisa disalin.
 
     function masukkan_hasil_ke_table() {
         if (data_lihat_barang_terakhir.length === 0) {
@@ -1084,9 +1243,10 @@
         $(document).on('click', '#overlay_modal_umum', tutup_semua_modal);
 
         $(document).on('click', '#bt_lihat_barang', buka_modal_lihat_barang);
+        $(document).on('click', '#bt_pembelian', buka_modal_pembelian);
         $(document).on('click', '#llb_btn_tampilkan', tampilkan_dari_input_link);
         $(document).on('click', '#llb_btn_simpan_header', simpan_header_ke_localstorage);
-        $(document).on('click', '#llb_btn_masukkan_v2', masukkan_hasil_ke_table_v2);
+        $(document).on('click', '#llb_btn_masukkan_v2', masukkan_sesuai_sumber);
         $(document).on('click', '#llb_btn_tutup, #llb_btn_close_x', tutup_semua_modal);
 
         $(document).on('keydown', '#llb_input_link', function (e) {
@@ -1116,6 +1276,16 @@
                 '<div class="additional_button" id="wrapper_bt_lihat_barang">' +
                     '<div id="bt_lihat_barang">' +
                         '<span class="fa fa-table" aria-hidden="true" style="color:#198754;font-size:14px"></span> Lihat Data Barang' +
+                    '</div>' +
+                '</div>'
+            );
+        }
+
+        if ($('#bt_pembelian').length === 0) {
+            wrapper.append(
+                '<div class="additional_button" id="wrapper_bt_pembelian">' +
+                    '<div id="bt_pembelian">' +
+                        '<span class="fa fa-shopping-cart" aria-hidden="true" style="color:#0d6efd;font-size:14px"></span> Data Pembelian' +
                     '</div>' +
                 '</div>'
             );
