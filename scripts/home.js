@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.19.0
-// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerima Piutang" (Laporan Rekap Piutang, Tipe Rekap Penerimaan Piutang) dan "Pembayaran Hutang" (Laporan Rekap Hutang, Tipe Rekap Pembayaran Hutang): total dari blok Rekapitulasi, periode dipilih per kartu (Hari ini/Kemarin/Mingguan/Bulanan), klik baris nota = popup daftar; lalu kartu "Pendapatan Lain-Lain" (Daftar Data Jurnal, Akun Pendapatan Lain, Dasar Filter Tanggal Transaksi, kolom Total dijumlah semua halaman). Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu PPOB & Penerima Piutang hanya di Home. Tidak jalan di halaman Login.
+// @version      1.20.0
+// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerimaan Piutang" (Laporan Rekap Piutang, Tipe Rekap Penerimaan Piutang) dan "Pembayaran Hutang" (Laporan Rekap Hutang, Tipe Rekap Pembayaran Hutang): total dari blok Rekapitulasi, semua untuk hari ini, klik baris nota = popup daftar; lalu kartu "Pendapatan Lain-Lain" (Daftar Data Jurnal, Akun Pendapatan Lain, Dasar Filter Tanggal Transaksi, kolom Total dijumlah semua halaman). Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu-kartu ini hanya di Home. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -20,7 +20,7 @@
     const DI_HOME = location.pathname === '/';   // kartu PPOB hanya di Home; popup peringatan saldo di semua halaman
     if (window.__aistimHome) return;
     window.__aistimHome = true;
-    console.log('[home.js] v1.19.0 aktif di ' + location.pathname);
+    console.log('[home.js] v1.20.0 aktif di ' + location.pathname);
 
     const SALDO_URL = '/main/check_balance_ppob/new';
     const PPOB_URL = '/penjualans/aktifitas_ppob/new';
@@ -214,50 +214,30 @@
         }
     }
 
-    // ---------- kartu laporan rekap (Penerima Piutang, Pembayaran Hutang) ----------
+    // ---------- kartu laporan rekap (Penerimaan Piutang, Pembayaran Hutang, Pendapatan Lain-Lain) — semuanya hari ini ----------
     // Angka diambil dari halaman Laporan Rekap Erzap persis seperti dipakai manual: halaman dimuat di iframe tersembunyi
     // (javascript Erzap ikut jalan), Tipe Rekap & Dasar Filter Periode (Tanggal Jurnal) dipilih, Dari/Sampai Periode diisi
-    // sesuai periode kartu, lalu tombol Filter diklik. Total diambil dari blok "Rekapitulasi" di bawah tabel (tabelnya
-    // dipaging 50 baris, jadi menjumlah baris pasti meleset); jumlah nota dari "... dari total data N Nota".
+    // hari ini, lalu tombol Filter diklik. Total diambil dari blok "Rekapitulasi" di bawah tabel (tabelnya dipaging
+    // 50 baris, jadi menjumlah baris pasti meleset); jumlah nota dari "... dari total data N Nota".
     const KARTU_REKAP = [
-        { id: 'piutang', label: 'Penerima Piutang', attr: 'data-aistim-piutang', url: '/laporans/rekap_piutang/new',
-          form: 'pencarian_rekap_piutang', tipe: /penerimaan/i, judul: /rekap\s*piutang\s*penerimaan/i,
-          periode: ['harian', 'mingguan', 'bulanan'] },
+        { id: 'piutang', label: 'Penerimaan Piutang', attr: 'data-aistim-piutang', url: '/laporans/rekap_piutang/new',
+          form: 'pencarian_rekap_piutang', tipe: /penerimaan/i, judul: /rekap\s*piutang\s*penerimaan/i },
         { id: 'hutang', label: 'Pembayaran Hutang', attr: 'data-aistim-hutang', url: '/laporans/rekap_hutang/new',
-          form: 'pencarian_rekap_hutang', tipe: /pembayaran/i, judul: /rekap\s*pembayaran\s*hutang/i,
-          periode: ['harian', 'kemarin', 'mingguan', 'bulanan'] },
+          form: 'pencarian_rekap_hutang', tipe: /pembayaran/i, judul: /rekap\s*pembayaran\s*hutang/i },
         // bukan halaman Laporan Rekap: Daftar Data Jurnal dengan Akun = Pendapatan Lain, Dasar Filter = Tanggal Transaksi
         { id: 'pendapatan_lain', label: 'Pendapatan Lain-Lain', attr: 'data-aistim-pendapatan-lain', url: '/jurnals?id=new',
-          ambil: ambilPendapatanLain, satuan: 'jurnal', periode: ['harian', 'mingguan', 'bulanan'] }
+          ambil: ambilPendapatanLain, satuan: 'jurnal' }
     ];
-    const PERIODE = { harian: 'Hari ini', kemarin: 'Kemarin', mingguan: 'Minggu ini', bulanan: 'Bulan ini' };
-    const NAMA_PERIODE = { harian: 'Hari ini', kemarin: 'Kemarin', mingguan: 'Mingguan', bulanan: 'Bulanan' };
-    const kartuRekap = {};   // id -> {cfg, kartu, utama, kedua, pilihan, periode, jalan, data, galat, popup, tekan}
+    const kartuRekap = {};   // id -> {cfg, kartu, utama, kedua, jalan, data, galat, popup, tekan}
     let antreanRekap = Promise.resolve();   // iframe laporan dimuat satu per satu
 
-    function periodeTersimpan(cfg) {
-        try { const p = localStorage.getItem('aistim_home_periode_' + cfg.id); return cfg.periode.indexOf(p) >= 0 ? p : 'harian'; } catch (e) { return 'harian'; }
-    }
-    // Harian: hari ini; Kemarin: kemarin saja; Mingguan: Senin minggu ini s/d hari ini; Bulanan: tanggal 1 s/d hari ini
-    function rentangPeriode(p) {
-        const akhir = new Date();
-        const awal = new Date(akhir.getFullYear(), akhir.getMonth(), akhir.getDate());
-        if (p === 'kemarin') { awal.setDate(awal.getDate() - 1); return [awal, new Date(awal)]; }
-        if (p === 'mingguan') awal.setDate(awal.getDate() - ((awal.getDay() + 6) % 7));
-        else if (p === 'bulanan') awal.setDate(1);
-        return [awal, akhir];
-    }
+    const awalHariIni = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); };
     // tanggal dalam format yang sama dengan isi bawaan kolom tanggal (datepicker); bawaan dd-mm-yyyy
     function tglFormatSama(contoh, d) {
         const dd = dua(d.getDate()), mm = dua(d.getMonth() + 1), yy = d.getFullYear();
         if (/^\d{4}-\d{2}-\d{2}$/.test(contoh)) return yy + '-' + mm + '-' + dd;
         if (/^\d{2}\/\d{2}\/\d{4}$/.test(contoh)) return dd + '/' + mm + '/' + yy;
         return dd + '-' + mm + '-' + yy;
-    }
-    function teksPeriode(p) {
-        const r = rentangPeriode(p);
-        const a = tglFormatSama('', r[0]), b = tglFormatSama('', r[1]);
-        return a === b ? a : a + ' s/d ' + b;
     }
 
     function setNilaiForm(el, nilai) {
@@ -324,7 +304,7 @@
         };
     }
 
-    async function ambilRekap(cfg, periode) {
+    async function ambilRekap(cfg) {
         const fr = document.createElement('iframe');
         fr.style.cssText = 'position:fixed;left:-10000px;top:0;width:1400px;height:1400px;border:0;opacity:0;pointer-events:none';
         fr.setAttribute('aria-hidden', 'true');
@@ -341,9 +321,9 @@
             const kolomDari = form.querySelector('[name="laporan[tanggal_dari]"]') || Array.from(form.querySelectorAll('input[name]')).find((x) => /^laporan\[tanggal[^\]]*(dari|awal|mulai)/i.test(x.name));
             const kolomSampai = form.querySelector('[name="laporan[tanggal_sampai]"]') || Array.from(form.querySelectorAll('input[name]')).find((x) => /^laporan\[tanggal[^\]]*(sampai|akhir)/i.test(x.name));
             if (!kolomDari) throw new Error('kolom Dari Periode tidak ditemukan');
-            const contoh = rapih(kolomDari.value), r = rentangPeriode(periode);
-            setNilaiForm(kolomDari, tglFormatSama(contoh, r[0]));
-            if (kolomSampai) setNilaiForm(kolomSampai, tglFormatSama(contoh, r[1]));
+            const hariIni = tglFormatSama(rapih(kolomDari.value), awalHariIni());
+            setNilaiForm(kolomDari, hariIni);
+            if (kolomSampai) setNilaiForm(kolomSampai, hariIni);
             // tombol Filter: #bt_filter (handler jQuery Erzap: validasi lalu submit form); cadangan: tombol berteks Filter / submit
             const docAwal = fr.contentDocument;
             const teksTombol = (b) => rapih(b.textContent) || rapih(b.value || '');
@@ -411,7 +391,7 @@
     }
     const sidikTabel = (doc) => { const t = bacaTabelJurnal(doc); return t ? t.baris.length + '|' + (t.baris[0] || []).join('|') : ''; };
 
-    async function ambilPendapatanLain(cfg, periode) {
+    async function ambilPendapatanLain(cfg) {
         const fr = document.createElement('iframe');
         fr.style.cssText = 'position:fixed;left:-10000px;top:0;width:1400px;height:1400px;border:0;opacity:0;pointer-events:none';
         fr.setAttribute('aria-hidden', 'true');
@@ -440,9 +420,9 @@
             const kolomTgl = Array.from(form.querySelectorAll('input')).filter((x) =>
                 /hasDatepicker|tanggal/i.test(x.className) || /^\d{2}[-\/]\d{2}[-\/]\d{4}$|^\d{4}-\d{2}-\d{2}$/.test(rapih(x.value)));
             if (kolomTgl.length < 2) throw new Error('kolom Periode tidak ditemukan');
-            const contoh = rapih(kolomTgl[0].value), r = rentangPeriode(periode);
-            setNilaiForm(kolomTgl[0], tglFormatSama(contoh, r[0]));
-            setNilaiForm(kolomTgl[1], tglFormatSama(contoh, r[1]));
+            const hariIni = tglFormatSama(rapih(kolomTgl[0].value), awalHariIni());
+            setNilaiForm(kolomTgl[0], hariIni);
+            setNilaiForm(kolomTgl[1], hariIni);
             // Akun = Pendapatan Lain (autocomplete); kalau pilihan tidak muncul, cadangan: Keterangan "Pendapatan Lain-lain"
             const kolomAkun = inputSetelahLabel(form, /^akun\s*:?$/i);
             let lewatAkun = false;
@@ -501,12 +481,12 @@
     function tampilRekap(s) {
         const d = s.data;
         s.utama.textContent = fmtRp(d.total);
-        s.kedua.textContent = d.jumlah + ' ' + (s.cfg.satuan || 'nota') + ' · ' + PERIODE[s.periode];
-        s.kartu.title = d.labelTotal + ' ' + PERIODE[s.periode].toLowerCase() + ' (' + teksPeriode(s.periode) + ')' +
-            (d.potongan ? ' · Total Potongan ' + fmtRp(d.potongan) : '') + ' — klik baris nota untuk melihat daftar';
+        s.kedua.textContent = d.jumlah + ' ' + (s.cfg.satuan || 'nota') + ' hari ini';
+        s.kartu.title = d.labelTotal + ' hari ini (' + tglHariIni() + ')' +
+            (d.potongan ? ' · Total Potongan ' + fmtRp(d.potongan) : '') + ' — klik baris ' + (s.cfg.satuan || 'nota') + ' untuk melihat daftar';
     }
 
-    // tanda sedang memuat di kartu: ikon sync berputar di depan baris nota + angka dipudarkan (juga saat refresh / ganti periode)
+    // tanda sedang memuat di kartu: ikon sync berputar di depan baris nota + angka dipudarkan (juga saat refresh otomatis)
     function tandaMemuat(s) {
         s.kedua.querySelectorAll('.aistim_home_sync').forEach((e) => e.remove());
         if (s.jalan) s.kedua.insertBefore(ikonSync(), s.kedua.firstChild);
@@ -516,57 +496,27 @@
     async function muatRekap(s) {
         if (!s.kartu || !document.body.contains(s.kartu) || s.jalan) return;
         s.jalan = true;
-        const periode = s.periode;
-        if (!s.data) s.kedua.textContent = 'memuat ' + PERIODE[periode].toLowerCase() + ' ...';
+        if (!s.data) s.kedua.textContent = 'memuat hari ini ...';
         tandaMemuat(s);
         if (s.popup) isiPopupRekap(s);
         perbaruiSegarRekap(s);
         try {
-            const p = antreanRekap.then(() => (s.cfg.ambil || ambilRekap)(s.cfg, periode));
+            const p = antreanRekap.then(() => (s.cfg.ambil || ambilRekap)(s.cfg));
             antreanRekap = p.catch(() => {});
-            const h = await p;
-            if (periode === s.periode) { s.data = h; s.galat = ''; tampilRekap(s); }
+            s.data = await p;
+            s.galat = '';
+            tampilRekap(s);
         } catch (err) {
-            if (periode === s.periode) {
-                s.galat = err.message;
-                if (!s.data) { s.utama.textContent = 'Rp -'; s.kedua.textContent = 'Gagal: ' + err.message; }
-                s.kartu.title = 'Gagal memuat ' + s.cfg.label + ': ' + err.message;
-            }
+            s.galat = err.message;
+            if (!s.data) { s.utama.textContent = 'Rp -'; s.kedua.textContent = 'Gagal: ' + err.message; }
+            s.kartu.title = 'Gagal memuat ' + s.cfg.label + ': ' + err.message;
             console.warn('[home.js] ' + s.cfg.label + ': ' + err.message);
         } finally {
             s.jalan = false;
             tandaMemuat(s);
             if (s.popup) isiPopupRekap(s);
             perbaruiSegarRekap(s);
-            if (periode !== s.periode) muatRekap(s);   // periode diganti saat memuat: muat ulang dengan periode baru
         }
-    }
-
-    function gantiPeriode(s, p) {
-        if (!PERIODE[p] || p === s.periode) return;
-        s.periode = p;
-        try { localStorage.setItem('aistim_home_periode_' + s.cfg.id, p); } catch (e) { /* diblokir */ }
-        s.data = null;
-        s.galat = '';
-        s.utama.textContent = 'Rp ...';
-        s.kedua.textContent = 'memuat ' + PERIODE[p].toLowerCase() + ' ...';
-        tandaMemuat(s);   // kalau pemuatan periode lama masih jalan, ikon tetap tampil sampai periode baru selesai
-        if (s.popup) isiPopupRekap(s);
-        muatRekap(s);
-    }
-
-    // kotak kartu yang kelihatan (berbingkai) untuk menaruh dropdown periode di pojok kanan atasnya: mulai dari wadah
-    // bersama label + angka, naik ke elemen berbingkai terdekat di dalam kartu (kalau tidak ada, pakai wadah bersama itu)
-    function kotakKartu(kartuEl, angkaEl) {
-        const lbl = kartuEl.querySelector('.label_transaksi') || kartuEl;
-        let w = lbl === kartuEl ? kartuEl : lbl.parentNode;
-        while (w !== kartuEl && !w.contains(angkaEl)) w = w.parentNode;
-        for (let x = w; ; x = x.parentNode) {
-            const cs = getComputedStyle(x);
-            if (parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderRightWidth) > 0) return x;
-            if (x === kartuEl) break;
-        }
-        return w;
     }
 
     function rapikanKartu(k) {
@@ -588,21 +538,10 @@
                 rapikanKartu(hasil.kartu);
                 hasil.keluar.style.cursor = 'pointer';
                 hasil.keluar.style.textDecoration = 'underline dotted';
-                const pilihan = document.createElement('select');
-                pilihan.className = 'aistim_periode';
-                pilihan.title = 'Periode';
-                pilihan.style.cssText = 'position:absolute;top:8px;right:8px;z-index:2;font-size:11px;padding:1px 2px;border:1px solid #ccc;border-radius:3px;background:#fff;color:#333;cursor:pointer';
-                cfg.periode.forEach((p) => { const o = document.createElement('option'); o.value = p; o.textContent = NAMA_PERIODE[p]; pilihan.appendChild(o); });
-                const wadah = kotakKartu(hasil.kartu, hasil.saldo);
-                if (getComputedStyle(wadah).position === 'static') wadah.style.position = 'relative';
-                wadah.appendChild(pilihan);
-                s = s || { cfg: cfg, periode: periodeTersimpan(cfg), data: null, galat: '', jalan: false, popup: null };
+                s = s || { cfg: cfg, data: null, galat: '', jalan: false, popup: null };
                 s.kartu = hasil.kartu;
                 s.utama = hasil.saldo;
                 s.kedua = hasil.keluar;
-                s.pilihan = pilihan;
-                pilihan.value = s.periode;
-                pilihan.addEventListener('change', () => gantiPeriode(s, pilihan.value));
                 kartuRekap[cfg.id] = s;
                 if (s.data) tampilRekap(s); else muatRekap(s);
             }
@@ -715,7 +654,7 @@
     // ---------- popup: daftar nota kartu laporan rekap (klik baris "N nota · ...") ----------
     function isiPopupRekap(s) {
         if (!s.popup) return;
-        s.popup.judul.textContent = s.cfg.label + ' — ' + PERIODE[s.periode] + ' (' + teksPeriode(s.periode) + ')';
+        s.popup.judul.textContent = s.cfg.label + ' — hari ini (' + tglHariIni() + ')';
         const isi = s.popup.isi;
         isi.textContent = '';
         if (!s.data) {
@@ -737,7 +676,7 @@
             d.jumlah + ' ' + (s.cfg.satuan || 'nota') + ' · ' + d.labelTotal + ' ' + fmtRp(d.total) + (d.potongan ? ' · Total Potongan ' + fmtRp(d.potongan) : '') +
             (d.baris.length < d.jumlah ? ' (daftar di bawah: ' + d.baris.length + ' teratas, selengkapnya di halaman laporan)' : '') }));
         if (!d.baris.length) {
-            isi.appendChild(el('div', { teks: 'Tidak ada nota pada periode ini.', gaya: 'padding:18px;color:#555' }));
+            isi.appendChild(el('div', { teks: 'Tidak ada ' + (s.cfg.satuan || 'nota') + ' hari ini.', gaya: 'padding:18px;color:#555' }));
             return;
         }
         // kolom ditampilkan apa adanya dari laporan Erzap (kecuali "No"); kolom nominal rata kanan
@@ -868,7 +807,7 @@
 
     // ---------- cari kartu stats yang sudah ada (label_transaksi) ----------
     // Kartu = elemen anak dari baris yang sama dengan kartu lain; tiap kartu memuat satu .label_transaksi
-    // Kartu buatan kita sendiri (PPOB / Penerima Piutang) punya class label_transaksi juga (hasil clone) -> disisihkan,
+    // Kartu buatan kita sendiri (PPOB / kartu laporan rekap) punya class label_transaksi juga (hasil clone) -> disisihkan,
     // supaya tidak ikut ter-"temukan" sebagai kartu asli dan ter-clone ulang.
     const BUATAN_SENDIRI = '[data-aistim-saldo-ppob], [data-aistim-piutang], [data-aistim-hutang], [data-aistim-pendapatan-lain]';
     function cariKartuAsli() {
@@ -914,7 +853,7 @@
     }
 
     // ---------- bangun kartu: salin kartu asli supaya tampilannya sama ----------
-    // opsi: {label, attr, placeholder} — dipakai juga untuk kartu "Penerima Piutang" di samping kartu PPOB
+    // opsi: {label, attr, placeholder} — dipakai juga untuk kartu laporan rekap di samping kartu PPOB
     function bangunDariSalinan(asal, opsi) {
         opsi = opsi || {};
         const labelTeks = opsi.label || LABEL;
@@ -1002,7 +941,6 @@
             const k = e.target && e.target.closest && e.target.closest(BUATAN_SENDIRI);
             if (!k) return;
             e.stopImmediatePropagation();
-            if (e.target.closest('.aistim_periode')) return;   // pilihan periode: biarkan dropdown bekerja normal
             e.preventDefault();
             if (keluarEl && keluarEl.contains(e.target)) { bukaPopup(); return; }
             const s = Object.values(kartuRekap).find((x) => x.kedua && x.kedua.contains(e.target));
