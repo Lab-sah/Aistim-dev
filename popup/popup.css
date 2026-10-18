@@ -1,326 +1,375 @@
+:root { color-scheme: light; --ink:#ffffff; --card:#fff4f5; --line:#f2c4ca; --muted:#8c5a62; --accent:#e5192d; --danger:#b45309; }
 * { box-sizing: border-box; }
-body {
-  width: 400px;
-  padding: 0;
-  margin: 0;
-  font-family: 'Segoe UI', Arial, sans-serif;
-  background: #fff;
+body { margin: 0; width: 100%; min-width: 360px; min-height: 420px; background: var(--ink); color: #2a0e12; font: 15px/1.4 system-ui, sans-serif; }
+main { padding: 20px; }
+header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+header h1 { flex: 1; }
+header button { flex: none; }
+header img { border-radius: 8px; }
+#sync { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: none; color: var(--muted); cursor: pointer; }
+#sync:hover { color: #2a0e12; }
+#sync.putar svg { animation: putar .8s linear infinite; }
+@keyframes putar { to { transform: rotate(360deg); } }
+h1 { margin: 0; font-size: 24px; }
+h1 span { color: var(--accent); }
+h2 { margin: 18px 0 8px; font-size: 15px; }
+[hidden] { display: none !important; }
+#msg { min-height: 20px; margin: 4px 0 8px; text-align: center; font-size: 13px; color: var(--danger); }
+#pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+#pad button { height: 52px; border: 0; border-radius: 12px; background: var(--card); color: inherit; font-size: 22px; font-weight: 600; cursor: pointer; }
+#pad button:hover { background: #ffe6e9; }
+#pad button:disabled { opacity: .5; cursor: progress; }
+#empty { color: var(--muted); font-size: 13px; }
+@keyframes wiggle { 0%,100% { transform: translateX(0) } 25%,75% { transform: translateX(-6px) } 50% { transform: translateX(6px) } }
+#tabs { display: flex; gap: 6px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+#tabs button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); padding: 8px 10px; margin-bottom: -1px; font: inherit; font-weight: 600; cursor: pointer; }
+#tabs button[aria-selected="true"] { color: #2a0e12; border-bottom-color: var(--accent); }
+label { display: block; margin: 8px 0 4px; color: var(--muted); font-size: 13px; }
+input[type=text], input[type=email], input[type=password] { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--ink); color: inherit; font: inherit; }
+input[type=password] { letter-spacing: .25em; }
+.row { display: flex; gap: 8px; align-items: flex-start; }
+.combo { position: relative; flex: 1; min-width: 0; }
+.judul { margin: 10px 0 4px; font-size: 14px; font-weight: 600; }
+.izin label { display: flex; align-items: center; gap: 8px; margin: 0; padding: 5px 0; color: inherit; font-size: 14px; cursor: pointer; }
+#salin { padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: none; color: inherit; font: inherit; cursor: pointer; }
+#terpilih { margin-top: 12px; }
+h1 small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.switch { position: relative; flex: none; width: 44px; height: 26px; }
+.switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.switch span { position: absolute; inset: 0; border-radius: 13px; background: #e9ccd0; transition: background .15s; pointer-events: none; }
+.switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.switch input:checked + span { background: var(--accent); }
+.switch input:checked + span::after { transform: translateX(18px); }
+.switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch input:disabled { cursor: progress; }
+.kartu { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+#engine-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: #e9ccd0; }
+#engine.ok #engine-dot { background: #15803d; box-shadow: 0 0 0 3px rgba(21,128,61,.18); }
+#engine.warn #engine-dot { background: #d97706; box-shadow: 0 0 0 3px rgba(217,119,6,.18); }
+#engine strong { display: block; font-size: 14px; }
+#engine small { display: block; color: var(--muted); font-size: 12px; }
+#engine-help { margin: 0 0 10px; padding: 10px 12px 10px 28px; border: 1px dashed #d97706; border-radius: 12px; font-size: 13px; color: var(--muted); }
+#engine-help b { color: #2a0e12; font-weight: 600; }
+#cari-script { width: 100%; margin-bottom: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--ink); color: inherit; font: inherit; }
+#manager { list-style: none; margin: 0; padding: 0 2px 0 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; align-content: start; }
+#manager li { min-width: 0; position: relative; display: flex; gap: 10px; align-items: center; padding: 9px 12px 9px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+#manager li::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: transparent; }
+#manager li.on::before { background: var(--accent); }
+#manager li.off { opacity: .6; }
+#manager .isi { flex: 1; min-width: 0; }
+#manager .baris { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+#manager .nama { font-size: 14px; font-weight: 600; word-break: break-word; }
+#manager .ver { padding: 1px 6px; border-radius: 6px; background: var(--ink); color: var(--muted); font-size: 11px; }
+#manager .des { margin: 2px 0 0; color: var(--muted); font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+#manager .chips { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+#manager .chip { padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#pesan { min-height: 18px; margin: 10px 0 0; font-size: 13px; color: var(--muted); }
+#pesan.err { color: var(--danger); }
+#pesan.ok { color: #15803d; }
+/* Layar ponsel (popup memenuhi lebar layar): isi mengisi lebar dan tinggi, halaman yang bergulir. */
+@media (max-width: 600px) {
+  body { height: 100%; }
+  main { padding: 16px; }
 }
-.container {
-  position: relative;
-  padding: 18px;
-  box-shadow: 0 0 24px rgba(220, 38, 38, 0.45), 0 6px 20px rgba(220, 38, 38, 0.15);
-  border: 2px solid #dc2626;
+#tabs button[aria-selected="true"] { box-shadow: 0 2px 10px -3px rgba(229,25,45,.9); }
+#manager li.on { box-shadow: 0 0 14px -4px rgba(229,25,45,.55); border-color: rgba(229,25,45,.45); }
+#manager li.on::before { box-shadow: 0 0 10px rgba(229,25,45,.9); }
+.switch input:checked + span { box-shadow: 0 0 12px rgba(229,25,45,.6); }
+#pad button:hover { box-shadow: 0 0 12px rgba(229,25,45,.35); }
+/* Hanya daftar script (dan panel tab lain) yang bisa digulir; header dan tab tetap */
+html { height: 100%; }
+body { height: 560px; overflow: hidden; }
+main { height: 100%; display: flex; flex-direction: column; }
+header, #tabs { flex: none; }
+#view-user { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+#pane-script { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+#pane-script > :not(#manager) { flex: none; }
+@media (max-width: 600px) {
+  body { height: 100%; }
 }
-.container h1 {
-  font-size: 22px;
-  color: #dc2626;
-  margin: 0;
-  text-align: center;
-  text-shadow: 0 2px 4px rgba(220, 38, 38, 0.25);
+#terpilih:not([hidden]) { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+#terpilih #izin { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* Form tambah akun: muat di layar, hanya daftar script di dalamnya yang digulir */
+/* Tab berbentuk oval (pil) dengan animasi halus */
+#tabs { gap: 8px; padding: 4px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); }
+#tabs button { flex: 1 1 0; margin: 0; padding: 9px 12px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 14px;
+  transition: background .25s ease, color .25s ease, box-shadow .25s ease, transform .15s ease; }
+#tabs button:hover { background: rgba(229,25,45,.08); color: var(--accent); }
+#tabs button:active { transform: scale(.94); }
+#tabs button[aria-selected="true"] { background: var(--accent); color: #fff; border: 0; box-shadow: 0 0 14px rgba(229,25,45,.55); }
+#tabs button[aria-selected="true"]:hover { background: var(--accent); color: #fff; }
+@media (prefers-reduced-motion: reduce) {
+  #tabs button { transition: none; }
 }
-.subtitle {
-  text-align: center;
-  font-size: 12px;
-  color: #991b1b;
-  font-weight: 600;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  margin-bottom: 12px;
+/* Tanda aktif di halaman yang sedang dibuka: hijau = aktif, kuning = harusnya aktif tapi belum */
+:root { --ok: #15803d; }
+#engine-halaman { margin: -4px 0 10px; padding: 8px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; }
+#engine-halaman.ok { color: var(--ok); background: rgba(21,128,61,.1); border: 1px solid rgba(21,128,61,.35); }
+#engine-halaman.warn { color: #b45309; background: rgba(217,119,6,.1); border: 1px solid rgba(217,119,6,.4); }
+#manager li.live { border-color: rgba(21,128,61,.55); box-shadow: 0 0 14px -4px rgba(21,128,61,.6); }
+#manager li.live::before { background: #16a34a; box-shadow: 0 0 10px rgba(22,163,74,.9); }
+#manager li.live .nama::after { content: "Aktif"; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: #16a34a; color: #fff; font-size: 11px; font-weight: 700; vertical-align: 2px; }
+#manager li.tunggu .nama::after { content: "Belum aktif"; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: rgba(217,119,6,.15); color: #b45309; font-size: 11px; font-weight: 700; vertical-align: 2px; }
+/* Tombol salin untuk teks yang diblok */
+#salin-pilihan { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 20; padding: 10px 18px; border: 0; border-radius: 999px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; box-shadow: 0 4px 18px rgba(229,25,45,.45); }
+/* Versi di kanan atas, tepat di atas toggle */
+#manager .kanan { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+#manager .kanan .ver { white-space: nowrap; }
+/* Badge versi dan toggle berukuran sama (serasi) */
+#manager .kanan { align-items: stretch; }
+#manager .kanan .ver, #manager .kanan .switch { width: 54px; height: 24px; }
+#manager .kanan .ver { display: flex; align-items: center; justify-content: center; padding: 0; border-radius: 12px; font-size: 11px; font-weight: 600; box-sizing: border-box; }
+#manager .switch span { border-radius: 12px; }
+#manager .switch span::after { top: 3px; left: 3px; width: 18px; height: 18px; }
+#manager .switch input:checked + span::after { transform: translateX(30px); }
+#msg { text-align: left; }
+#belum { margin: 4px 0 10px; }
+/* Menu Tempel (tekan lama) */
+#menu-tempel { display: flex; flex-wrap: wrap; max-width: calc(100vw - 16px); position: fixed; z-index: 30; padding: 4px; border-radius: 12px; background: #2a0e12; box-shadow: 0 4px 18px rgba(0,0,0,.35); }
+#menu-tempel[hidden] { display: none; }
+#menu-tempel button[hidden] { display: none; }
+#menu-tempel button { padding: 10px 14px; border: 0; border-radius: 8px; background: none; color: #fff; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+#menu-tempel button:hover { background: rgba(255,255,255,.12); }
+/* 5 tab muat di layar sempit */
+#tabs { gap: 2px; }
+#tabs button { padding: 9px 4px; font-size: 13px; }
+/* animasi memuat */
+@keyframes putar { to { transform: rotate(360deg); } }
+/* layar memuat saat popup dibuka */
+#view-memuat { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 90px 0; color: var(--muted); }
+#view-memuat[hidden] { display: none; }
+#view-memuat p { margin: 0; font-size: 14px; }
+.putar-besar { width: 38px; height: 38px; border: 4px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: putar .8s linear infinite; }
+/* Bingkai luar: popup tampak sebagai kartu berbingkai, juga saat dibuka sebagai tab */
+body { padding: 8px; background: var(--card); }
+main { background: #fff; border: 1.5px solid var(--line); border-radius: 20px; box-shadow: 0 2px 14px -6px rgba(229,25,45,.35); }
+/* Layar lebar (popup dibuka sebagai tab di desktop/tablet): kartu di tengah dengan lebar terbatas dan setinggi layar.
+   Popup bawaan desktop (tinggi maks. ~600px) tidak terkena aturan ini. */
+@media (min-width: 601px) and (min-height: 650px) {
+  body { max-width: 480px; margin: 0 auto; height: 100%; padding: 14px 8px; }
 }
-.status-box {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 8px;
-  padding: 6px 10px;
-  margin-bottom: 10px;
+/* Tanpa scroll samping di luar kartu: hanya isi tab yang bergulir */
+html { overflow: hidden; }
+/* Ukuran teks mengikuti card chrome://extensions: 13px untuk teks utama, 12px untuk teks pendukung */
+body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; }
+@media (min-width: 601px) {
+  body { width: 400px; min-width: 0; }
 }
-.status-dot {
-  width: 9px;
-  height: 9px;
-  background: #22c55e;
-  border-radius: 50%;
-  box-shadow: 0 0 6px #22c55e;
-  animation: pulse 2s infinite;
-}
-@keyframes pulse {
-  0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.7); }
-  70% { box-shadow: 0 0 0 7px rgba(34,197,94,0); }
-  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
-}
-.status-text {
-  color: #16a34a;
-  font-weight: 600;
-  font-size: 13px;
-}
-.page-info {
-  background: #fff7ed;
-  border: 1px solid #fed7aa;
-  border-radius: 8px;
-  padding: 8px 10px;
-  margin-bottom: 12px;
-}
-.page-label {
-  font-size: 10px;
-  color: #9a3412;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-.page-value {
-  font-size: 12px;
-  color: #c2410c;
-  font-weight: 500;
-  word-break: break-all;
-  margin-top: 2px;
-}
-.section-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: #7f1d1d;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 8px;
-  border-bottom: 1px solid #fecaca;
-  padding-bottom: 4px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-#script-count {
-  font-size: 11px;
-  color: #9a3412;
-  font-weight: 500;
-}
-.script-list {
-  max-height: 220px;
-  overflow-y: auto;
-  margin-bottom: 8px;
-}
-.script-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: #fff1f2;
-  border: 1px solid #fecdd3;
-  border-radius: 6px;
-  padding: 10px;
-  margin-bottom: 6px;
-}
-.script-item.match {
-  border-color: #86efac;
-  background: #f0fdf4;
-}
-.script-item.match .script-match {
-  color: #16a34a;
-}
-.script-info {
-  flex: 1;
-  min-width: 0;
-}
-.script-name {
-  font-size: 13px;
-  font-weight: 700;
-  color: #7f1d1d;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.script-meta {
-  font-size: 10px;
-  color: #9a3412;
-  margin-top: 2px;
-}
-.script-match {
-  font-size: 10px;
-  color: #b91c1c;
-  margin-top: 1px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.script-btns {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: 8px;
-}
-.toggle-switch {
-  width: 36px;
-  height: 20px;
-  background: #d1d5db;
-  border-radius: 10px;
-  position: relative;
-  cursor: pointer;
-  transition: background 0.2s;
-  flex-shrink: 0;
-}
-.toggle-switch.on {
-  background: #22c55e;
-}
-.toggle-switch::after {
-  content: '';
-  width: 16px;
-  height: 16px;
-  background: #fff;
-  border-radius: 50%;
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  transition: left 0.2s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-}
-.toggle-switch.on::after {
-  left: 18px;
-}
-.btn-icon {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  color: #991b1b;
-  padding: 2px 4px;
-  border-radius: 4px;
-}
-.btn-icon:hover {
-  background: #fecaca;
-}
-.empty {
-  text-align: center;
-  color: #9ca3af;
-  font-size: 13px;
-  padding: 20px;
-}
-#status {
-  margin-top: 6px;
-  font-size: 12px;
-  text-align: center;
-  font-weight: 600;
-  min-height: 18px;
-}
-
-/* Version & Update */
-.version-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-  padding: 0 2px;
-}
-.version-label {
-  font-size: 11px;
-  color: #9ca3af;
-  font-weight: 600;
-  font-family: monospace;
-}
-.btn-update {
-  background: #fff;
-  color: #7f1d1d;
-  border: 1px solid #fecaca;
-  padding: 4px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-}
-.btn-update:hover {
-  background: #fef2f2;
-  border-color: #dc2626;
-}
-.update-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: #f0fdf4;
-  border: 1px solid #86efac;
-  border-radius: 8px;
-  padding: 8px 10px;
-  margin-bottom: 10px;
-  font-size: 12px;
-  color: #166534;
-  font-weight: 600;
-}
-.update-bar a {
-  background: #16a34a;
-  color: #fff;
-  text-decoration: none;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 700;
-}
-.update-bar a:hover {
-  background: #15803d;
-}
-.update-steps {
-  font-size: 10px;
-  color: #166534;
-  background: #f0fdf4;
-  border: 1px solid #86efac;
-  border-top: none;
-  border-radius: 0 0 8px 8px;
-  padding: 6px 10px;
-  margin: -10px 0 10px 0;
-  line-height: 1.5;
-}
-.engine-label {
-  font-size: 10px;
-  font-weight: 600;
-  margin: -6px 2px 10px 2px;
-  color: #9ca3af;
-}
-.engine-label.ok { color: #16a34a; }
-.engine-label.warn { color: #d97706; }
-.badge-auto {
-  display: inline-block;
-  background: #dc2626;
-  color: #fff;
-  font-size: 8px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 4px;
-  margin-right: 4px;
-  vertical-align: middle;
-  letter-spacing: 0.5px;
-}
-.btn-resync {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 13px;
-  padding: 0 2px;
-  opacity: 0.7;
-}
-.btn-resync:hover {
-  opacity: 1;
-}
-
-.us-warning {
-  font-size: 11px;
-  color: #991b1b;
-  background: #fef2f2;
-  border: 1px solid #fca5a5;
-  border-radius: 8px;
-  padding: 8px 10px;
-  margin: -4px 0 10px 0;
-  line-height: 1.5;
-}
-.us-warning ol {
-  margin: 6px 0 0 0;
-  padding-left: 18px;
-}
-.us-warning li { margin-bottom: 2px; }
-
-.brand-logo {
-  position: absolute;
-  top: 10px;
-  left: 14px;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  box-shadow: 0 2px 8px rgba(13, 90, 168, 0.45);
-}
+h1 { font-size: 22px; }
+h1 small { font-size: 12px; }
+header img { width: 28px; height: 28px; }
+#sync { width: 32px; height: 32px; }
+#engine strong { font-size: 13px; }
+#engine small { font-size: 12px; }
+#cari-script { height: 28px; padding: 0 10px; font-size: 12px; border-radius: 7px; margin-bottom: 6px; }
+#manager li { padding: 8px 10px 8px 12px; border-radius: 8px; }
+#manager .nama { font-size: 13px; }
+#manager .des { font-size: 12px; }
+#manager .chip { font-size: 11px; }
+#manager .kanan .ver { font-size: 11px; }
+#tabs button { font-size: 13px; }
+#pesan, #engine-halaman { font-size: 12px; }
+/* Tab dan tombol header disamakan dengan kolom Cari script: tinggi 28px, teks 12px */
+#sync { width: 28px; height: 28px; border-radius: 7px; }
+#sync svg { width: 14px; height: 14px; }
+#tabs { padding: 2px; gap: 4px; }
+#tabs button { height: 28px; padding: 0 10px; font-size: 12px; }
+/* Kartu script: satu baris setinggi kolom Cari script (28px), teks 12px */
+#manager { gap: 4px; }
+#manager li { min-height: 28px; padding: 0 8px 0 12px; border-radius: 7px; align-items: center; }
+#manager li::before { top: 6px; bottom: 6px; }
+#manager .isi { display: flex; align-items: center; min-width: 0; }
+#manager .baris { flex-wrap: nowrap; min-width: 0; }
+#manager .nama { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#manager .des, #manager .chips { display: none; }
+#manager li.live .nama::after, #manager li.tunggu .nama::after { margin-left: 6px; padding: 0 6px; font-size: 10px; }
+#manager .kanan { flex-direction: row; align-items: center; gap: 6px; }
+#manager .kanan .ver, #manager .kanan .switch { height: 18px; }
+#manager .kanan .ver { width: auto; min-width: 40px; padding: 0 6px; font-size: 10px; border-radius: 9px; }
+#manager .kanan .switch { width: 32px; }
+#manager .switch span { border-radius: 9px; }
+#manager .switch span::after { top: 2px; left: 2px; width: 14px; height: 14px; }
+#manager .switch input:checked + span::after { transform: translateX(14px); }
+/* Toggle script diperkecil */
+#manager .kanan .switch { width: 26px; height: 14px; }
+#manager .switch span { border-radius: 7px; }
+#manager .switch span::after { top: 2px; left: 2px; width: 10px; height: 10px; }
+#manager .switch input:checked + span::after { transform: translateX(12px); }
+#manager .kanan .ver { height: 14px; min-width: 36px; font-size: 9px; border-radius: 7px; }
+/* Match (situs target) ditampilkan lagi di bawah nama script, satu baris kecil */
+#manager li { padding-top: 4px; padding-bottom: 4px; }
+#manager .isi { flex-direction: column; align-items: stretch; gap: 1px; }
+#manager .chips { display: flex; flex-wrap: nowrap; overflow: hidden; margin-top: 0; gap: 4px; }
+#manager .chip { flex: 0 1 auto; min-width: 0; padding: 0 6px; border-radius: 8px; font-size: 10px; line-height: 14px; }
+/* Kartu menyesuaikan isi: lebar penuh, tinggi bertambah bila match banyak/panjang (chip turun ke baris berikutnya) */
+#manager { padding-right: 0; scrollbar-gutter: stable; }
+#manager li { width: 100%; height: auto; }
+#manager .isi { flex: 1 1 auto; min-width: 0; }
+#manager .chips { flex-wrap: wrap; overflow: visible; }
+#manager .chip { max-width: 100%; }
+/* Kartu tidak boleh terjepit saat daftar panjang: tinggi baris mengikuti isi, daftar yang digulir */
+#manager { grid-auto-rows: max-content; }
+#manager li { min-height: 28px; flex: none; }
+#manager .isi { flex-wrap: nowrap; }
+#manager .kanan .ver { width: 46px; min-width: 46px; padding: 0; justify-content: center; }
+#manager .kanan .switch { flex: none; }
+/* Kartu Engine disamakan dengan kartu script: radius 8, strip warna di kiri, teks 12px */
+#engine { position: relative; min-height: 28px; gap: 8px; padding: 6px 10px 6px 12px; margin-bottom: 6px; border-radius: 8px; }
+#engine::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px; border-radius: 0 3px 3px 0; background: #e9ccd0; }
+#engine.ok::before { background: #16a34a; box-shadow: 0 0 10px rgba(22,163,74,.9); }
+#engine.warn::before { background: #d97706; box-shadow: 0 0 10px rgba(217,119,6,.8); }
+#engine.ok { border-color: rgba(21,128,61,.55); box-shadow: 0 0 14px -4px rgba(21,128,61,.6); }
+#engine-dot { width: 8px; height: 8px; }
+#engine strong { font-size: 12px; }
+#engine small { font-size: 11px; }
+/* Scrollbar daftar script: sempit (4px) dan baru terlihat saat kursor di atas daftar */
+#manager { scrollbar-gutter: auto; padding-right: 0; }
+#manager::-webkit-scrollbar { width: 4px; }
+#manager::-webkit-scrollbar-track { background: transparent; }
+#manager::-webkit-scrollbar-thumb { background: transparent; border-radius: 2px; }
+#manager:hover::-webkit-scrollbar-thumb { background: rgba(229,25,45,.45); }
+#manager::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+/* Combobox Cari script: ketik untuk menyaring, tombol panah membuka daftar pilihan */
+.cari { position: relative; margin-bottom: 6px; }
+.cari #cari-script { width: 100%; margin: 0; padding: 0 28px 0 10px; }
+#cari-buka { position: absolute; right: 0; top: 0; width: 28px; height: 28px; display: grid; place-items: center; border: 0; background: none; color: var(--muted); cursor: pointer; }
+#cari-buka:hover, #cari-buka[aria-expanded="true"] { color: var(--accent); }
+#cari-buka svg { transition: transform .15s; }
+#cari-buka[aria-expanded="true"] svg { transform: rotate(180deg); }
+#cari-list { position: absolute; z-index: 10; left: 0; right: 0; top: 32px; margin: 0; padding: 3px; list-style: none; max-height: 168px; overflow-y: auto; background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px -6px rgba(229,25,45,.4); }
+#cari-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+#cari-list li span { flex: none; color: var(--muted); font-size: 10px; }
+#cari-list li:hover, #cari-list li.aktif { background: var(--card); color: var(--accent); }
+#cari-list li.none { color: var(--muted); cursor: default; }
+#cari-list::-webkit-scrollbar { width: 4px; }
+#cari-list::-webkit-scrollbar-thumb { background: rgba(229,25,45,.45); border-radius: 2px; }
+/* Kolom Cari script dan tombol sinkron diperkecil sedikit (24px) */
+#cari-script { height: 24px; font-size: 11px; border-radius: 6px; }
+.cari #cari-script { padding: 0 24px 0 9px; }
+#cari-buka { width: 24px; height: 24px; }
+#cari-buka svg { width: 12px; height: 12px; }
+#cari-list { top: 28px; }
+#cari-list li { font-size: 11px; }
+#sync { width: 24px; height: 24px; border-radius: 6px; }
+#sync svg { width: 12px; height: 12px; }
+/* Kartu script selebar kolom Cari script: scrollbar (4px) diletakkan di luar lebar kartu */
+#manager { margin-right: -4px; padding-right: 0; }
+/* Scrollbar show/hide: tanpa tombol panah, tampil saat digulir atau di-hover, memudar saat diam */
+#manager::-webkit-scrollbar-button { display: none; height: 0; }
+#manager::-webkit-scrollbar-thumb { background: rgba(229,25,45,0); transition: background .25s ease; }
+#manager:hover::-webkit-scrollbar-thumb, #manager.gulir::-webkit-scrollbar-thumb { background: rgba(229,25,45,.5); }
+/* Kartu "Aktif di halaman ini" diperkecil */
+#engine-halaman { margin: 0 0 6px; padding: 3px 10px; border-radius: 8px; font-size: 11px; font-weight: 600; line-height: 16px; }
+/* Tombol "Salin teks terpilih" diperkecil */
+#salin-pilihan { bottom: 10px; padding: 4px 12px; font-size: 11px; font-weight: 600; line-height: 16px; box-shadow: 0 3px 12px rgba(229,25,45,.4); }
+/* Label "Aktif" / "Belum aktif" dipindah dari samping nama ke atas toggle */
+#manager li.live .nama::after, #manager li.tunggu .nama::after { content: none; }
+#manager li.tunggu .kanan { flex-wrap: wrap; justify-content: flex-end; row-gap: 2px; }
+#manager li.tunggu .kanan::before { flex: 0 0 100%; text-align: right; font-size: 10px; font-weight: 700; line-height: 12px; }
+#manager li.tunggu .kanan::before { content: "Belum aktif"; color: #b45309; }
+/* Menu Tempel (tekan lama) diperkecil, seragam dengan tombol "Salin teks terpilih": tinggi 24px, teks 11px */
+#menu-tempel { padding: 2px; border-radius: 8px; max-width: calc(100vw - 12px); box-shadow: 0 3px 12px rgba(0,0,0,.3); }
+#menu-tempel button { height: 24px; padding: 0 10px; border-radius: 6px; font-size: 11px; font-weight: 600; line-height: 24px; }
+/* Scrollbar daftar script disembunyikan total; daftar tetap bisa digulir (roda mouse, sentuh, keyboard) */
+#manager { margin-right: 0; scrollbar-width: none; -ms-overflow-style: none; }
+#manager::-webkit-scrollbar { display: none; width: 0; height: 0; }
+#cari-list { scrollbar-width: none; }
+#cari-list::-webkit-scrollbar { display: none; width: 0; }
+/* Petunjuk "Izinkan skrip pengguna" (engine belum aktif) disamakan dengan kartu lain: radius 8, teks 11px */
+#engine-help { margin: 0 0 6px; padding: 6px 10px 6px 26px; border-radius: 8px; font-size: 11px; line-height: 1.4; }
+#engine-help li + li { margin-top: 1px; }
+/* Tombol pintasan ke pengaturan extension (saat engine belum aktif) */
+#buka-detail { width: 100%; height: 24px; margin: 0 0 6px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--accent); color: #fff; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
+#buka-detail:hover { filter: brightness(1.08); }
+/* Engine belum aktif: kartu, petunjuk, dan tombol menyatu dalam satu bingkai */
+#engine.warn:has(~ #engine-help:not([hidden])) { margin-bottom: 0; border-bottom: 0; border-radius: 8px 8px 0 0; box-shadow: none; }
+#engine-help:not([hidden]) { margin: 0; border: 1px solid var(--line); border-top: 0; border-bottom: 0; border-radius: 0; background: var(--card); }
+#buka-detail { margin: 0 0 6px; border: 1px solid var(--accent); border-radius: 0 0 8px 8px; }
+/* Garis penanda status dipindah ke tepi luar kartu (border kiri), bukan strip di dalam */
+#manager li::before, #engine::before { display: none; }
+#manager li { border-left: 3px solid var(--line); padding-left: 9px; }
+#manager li.on { border-left-color: var(--accent); }
+#manager li.live { border-left-color: #16a34a; }
+#engine { border-left: 3px solid var(--line); padding-left: 9px; }
+#engine.ok { border-left-color: #16a34a; }
+#engine.warn { border-left-color: #d97706; }
+#engine.warn:has(~ #engine-help:not([hidden])) ~ #engine-help, #engine.warn:has(~ #engine-help:not([hidden])) ~ #buka-detail { border-left: 3px solid #d97706; }
+/* Sudut seragam 8px, mengikuti kartu Engine Aktif */
+#engine, #engine-halaman, #manager li, #cari-script, #cari-list, #sync, #salin-pilihan, #menu-tempel, #tabs { border-radius: 8px; }
+#tabs button { border-radius: 6px; }
+#engine.warn:has(~ #engine-help:not([hidden])) { border-radius: 8px 8px 0 0; }
+#buka-detail { border-radius: 0 0 8px 8px; }
+#cari-list li, #menu-tempel button { border-radius: 6px; }
+/* Bingkai popup: sudut 8px seperti kartu di dalamnya */
+body { padding: 4px; }
+main { border-radius: 8px; padding: 12px; }
+/* Jarak bingkai ke tepi popup dirapatkan lagi */
+body { padding: 2px; }
+/* "Aktif di halaman ini" dan Cari script: sudut 8px plus garis kiri 3px, sama seperti kartu Engine dan kartu script */
+#engine-halaman, #cari-script { border-radius: 8px; border-left-width: 3px; }
+#engine-halaman { padding-left: 9px; }
+#engine-halaman.ok { border-left: 3px solid #16a34a; }
+#engine-halaman.warn { border-left: 3px solid #d97706; }
+.cari #cari-script { padding-left: 9px; }
+/* Tombol sinkron di dalam kartu Engine, rata kanan */
+#engine > div { flex: 1; min-width: 0; }
+#engine #sync { flex: none; margin-left: auto; }
+/* Badge versi: di header dan di kartu script sama-sama rounded */
+h1 #ver { display: inline-block; padding: 1px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 16px; vertical-align: 3px; }
+#manager .kanan .ver { border-radius: 8px; }
+#manager .kanan .ver { border: 1px solid var(--line); background: #fff; }
+/* Toggle dan badge versi di kartu script: ukuran sama (40x16px, sudut 8px) */
+#manager .kanan .ver, #manager .kanan .switch { width: 40px; min-width: 40px; height: 16px; border-radius: 8px; }
+#manager .kanan .ver { padding: 0; font-size: 10px; line-height: 14px; }
+#manager .switch span { border-radius: 8px; }
+#manager .switch span::after { top: 2px; left: 2px; width: 12px; height: 12px; }
+#manager .switch input:checked + span::after { transform: translateX(24px); }
+/* Toggle dipendekkan (28x16px); badge versi tetap selebar teksnya */
+#manager .kanan .switch { width: 28px; min-width: 28px; }
+#manager .switch input:checked + span::after { transform: translateX(12px); }
+/* Badge versi dan toggle di sisi atas kartu, sejajar dengan nama script */
+#manager li { align-items: flex-start; }
+#manager .kanan { align-self: flex-start; margin-top: 1px; }
+/* Badge versi dan toggle sejajar: sama-sama 16px, satu garis tengah */
+#manager .kanan { align-items: center; }
+#manager .kanan .ver, #manager .kanan .switch { height: 16px; flex: none; align-self: center; margin: 0; }
+#manager .kanan .ver { display: flex; align-items: center; justify-content: center; box-sizing: border-box; line-height: 1; padding: 0; }
+/* Badge versi dan toggle dikecilkan lagi (tinggi 14px) */
+#manager .kanan .ver { width: 36px; min-width: 36px; height: 14px; font-size: 9px; border-radius: 7px; }
+#manager .kanan .switch { width: 24px; min-width: 24px; height: 14px; border-radius: 7px; }
+#manager .switch span { border-radius: 7px; }
+#manager .switch span::after { top: 2px; left: 2px; width: 10px; height: 10px; }
+#manager .switch input:checked + span::after { transform: translateX(10px); }
+/* Sudut badge versi dan toggle dikurangi (tidak lagi oval penuh) */
+#manager .kanan .ver, #manager .kanan .switch, #manager .switch span { border-radius: 4px; }
+#manager .switch span::after { border-radius: 3px; }
+/* Toggle kembali bulat (pil); hanya badge versi yang bersudut 4px */
+#manager .kanan .switch, #manager .switch span { border-radius: 7px; }
+#manager .switch span::after { border-radius: 50%; }
+/* Script aktif di halaman ini: badge versi berlatar hijau */
+#manager li.live .kanan .ver { background: #16a34a; border-color: #16a34a; color: #fff; }
+/* Badge versi di header: sudut 4px, sama dengan badge versi di kartu script */
+h1 #ver { border-radius: 4px; }
+/* Ikon profil bulat di kanan header */
+#profil { flex: none; width: 28px; height: 28px; display: grid; place-items: end center; overflow: hidden; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--muted); }
+#profil svg { width: 22px; height: 22px; margin-bottom: -3px; }
+#profil[hidden] { display: none; }
+/* Ikon profil dikecilkan (22px) */
+#profil { width: 22px; height: 22px; }
+#profil svg { width: 16px; height: 16px; margin-bottom: -2px; }
+/* Tepi layar dihapus: tanpa jarak dan tanpa latar merah muda di luar bingkai, bingkai memenuhi popup */
+body { padding: 0; background: #fff; }
+main { border-radius: 0; box-shadow: none; }
+/* Bingkai popup kembali bersudut 8px (di atas latar putih, tanpa jarak ke tepi) */
+main { border-radius: 8px; }
+/* Latar di belakang bingkai dibuat transparan (hanya bingkai yang berwarna putih) */
+html, body { background: transparent; }
+main { background: #fff; }
+/* Tanpa login: garis pemisah di bawah header */
+header { padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+/* Aistim-dev: kartu versi ekstensi baru (dari GitHub Releases) */
+#update { border-color: rgba(21,128,61,.45); }
+#update div { flex: 1; min-width: 0; }
+#update strong { display: block; font-size: 14px; }
+#update small { display: block; color: var(--muted); font-size: 12px; }
+#update-link { flex: none; padding: 7px 12px; border-radius: 10px; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; text-decoration: none; }

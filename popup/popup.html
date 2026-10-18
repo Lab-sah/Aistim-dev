@@ -1,56 +1,56 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
+  <title>Aistim Tool</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="container">
-    <img class="brand-logo" src="../icons/logo-round.png" alt="Aistim">
-    <h1>Aistim Tool</h1>
-    <div class="subtitle">Multi Userscript Manager</div>
+  <main>
+    <header>
+      <img src="../icons/icon48.png" width="32" height="32" alt="" id="logo">
+      <h1>Aistim <span>Tool</span> <small id="ver"></small></h1>
+      <span id="profil" role="img" aria-label="Aistim Tool" title="Aistim Tool"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4.5"/><path d="M3 22c0-5.5 4-8 9-8s9 2.500 9 8z"/></svg></span>
+    </header>
 
-    <div class="status-box">
-      <span class="status-dot"></span>
-      <span class="status-text">Sudah jalan</span>
-    </div>
+    <section id="view-memuat" role="status" aria-live="polite">
+      <div class="putar-besar" aria-hidden="true"></div>
+      <p>Memuat...</p>
+    </section>
 
-    <div class="version-row">
-      <span class="version-label" id="version-label">v?</span>
-      <button class="btn-update" id="btn-update" title="Cek versi terbaru di GitHub">🔄 Cek Update</button>
-    </div>
-    <div class="engine-label" id="engine-label">Engine: memeriksa...</div>
-    <div class="us-warning" id="us-warning" style="display:none;">
-      <b>⚠️ "Izinkan Skrip Pengguna" BELUM aktif!</b><br>
-      Tanpa izin ini, script tidak bisa jalan di Erzap (CSP strict). Cara aktifkan:
-      <ol>
-        <li>Buka <b>chrome://extensions</b></li>
-        <li>Klik <b>Details</b> pada Aistim Tool</li>
-        <li>Aktifkan <b>"Izinkan skrip pengguna"</b> / <i>Allow User Scripts</i></li>
-        <li>Balik ke sini &amp; refresh halaman</li>
-      </ol>
-    </div>
-    <div class="update-bar" id="update-bar" style="display:none;">
-      <span>🎉 Versi baru: <b id="update-version"></b></span>
-      <a id="update-link" href="https://github.com/devtim-lab/Aistim-dev/releases/latest" target="_blank">⬇ Download</a>
-    </div>
-    <div class="update-steps" id="update-steps" style="display:none;">
-      Cara update: 1) Klik ⬇ Download 2) Ekstrak ZIP, timpa folder lama 3) Buka chrome://extensions → klik 🔄 pada Aistim Tool
-    </div>
-
-    <div class="page-info">
-      <div class="page-label">Halaman saat ini:</div>
-      <div class="page-value" id="page-value">Memeriksa...</div>
-    </div>
-
-    <div class="section-title">Daftar Scripts <span><span id="script-count">(0)</span> <button class="btn-resync" id="btn-resync" title="Tarik ulang daftar script dari GitHub">🔄</button></span></div>
-    <div class="script-list" id="script-list">
-      <div class="empty">Memuat...</div>
-    </div>
-
-    <div id="status"></div>
-  </div>
-
+    <section id="view-user" hidden>
+      <div id="pane-script">
+        <div id="engine" class="kartu">
+          <span id="engine-dot" aria-hidden="true"></span>
+          <div><strong id="engine-judul">Engine</strong><small id="engine-info"></small></div>
+          <button id="sync" type="button" aria-label="Sinkronkan script" title="Sinkronkan script">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/></svg>
+      </button>
+        </div>
+        <div id="update" class="kartu" hidden>
+          <div><strong>Versi baru: <span id="update-versi"></span></strong><small>Download, ekstrak ZIP, timpa folder lama, lalu klik 🔄 pada Aistim Tool di chrome://extensions</small></div>
+          <a id="update-link" href="https://github.com/devtim-lab/Aistim-dev/releases/latest" target="_blank">Download</a>
+        </div>
+        <p id="engine-halaman" hidden></p>
+        <ol id="engine-help" hidden>
+          <li>Buka <b>chrome://extensions</b> lalu pilih <b>Detail</b> pada Aistim Tool.</li>
+          <li>Nyalakan <b>Izinkan skrip pengguna</b>.</li>
+          <li>Buka popup ini lagi, lalu tekan tombol sinkron.</li>
+        </ol>
+        <button id="buka-detail" type="button" hidden>Buka pengaturan extension</button>
+        <div id="cari-combo" class="cari">
+          <input id="cari-script" type="text" placeholder="Cari script..." autocomplete="off" role="combobox" aria-expanded="false" aria-controls="cari-list" aria-label="Cari script">
+          <button id="cari-buka" type="button" aria-label="Tampilkan daftar script" aria-expanded="false"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+          <ul id="cari-list" role="listbox" hidden></ul>
+        </div>
+        <ul id="manager"></ul>
+        <p id="empty" hidden>Belum ada script. Tekan tombol sinkron.</p>
+        <p id="pesan" role="status"></p>
+      </div>
+    </section>
+  </main>
+  <div id="menu-tempel" hidden role="menu"><button type="button" data-aksi="tempel">Tempel</button><button type="button" data-aksi="salin">Salin</button><button type="button" data-aksi="potong">Potong</button><button type="button" data-aksi="semua">Pilih semua</button></div>
+  <button id="salin-pilihan" type="button" hidden>Salin teks terpilih</button>
   <script src="popup.js"></script>
 </body>
 </html>

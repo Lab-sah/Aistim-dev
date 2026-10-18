@@ -1,4 +1,4 @@
-const VERSION = '2.9.9';
+const VERSION = '2.10.0';
 const X_FETCH_ALLOW = ['partdistro.com'];   // host yang boleh diakses lewat jembatan x-fetch
 
 // ===== KONFIGURASI =====
@@ -245,13 +245,20 @@ async function syncUserScriptsSekarang() {
   const all = mergeScripts(merged, manual);
 
   // Status untuk popup: hanya script auto (bundled/remote) yang dapat toggle disabledAuto
+  // name/version/match ikut disimpan supaya popup tidak perlu fetch tiap file saat dibuka
   const auto = merged.map(s => ({
     id: 'auto-' + s.file,
     file: s.file,
     url: s.source === 'bundled' ? s.extUrl : s.url,
-    enabled: disabledAuto.indexOf(s.file) === -1
+    enabled: disabledAuto.indexOf(s.file) === -1,
+    name: s.meta.name,
+    version: s.meta.version,
+    match: s.meta.match.concat(s.meta.include)
   }));
-  await chrome.storage.local.set({ autoScripts: auto });
+  await chrome.storage.local.set({
+    autoScripts: auto,
+    syncStatus: { waktu: Date.now(), sumber: remote.length ? 'github' : 'bawaan' }
+  });
 
   // Yang aktif = tidak di-disable via popup
   const active = all.filter(s => {

@@ -1,306 +1,371 @@
-let scripts = [];
-let autoScripts = [];
-let currentTab = null;
+// Popup Aistim Tool (tampilan dari Aistim.sdk): status engine userScripts, daftar script auto
+// (bundel + GitHub) dengan saklar on/off, dan cek versi ekstensi terbaru di GitHub Releases.
+// Engine & sinkron tetap di background.js (pesan 'us-status' / 'resync', storage 'disabledAuto').
 
+const $ = (id) => document.getElementById(id);
 const RELEASES_API_URL = 'https://api.github.com/repos/devtim-lab/Aistim-dev/releases/latest';
 const CURRENT_VERSION = chrome.runtime.getManifest().version;
 
-document.addEventListener('DOMContentLoaded', async () => {
-  document.getElementById('version-label').textContent = 'v' + CURRENT_VERSION;
+let daftar = [];          // [{ file, nama, versi, matches, nyala }]
+let engineSiap = false;
+let statusSync = null;    // { waktu, ok, sumber } ditulis background.js
+let halamanUrl = '';      // URL tab erzap yang sedang dibuka, atau ''
 
-  await detectPage();
-  await renderList();
+function el(tag, props = {}, ...children) {
+  const n = document.createElement(tag);
+  Object.assign(n, props);
+  n.append(...children);
+  return n;
+}
 
-  document.getElementById('btn-update').addEventListener('click', () => checkUpdate(true));
-  document.getElementById('btn-resync').addEventListener('click', forceResync);
+function imsg(text, kind = '') { const m = $('pesan'); m.textContent = text; m.className = kind; }
+function ringkasMatch(m) { return m.replace(/^https?:\/\/(\*\.)?/, ''); }
+function jam(t) { return new Date(t).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }); }
 
-  // Download update: buka via chrome.tabs (lebih andal daripada link di popup, terutama di Android)
-  document.getElementById('update-link').addEventListener('click', (e) => {
-    e.preventDefault();
-    const url = e.currentTarget.href;
+function kirim(pesan) {
+  return new Promise((resolve) => {
     try {
-      chrome.tabs.create({ url: url });
-    } catch (err) {
-      window.open(url, '_blank');
-    }
+      chrome.runtime.sendMessage(pesan, (res) => resolve(chrome.runtime.lastError ? null : res));
+    } catch (e) { resolve(null); }
   });
-
-  detectEngine();
-
-  // Auto cek update diam-diam saat popup dibuka
-  checkUpdate(false);
-});
-
-// ===== ENGINE STATUS (userScripts vs fallback) =====
-function detectEngine() {
-  const el = document.getElementById('engine-label');
-  const warn = document.getElementById('us-warning');
-
-  function setState(isActive) {
-    if (isActive) {
-      el.textContent = 'Engine: userScripts API ✅ (CSP-safe)';
-      el.className = 'engine-label ok';
-      if (warn) warn.style.display = 'none';
-    } else {
-      el.textContent = 'Engine: fallback — "Izinkan Skrip Pengguna" belum aktif!';
-      el.className = 'engine-label warn';
-      if (warn) warn.style.display = 'block';
-    }
-  }
-
-  try {
-    chrome.runtime.sendMessage({ action: 'us-status' }, (res) => {
-      if (chrome.runtime.lastError || !res) { setState(false); return; }
-      setState(!!res.userScripts);
-    });
-  } catch (e) {
-    setState(false);
-  }
 }
 
-// ===== FORCE RESYNC (tarik ulang daftar file dari folder GitHub) =====
-function forceResync() {
-  setStatus('Menarik ulang daftar script...', '#3b82f6');
-  try {
-    chrome.runtime.sendMessage({ action: 'resync' }, () => {
-      if (chrome.runtime.lastError) {
-        setStatus('Gagal resync.', '#dc2626');
-        return;
-      }
-      setStatus('Daftar script diperbarui!', '#16a34a');
-      setTimeout(renderList, 300);
-    });
-  } catch (e) {
-    setStatus('Gagal resync.', '#dc2626');
-  }
-}
-
-// ===== CEK UPDATE =====
-// Bandingkan semver: return 1 jika a > b, -1 jika a < b, 0 jika sama
-function compareVersion(a, b) {
-  const pa = String(a).split('.').map(n => parseInt(n, 10) || 0);
-  const pb = String(b).split('.').map(n => parseInt(n, 10) || 0);
-  for (let i = 0; i < 3; i++) {
-    if (pa[i] > pb[i]) return 1;
-    if (pa[i] < pb[i]) return -1;
-  }
-  return 0;
-}
-
-async function checkUpdate(manual) {
-  const btn = document.getElementById('btn-update');
-  if (manual) btn.textContent = '⏳ Mengecek...';
-  try {
-    // Cek otomatis (saat popup dibuka) pakai cache 1 jam. GitHub API cuma ngasih
-    // 60 request/jam per IP tanpa token, dan kuota itu dipakai bareng background
-    // sync — kalau habis, sync script ikut gagal. Klik manual tetap cek langsung.
-    let tag = null;
-    if (!manual) {
-      const c = (await chrome.storage.local.get(['releaseCheckCache'])).releaseCheckCache;
-      if (c && Date.now() - c.time < 60 * 60 * 1000) tag = c.tag;
-    }
-
-    if (tag === null) {
-      const res = await fetch(RELEASES_API_URL, {
-        cache: 'no-store',
-        headers: { 'Accept': 'application/vnd.github+json' }
-      });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const rel = await res.json();
-      tag = String(rel.tag_name || '');
-      await chrome.storage.local.set({ releaseCheckCache: { time: Date.now(), tag: tag } });
-    }
-
-    const latest = tag.replace(/^v/, '');
-    if (!latest) throw new Error('Tag kosong');
-
-    if (compareVersion(latest, CURRENT_VERSION) > 0) {
-      // ZIP berversi: Aistim-dev-<versi>.zip
-      document.getElementById('update-link').href =
-        'https://github.com/devtim-lab/Aistim-dev/releases/download/' + tag + '/Aistim-dev-' + latest + '.zip';
-      document.getElementById('update-version').textContent = 'v' + latest;
-      document.getElementById('update-bar').style.display = 'flex';
-      document.getElementById('update-steps').style.display = 'block';
-      if (manual) setStatus('Ada versi baru: v' + latest, '#16a34a');
-    } else if (manual) {
-      setStatus('Sudah versi terbaru (v' + CURRENT_VERSION + ')', '#16a34a');
-    }
-  } catch (err) {
-    if (manual) setStatus('Gagal cek update. Cek koneksi internet.', '#dc2626');
-  } finally {
-    if (manual) btn.textContent = '🔄 Cek Update';
-  }
-}
-
-async function detectPage() {
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  currentTab = tabs[0];
-  const el = document.getElementById('page-value');
-  if (currentTab && currentTab.url) {
-    const url = currentTab.url;
-    if (url.startsWith('http')) {
-      try { el.textContent = new URL(url).hostname + new URL(url).pathname; el.style.color = '#c2410c'; }
-      catch { el.textContent = url; }
-    } else { el.textContent = url; el.style.color = '#9ca3af'; }
-  } else { el.textContent = 'Tidak diketahui'; el.style.color = '#9ca3af'; }
-}
-
+// ---- metadata script ----
 function parseMetadata(code) {
-  const meta = { name: 'Unnamed', version: '1.0.0', match: [], include: [], exclude: [] };
+  const meta = { name: 'Unnamed', version: '1.0.0', match: [] };
   const bm = code.match(/\/\/\s*==UserScript==([\s\S]*?)\/\/\s*==\/UserScript==/);
   if (!bm) return meta;
-  bm[1].split('\n').forEach(line => {
+  bm[1].split('\n').forEach((line) => {
     const m = line.match(/\/\/\s*@(\w+)\s+(.*)/);
     if (!m) return;
     const k = m[1].toLowerCase(), v = m[2].trim();
     if (k === 'name') meta.name = v;
     if (k === 'version') meta.version = v;
-    if (k === 'match') meta.match.push(v);
-    if (k === 'include') meta.include.push(v);
-    if (k === 'exclude') meta.exclude.push(v);
+    if (k === 'match' || k === 'include') meta.match.push(v);
   });
   return meta;
 }
 
-function matchUrl(url, patterns) {
-  if (!patterns || patterns.length === 0) return true;
-  return patterns.some(p => {
-    if (!p) return false;
-    try { return new RegExp(p.replace(/\*/g, '.*').replace(/\?/g, '\\?')).test(url); }
-    catch (e) { return false; }
-  });
-}
-
-async function fetchMetaFromUrl(url) {
+// autoScripts dari background.js lama belum menyimpan nama/versi/match: baca dari file-nya.
+async function lengkapiMeta(s) {
+  if (s.name) return s;
   try {
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) return null;
-    const code = await res.text();
-    return parseMetadata(code);
-  } catch (e) { return null; }
-}
-
-// ===== RENDER DAFTAR SCRIPT (auto + manual) =====
-async function renderList() {
-  const stored = await new Promise(r => chrome.storage.local.get(['scripts', 'autoScripts'], r));
-  scripts = stored.scripts || [];
-  autoScripts = stored.autoScripts || [];
-
-  const container = document.getElementById('script-list');
-  container.innerHTML = '';
-  document.getElementById('script-count').textContent = '(' + (autoScripts.length + scripts.length) + ')';
-
-  if (autoScripts.length === 0 && scripts.length === 0) {
-    container.innerHTML = '<div class="empty">Folder scripts/ kosong / belum tersinkron.<br>Klik 🔄 untuk tarik ulang.</div>';
-    return;
+    const res = await fetch(s.url, { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const meta = parseMetadata(await res.text());
+    return Object.assign({}, s, { name: meta.name, version: meta.version, match: meta.match });
+  } catch (e) {
+    return Object.assign({}, s, { name: s.file, version: '?', match: [] });
   }
-
-  const pageUrl = currentTab && currentTab.url ? currentTab.url : '';
-
-  // Auto scripts (dari folder GitHub) di atas, manual di bawah
-  for (const script of autoScripts) await renderItem(container, script, pageUrl, true);
-  for (const script of scripts) await renderItem(container, script, pageUrl, false);
-
-  attachHandlers(container);
 }
 
-async function renderItem(container, script, pageUrl, isAuto) {
-  const meta = await fetchMetaFromUrl(script.url);
-  const allPatterns = meta ? [...meta.match, ...meta.include] : [];
-  const isMatch = matchUrl(pageUrl, allPatterns);
-
-  const div = document.createElement('div');
-  div.className = 'script-item' + (isMatch ? ' match' : '');
-  const badge = isAuto ? '<span class="badge-auto">AUTO</span>' : '';
-  const toggleAttr = isAuto
-    ? 'data-file="' + escapeHtml(script.file || '') + '"'
-    : 'data-id="' + escapeHtml(script.id) + '"';
-  const deleteBtn = isAuto
-    ? ''
-    : '<button class="btn-icon" data-del="' + escapeHtml(script.id) + '" title="Hapus">&#10005;</button>';
-
-  div.innerHTML = `
-    <div class="script-info">
-      <div class="script-name">${badge}${escapeHtml(meta ? meta.name : 'Loading...')}</div>
-      <div class="script-meta">v${escapeHtml(meta ? meta.version : '?')}</div>
-      <div class="script-match">${escapeHtml(allPatterns.join(', ') || 'Semua halaman')} ${isMatch ? '✓ match' : ''}</div>
-    </div>
-    <div class="script-btns">
-      <div class="toggle-switch ${script.enabled ? 'on' : ''}" ${toggleAttr}></div>
-      ${deleteBtn}
-    </div>
-  `;
-  container.appendChild(div);
+async function muatDaftar() {
+  const d = await chrome.storage.local.get(['autoScripts', 'syncStatus']);
+  statusSync = d.syncStatus || null;
+  const auto = await Promise.all((d.autoScripts || []).map(lengkapiMeta));
+  daftar = auto.map((s) => ({ file: s.file, nama: s.name, versi: s.version, matches: s.match || [], nyala: s.enabled }));
 }
 
-function attachHandlers(container) {
-  // Toggle script MANUAL
-  container.querySelectorAll('.toggle-switch[data-id]').forEach(t => {
-    t.addEventListener('click', (e) => {
-      const id = e.target.dataset.id;
-      const s = scripts.find(x => x.id === id);
-      if (s) {
-        s.enabled = !s.enabled;
-        chrome.storage.local.set({ scripts: scripts }, () => {
-          renderList();
-          setStatus(s.enabled ? 'Script diaktifkan' : 'Script dinonaktifkan', '#16a34a');
-        });
+/** Cocokkan URL dengan pola match userscript (*://host/path*). */
+function cocokUrl(pola, url) {
+  try {
+    const m = /^(\*|https?):\/\/([^/]+)(\/.*)$/.exec(pola);
+    if (!m) return false;
+    const u = new URL(url);
+    if (m[1] !== '*' && m[1] + ':' !== u.protocol) return false;
+    const host = m[2];
+    if (host === '*') { /* semua host */ }
+    else if (host.startsWith('*.')) { const b = host.slice(2); if (u.hostname !== b && !u.hostname.endsWith('.' + b)) return false; }
+    else if (u.hostname !== host) return false;
+    const re = new RegExp('^' + m[3].replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$');
+    return re.test(u.pathname + u.search);
+  } catch { return false; }
+}
+
+const aktifDiHalaman = (s) => !!halamanUrl && s.nyala && s.matches.some((m) => cocokUrl(m, halamanUrl));
+
+async function cekHalaman() {
+  halamanUrl = '';
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab && /^https:\/\/([^/]+\.)?erzap\.com\//.test(tab.url || '')) halamanUrl = tab.url;
+  } catch { halamanUrl = ''; }
+}
+
+async function cekEngine() {
+  const res = await kirim({ action: 'us-status' });
+  engineSiap = !!(res && res.userScripts);
+}
+
+// ---- tampilan ----
+function renderEngine() {
+  $('engine').className = 'kartu ' + (engineSiap ? 'ok' : 'warn');
+  $('engine-judul').textContent = engineSiap ? 'Engine Aktif' : 'Engine belum aktif';
+  const jalan = daftar.filter((s) => s.nyala).length;
+  $('engine-info').textContent = !engineSiap ? 'Aktifkan "Izinkan skrip pengguna" untuk Aistim Tool'
+    : (statusSync ? `Sinkron ${jam(statusSync.waktu)} · ` : '') + `${jalan} script berjalan` +
+      (statusSync ? (statusSync.sumber === 'github' ? ' · GitHub ✓' : ' · bawaan') : '');
+  $('engine-help').hidden = engineSiap;
+  $('buka-detail').hidden = engineSiap;
+  const h = $('engine-halaman');
+  h.hidden = !(engineSiap && halamanUrl);
+  if (halamanUrl) {
+    const n = daftar.filter(aktifDiHalaman).length;
+    h.className = n ? 'ok' : 'warn';
+    h.textContent = n ? `Aktif di halaman ini: ${n} script` : 'Tidak ada script untuk halaman ini.';
+  }
+}
+
+// Script yang selalu paling atas di daftar (rekam.js = devtool)
+const PIN = ['rekam.js'];
+const urutPin = (arr) => [...arr].sort((a, b) => (PIN.includes(b.file) ? 1 : 0) - (PIN.includes(a.file) ? 1 : 0));
+
+function renderManager() {
+  const q = $('cari-script').value.trim().toLowerCase();
+  const items = urutPin(daftar).filter((s) => !q || s.nama.toLowerCase().includes(q) || s.matches.some((m) => m.toLowerCase().includes(q)));
+  $('empty').hidden = daftar.length > 0;
+  $('cari-combo').hidden = daftar.length === 0;
+  $('manager').replaceChildren(...items.map((s) => {
+    const cb = el('input', { type: 'checkbox', checked: s.nyala });
+    cb.setAttribute('role', 'switch');
+    cb.setAttribute('aria-label', 'Aktifkan ' + s.nama);
+    cb.addEventListener('change', () => ubahScript(s, cb));
+    const chips = s.matches.slice(0, 2).map((m) => el('span', { className: 'chip', textContent: ringkasMatch(m), title: m }));
+    if (s.matches.length > 2) chips.push(el('span', { className: 'chip', textContent: `+${s.matches.length - 2}` }));
+    const li = el('li', { className: (s.nyala ? 'on' : 'off') + (engineSiap && aktifDiHalaman(s) ? ' live' : '') },
+      el('div', { className: 'isi' },
+        el('div', { className: 'baris' },
+          el('span', { className: 'nama', textContent: s.nama })),
+        el('div', { className: 'chips' }, ...chips)),
+      el('div', { className: 'kanan' },
+        el('span', { className: 'ver', textContent: 'v' + s.versi }),
+        el('label', { className: 'switch' }, cb, el('span'))));
+    li.dataset.file = s.file;
+    return li;
+  }));
+}
+
+async function segarkan() {
+  await Promise.all([muatDaftar(), cekEngine(), cekHalaman()]);
+  renderEngine(); renderManager();
+}
+
+// ---- aksi ----
+async function jalankanSync() {
+  const tombol = $('sync');
+  tombol.classList.add('putar');
+  imsg('Menyinkronkan...');
+  try {
+    const res = await kirim({ action: 'resync' });
+    await segarkan();
+    if (!res) imsg('Gagal sinkron. Periksa internetmu.', 'err');
+    else if (!engineSiap) imsg('Aktifkan "Izinkan skrip pengguna" untuk extension ini.', 'err');
+    else imsg(`${daftar.filter((s) => s.nyala).length} script berjalan.`, 'ok');
+  } finally { tombol.classList.remove('putar'); }
+}
+
+// Saklar menulis disabledAuto; background.js mendengar perubahan itu lalu sinkron ulang sendiri.
+async function ubahScript(s, cb) {
+  const nyala = cb.checked;
+  cb.disabled = true;
+  try {
+    const d = await chrome.storage.local.get(['disabledAuto', 'autoScripts']);
+    const mati = (d.disabledAuto || []).filter((f) => f !== s.file);
+    if (!nyala) mati.push(s.file);
+    const autoScripts = (d.autoScripts || []).map((x) => Object.assign({}, x, { enabled: mati.indexOf(x.file) === -1 }));
+    await chrome.storage.local.set({ disabledAuto: mati, autoScripts: autoScripts });
+    s.nyala = nyala;
+    renderEngine(); renderManager();
+    imsg(nyala ? `${s.nama} dinyalakan.` : `${s.nama} dimatikan.`, 'ok');
+  } finally { cb.disabled = false; }
+}
+
+// ---- cek versi ekstensi terbaru ----
+function compareVersion(a, b) {
+  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (x > y) return 1;
+    if (x < y) return -1;
+  }
+  return 0;
+}
+
+async function cekUpdate() {
+  try {
+    // Pakai cache 1 jam: GitHub API cuma 60 request/jam per IP tanpa token.
+    let tag = null;
+    const c = (await chrome.storage.local.get(['releaseCheckCache'])).releaseCheckCache;
+    if (c && Date.now() - c.time < 60 * 60 * 1000) tag = c.tag;
+    if (tag === null) {
+      const res = await fetch(RELEASES_API_URL, { cache: 'no-store', headers: { Accept: 'application/vnd.github+json' } });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      tag = String((await res.json()).tag_name || '');
+      await chrome.storage.local.set({ releaseCheckCache: { time: Date.now(), tag: tag } });
+    }
+    const latest = tag.replace(/^v/, '');
+    if (!latest || compareVersion(latest, CURRENT_VERSION) <= 0) return;
+    $('update-link').href = 'https://github.com/devtim-lab/Aistim-dev/releases/download/' + tag + '/Aistim-dev-' + latest + '.zip';
+    $('update-versi').textContent = 'v' + latest;
+    $('update').hidden = false;
+  } catch (e) { /* diam: cek update bukan fitur utama */ }
+}
+
+$('sync').addEventListener('click', jalankanSync);
+$('cari-script').addEventListener('input', renderManager);
+// Pintasan ke halaman Detail extension (tempat tombol "Izinkan skrip pengguna")
+$('buka-detail').addEventListener('click', () => { chrome.tabs.create({ url: 'chrome://extensions/?id=' + chrome.runtime.id }); });
+// Download lewat chrome.tabs (lebih andal daripada link di popup, terutama di Android)
+$('update-link').addEventListener('click', (e) => {
+  e.preventDefault();
+  try { chrome.tabs.create({ url: e.currentTarget.href }); } catch (err) { window.open(e.currentTarget.href, '_blank'); }
+});
+
+// Scrollbar daftar script: muncul saat digulir, hilang sendiri setelah berhenti
+{
+  let t = 0;
+  $('manager').addEventListener('scroll', () => {
+    $('manager').classList.add('gulir');
+    clearTimeout(t);
+    t = setTimeout(() => $('manager').classList.remove('gulir'), 900);
+  }, { passive: true });
+}
+
+// ---- combobox Cari script: ketik untuk menyaring daftar, atau buka dropdown untuk memilih satu script ----
+{
+  const inp = $('cari-script'), list = $('cari-list'), btn = $('cari-buka'), box = $('cari-combo');
+  let aktif = -1;
+  const opsi = (q) => urutPin(daftar).filter((s) => !q || s.nama.toLowerCase().includes(q));
+  const tutup = () => { list.hidden = true; inp.setAttribute('aria-expanded', 'false'); btn.setAttribute('aria-expanded', 'false'); aktif = -1; };
+  const pilih = (s) => { inp.value = s.nama; tutup(); renderManager(); };
+  function buka(semua) {
+    const o = opsi(semua ? '' : inp.value.trim().toLowerCase());
+    list.replaceChildren(...(o.length ? o.map((s) => {
+      const li = el('li', { textContent: s.nama }, el('span', { textContent: 'v' + s.versi }));
+      li.setAttribute('role', 'option');
+      li.addEventListener('mousedown', (e) => { e.preventDefault(); pilih(s); });
+      return li;
+    }) : [el('li', { className: 'none', textContent: 'Tidak ada script' })]));
+    list.hidden = false; aktif = -1;
+    inp.setAttribute('aria-expanded', 'true'); btn.setAttribute('aria-expanded', 'true');
+  }
+  const sorot = (i) => {
+    const li = [...list.querySelectorAll('li:not(.none)')];
+    if (!li.length) return;
+    aktif = (i + li.length) % li.length;
+    li.forEach((n, k) => n.classList.toggle('aktif', k === aktif));
+    li[aktif].scrollIntoView({ block: 'nearest' });
+  };
+  inp.addEventListener('input', () => buka(false));
+  inp.addEventListener('focus', () => buka(false));
+  btn.addEventListener('mousedown', (e) => { e.preventDefault(); if (list.hidden) { inp.focus(); buka(true); } else tutup(); });
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (list.hidden) buka(false); sorot(aktif + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (list.hidden) buka(false); sorot(aktif - 1); }
+    else if (e.key === 'Enter' && aktif >= 0) { e.preventDefault(); const o = opsi(inp.value.trim().toLowerCase()); if (o[aktif]) pilih(o[aktif]); }
+    else if (e.key === 'Escape') tutup();
+  });
+  document.addEventListener('mousedown', (e) => { if (!box.contains(e.target)) tutup(); });
+}
+
+// Tekan lama pada kolom isian: muncul menu Tempel / Salin / Potong / Pilih semua
+// (menu bawaan browser sering tidak muncul di popup, terutama di Android).
+{
+  const menu = $('menu-tempel');
+  const KOLOM = 'input[type=text], input[type=search], textarea:not([readonly])';
+  let target = null, timer = null, mulai = null;
+  const tutup = () => { menu.hidden = true; target = null; };
+  const tombolAksi = (a) => menu.querySelector(`[data-aksi="${a}"]`);
+  const buka = (input) => {
+    target = input;
+    for (const b of menu.querySelectorAll('button')) b.textContent = { tempel: 'Tempel', salin: 'Salin', potong: 'Potong', semua: 'Pilih semua' }[b.dataset.aksi];
+    const r = input.getBoundingClientRect();
+    menu.hidden = false;
+    const w = menu.offsetWidth || 90;
+    menu.style.left = Math.max(8, Math.min(r.left + 8, window.innerWidth - w - 8)) + 'px';
+    menu.style.top = Math.max(8, r.top - 50) + 'px';
+  };
+  const pasang = (input) => {
+    input.addEventListener('contextmenu', (e) => { e.preventDefault(); buka(input); });
+    input.addEventListener('pointerdown', (e) => {
+      mulai = { x: e.clientX, y: e.clientY };
+      clearTimeout(timer);
+      timer = setTimeout(() => buka(input), 500);
+    });
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) input.addEventListener(ev, () => clearTimeout(timer));
+    input.addEventListener('pointermove', (e) => {
+      if (mulai && Math.hypot(e.clientX - mulai.x, e.clientY - mulai.y) > 10) clearTimeout(timer);
+    });
+  };
+  document.querySelectorAll(KOLOM).forEach(pasang);
+  document.addEventListener('pointerdown', (e) => { if (!menu.hidden && !e.target.closest('#menu-tempel') && !e.target.matches(KOLOM)) tutup(); });
+  window.addEventListener('scroll', tutup, true);
+  const pesan = (a, teks) => { tombolAksi(a).textContent = teks; setTimeout(tutup, 900); };
+  const salinTeks = async (teks) => {
+    try { await navigator.clipboard.writeText(teks); return true; } catch { /* coba cara lama */ }
+    try { return document.execCommand('copy'); } catch { return false; }
+  };
+  const terpilih = (k) => {
+    const a = k.selectionStart ?? 0, b = k.selectionEnd ?? 0;
+    return b > a ? k.value.slice(a, b) : k.value;   // tanpa blok: seluruh isi kolom
+  };
+  menu.addEventListener('pointerdown', (e) => e.preventDefault());   // jangan melepas fokus/blok kolom
+  menu.addEventListener('click', async (e) => {
+    const b = e.target.closest('button');
+    const k = target;
+    if (!b || !k) return;
+    const aksi = b.dataset.aksi;
+    if (aksi === 'semua') { k.focus(); k.select(); return tutup(); }
+    if (aksi === 'salin' || aksi === 'potong') {
+      const teks = terpilih(k);
+      if (!teks) return pesan(aksi, 'Kosong');
+      if (!(await salinTeks(teks))) return pesan(aksi, 'Gagal menyalin');
+      if (aksi === 'potong') {
+        const a = k.selectionStart ?? 0, z = k.selectionEnd ?? 0;
+        if (z > a) k.setRangeText('', a, z, 'end'); else k.value = '';
+        k.dispatchEvent(new Event('input', { bubbles: true }));
       }
-    });
-  });
-
-  // Toggle script AUTO (via daftar disabledAuto)
-  container.querySelectorAll('.toggle-switch[data-file]').forEach(t => {
-    t.addEventListener('click', (e) => {
-      const file = e.target.dataset.file;
-      // Update UI langsung (optimistic) — jangan tunggu background yang lambat
-      t.classList.toggle('on');
-      chrome.storage.local.get(['disabledAuto', 'autoScripts'], (d) => {
-        let disabled = d.disabledAuto || [];
-        const isCurrentlyDisabled = disabled.indexOf(file) !== -1;
-        if (isCurrentlyDisabled) {
-          disabled = disabled.filter(x => x !== file);
-        } else {
-          disabled.push(file);
-        }
-        // Tulis disabledAuto SEKALIGUS patch autoScripts.enabled supaya UI konsisten
-        // tanpa menunggu sync background (yang fetch GitHub dan butuh beberapa detik)
-        const autoPatched = (d.autoScripts || []).map(s =>
-          Object.assign({}, s, { enabled: disabled.indexOf(s.file) === -1 })
-        );
-        chrome.storage.local.set({ disabledAuto: disabled, autoScripts: autoPatched }, () => {
-          setStatus(isCurrentlyDisabled ? 'Script auto diaktifkan' : 'Script auto dinonaktifkan', '#16a34a');
-          // background re-sync otomatis (storage.onChanged) — nilai akhir tetap sama
-          setTimeout(renderList, 600);
-        });
-      });
-    });
-  });
-
-  // Hapus script MANUAL (sisa dari versi lama)
-  container.querySelectorAll('[data-del]').forEach(b => {
-    b.addEventListener('click', (e) => {
-      const id = e.target.dataset.del;
-      if (confirm('Hapus script ini?')) {
-        scripts = scripts.filter(s => s.id !== id);
-        chrome.storage.local.set({ scripts: scripts }, () => {
-          renderList();
-          setStatus('Script dihapus', '#dc2626');
-        });
-      }
-    });
+      return pesan(aksi, 'Tersalin');
+    }
+    try {
+      const teks = (await navigator.clipboard.readText()).trim();
+      if (!teks) throw new Error('kosong');
+      k.value = teks;
+      k.dispatchEvent(new Event('input', { bubbles: true }));
+      tutup();
+      k.focus();
+    } catch {
+      pesan('tempel', 'Clipboard kosong');
+    }
   });
 }
 
-function setStatus(text, color) {
-  const el = document.getElementById('status');
-  el.textContent = text;
-  el.style.color = color;
-  setTimeout(() => { el.textContent = ''; }, 4000);
+// ---- salin teks yang diblok (menu salin bawaan browser sering tidak muncul di popup) ----
+{
+  const tombol = $('salin-pilihan');
+  let teks = '';
+  document.addEventListener('selectionchange', () => {
+    const sel = window.getSelection();
+    const t = sel ? sel.toString().trim() : '';
+    if (t) { teks = t; tombol.textContent = 'Salin teks terpilih'; tombol.hidden = false; }
+    else if (document.activeElement !== tombol) tombol.hidden = true;
+  });
+  tombol.addEventListener('pointerdown', (e) => e.preventDefault());   // jangan sampai menekan tombol menghapus blok
+  tombol.addEventListener('click', async () => {
+    let ok = false;
+    try { await navigator.clipboard.writeText(teks); ok = true; } catch { /* coba cara lama */ }
+    if (!ok) { try { ok = document.execCommand('copy'); } catch { ok = false; } }
+    tombol.textContent = ok ? 'Tersalin' : 'Gagal menyalin';
+    setTimeout(() => { tombol.hidden = true; }, 1100);
+  });
 }
 
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
+// ---- mulai ----
+(async () => {
+  $('ver').textContent = 'v' + CURRENT_VERSION;
+  try { await segarkan(); } catch (e) { /* tampilkan saja */ }
+  $('view-memuat').hidden = true;
+  $('view-user').hidden = false;
+  cekUpdate();
+})();

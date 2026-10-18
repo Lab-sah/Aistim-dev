@@ -1,4 +1,4 @@
-# Aistim Tool v2.9.9
+# Aistim Tool v2.10.0
 
 **AI Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -131,6 +131,11 @@ Buka DevTools (F12) -> Console:
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.10.0
+- **Popup baru, tampilan dari Aistim.sdk**: kartu Engine (status + jam sinkron + tombol 🔄), info "Aktif di halaman ini", kolom Cari script, daftar script berkartu dengan chip halaman, versi, dan saklar on/off. Engine & sinkron tetap sama (`background.js`); popup lama disimpan di branch `main-old`
+- Kartu "Versi baru" muncul otomatis kalau ada rilis ekstensi yang lebih baru di GitHub
+- `background.js` menyimpan nama/versi/match script di `autoScripts` + `syncStatus`, jadi popup terbuka cepat tanpa fetch tiap file
 
 ## Changelog v2.9.9
 - **Tombol hijau "Rekap Pesanan" bawaan `content.js` dihapus** (tidak berfungsi di halaman `penjualans`, dan menghalangi tombol merah milik `pesananbaru.js` karena ID sama `btn-rekap-pesanan`). Rekap pesanan kini hanya dari script `pesananbaru.js`. Badge debug "Aistim: Tombol dibuat!" ikut hilang.
