@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Grafik Penjualan Home
 // @namespace    http://tampermonkey.net/
-// @version      2.1.0
-// @description  Halaman Home: kotak "Penjualan per Jam" di ATAS panel AI Agent (Rekomendasi Marketing Produk Kurang Laku). Data dari Data Penjualan (/penjualans): halaman 1,2,3,... dibaca lewat fetch (50 baris/halaman, seperti pesanan_web.js), nota dibatalkan tidak dihitung, dan jamnya diambil dari kolom "Diperbaharui Tanggal". Tipe Penjualan (bawaan Offline / Instore, atau Semua tipe) dan Outlet (bawaan Semua outlet) dipilih lewat dropdown di judul; daftar pilihannya diambil dari nota yang terbaca, dan ganti pilihan tidak membaca ulang karena disaring di browser. Kolom = penjualan (Rp) atau jumlah nota per jam hari ini, tooltip per jam, dan tampilan Tabel sebagai pasangan grafik. Hasil terakhir disimpan di localStorage (tampil langsung saat Home dibuka, lalu diperbarui tiap 10 menit atau lewat tombol Muat ulang). Digambar sendiri (SVG, tanpa library). Hanya di Home; tidak jalan di halaman Login / nota / popup.
+// @version      2.2.0
+// @description  Halaman Home: kotak "Penjualan per Jam" di ATAS panel AI Agent (Rekomendasi Marketing Produk Kurang Laku). Data dari Data Penjualan (/penjualans) berdasarkan tanggal HARI INI: form Pencarian diisi Periode = hari ini (Dasar Filter Periode = Tanggal Transaksi, filter lain dikosongkan), lalu SEMUA halaman hasil dibaca lewat tautan "Selanjutnya" (ukuran halaman tidak diasumsikan). Jalur cepat lewat fetch (cara ppob.js); kalau gagal (mis. tabel diisi lewat skrip) dipakai halaman Data Penjualan sungguhan di iframe tersembunyi. Nota dibatalkan tidak dihitung, dan jamnya diambil dari kolom "Diperbaharui Tanggal". Tipe Penjualan (bawaan Offline / Instore, atau Semua tipe) dan Outlet (bawaan Semua outlet) dipilih lewat dropdown di judul; daftar pilihannya diambil dari nota yang terbaca, dan ganti pilihan tidak membaca ulang karena disaring di browser. Kolom = penjualan (Rp) atau jumlah nota per jam hari ini, tooltip per jam, dan tampilan Tabel sebagai pasangan grafik. Hasil terakhir disimpan di localStorage (tampil langsung saat Home dibuka, lalu diperbarui tiap 10 menit atau lewat tombol Muat ulang). Digambar sendiri (SVG, tanpa library). Hanya di Home; tidak jalan di halaman Login / nota / popup.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -19,16 +19,15 @@
     if (location.pathname !== '/') return;   // grafik hanya di Home
     if (window.__aistimGrafik) return;
     window.__aistimGrafik = true;
-    console.log('[grafik.js] v2.1.0 aktif di ' + location.pathname);
+    console.log('[grafik.js] v2.2.0 aktif di ' + location.pathname);
 
     const LIST_URL = '/penjualans';
     // Daftar Tipe Penjualan & Outlet diambil dari nota yang terbaca (kolom Tipe Penjualan, mis. "1. Offline / Instore").
     // Tipe yang terpilih pertama kali = yang cocok pola ini; sesudahnya mengikuti pilihan yang disimpan.
     const TIPE_BAWAAN = /offline/i;
     const TANPA_TIPE = '(tanpa tipe)';
-    const HAL_BARIS = 50;                      // baris per halaman Data Penjualan
-    const HAL_MAKS = 150;                      // batas pengaman jumlah halaman yang dibaca (7.500 baris)
-    const PARALEL = 3;                         // halaman yang diambil bersamaan
+    const HAL_MAKS = 200;                      // batas pengaman jumlah halaman yang dibaca
+    const CEK_ASLI_JEDA_MS = 30 * 60 * 1000;   // hasil kosong dari jalur cepat: halaman asli dicek ulang paling cepat sekali per jeda ini
     const REFRESH_TIAP_MS = 10 * 60 * 1000;
     const ULANG_GALAT_MS = 60 * 1000;          // setelah gagal, coba lagi lebih cepat
     const MULAI_TUNDA_MS = 3000;               // beri waktu Home selesai memuat dulu
@@ -90,11 +89,11 @@
         localStorage.removeItem('aistim_grafik_jam_v1');   // format lama (tanpa tipe/outlet)
         const c = JSON.parse(localStorage.getItem(K_CACHE) || 'null');
         // cache hanya berlaku untuk hari yang sama; t dibiarkan lama supaya langsung diperbarui di latar
-        if (c && c.tgl === tglHariIni() && c.data && typeof c.data === 'object') hasil = { tgl: c.tgl, data: c.data, tipes: c.tipes || [], outlets: c.outlets || [], adaTotal: !!c.adaTotal, baris: c.baris || 0, hal: c.hal || 0, t: c.t || 0, error: '', selesai: true, dariCache: true };
+        if (c && c.tgl === tglHariIni() && c.data && typeof c.data === 'object') hasil = { tgl: c.tgl, data: c.data, tipes: c.tipes || [], outlets: c.outlets || [], adaTotal: !!c.adaTotal, baris: c.baris || 0, hal: c.hal || 0, t: c.t || 0, sumber: c.sumber || '', diag: c.diag || null, error: '', selesai: true, dariCache: true };
     } catch (e) { /* cache rusak: abaikan */ }
     function simpanCache() {
         if (!hasil || hasil.error) return;
-        try { localStorage.setItem(K_CACHE, JSON.stringify({ tgl: hasil.tgl, data: hasil.data, tipes: hasil.tipes, outlets: hasil.outlets, adaTotal: hasil.adaTotal, baris: hasil.baris, hal: hasil.hal, t: hasil.t })); } catch (e) { /* penuh/diblokir: abaikan */ }
+        try { localStorage.setItem(K_CACHE, JSON.stringify({ tgl: hasil.tgl, data: hasil.data, tipes: hasil.tipes, outlets: hasil.outlets, adaTotal: hasil.adaTotal, baris: hasil.baris, hal: hasil.hal, t: hasil.t, sumber: hasil.sumber, diag: hasil.diag })); } catch (e) { /* penuh/diblokir: abaikan */ }
     }
 
     // ---------- membaca tabel Data Penjualan ----------
@@ -104,10 +103,28 @@
     const RE_TIPE = /^\d+\.\s*\S/;
     const RE_OUTLET = /^[A-Z]\d{1,3}\s+\S/;   // kode outlet di awal nama, mis. "S06 PARTDISTRO JEMBER", "A1 PUSAT" (cadangan bila header Outlet tidak ketemu)
     const RE_WAKTU = /(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}):(\d{2})/;
+    const RE_DARI = /^pencarian\[tanggal[^\]]*(dari|awal|from|mulai)[^\]]*\]$/i;    // nama field Periode di form Pencarian (sama dengan ppob.js)
+    const RE_SAMPAI = /^pencarian\[tanggal[^\]]*(sampai|akhir|to)[^\]]*\]$/i;
+    const tidur = (ms) => new Promise((r) => setTimeout(r, ms));
+    async function tungguDi(fn, ms, pesan) {
+        const mulai = Date.now();
+        for (;;) {
+            let v = null;
+            try { v = fn(); } catch (e) { v = null; }
+            if (v) return v;
+            if (Date.now() - mulai > ms) throw new Error(pesan);
+            await tidur(300);
+        }
+    }
+    // galat pembacaan; kosong = hasilnya "tidak ada baris hari ini" (bisa benar-benar kosong, bisa filter tidak berlaku)
+    // fatal = galat server/jaringan: halaman asli di iframe tidak akan membantu, jadi tidak dicoba
+    function galat(pesan, kosong, fatal) { const e = new Error(pesan); e.kosong = !!kosong; e.fatal = !!fatal; return e; }
 
     function bacaTabel(doc) {
         const punyaHeader = (t) => { const hr = t.tHead && t.tHead.rows[0]; return hr && /tipe\s*penjualan/i.test(hr.textContent); };
-        const tabel = Array.from(doc.querySelectorAll('table')).find(punyaHeader) || doc.getElementById('data_table');
+        const jumlahBaris = (t) => t.querySelectorAll('tbody tr').length;
+        // tabel berheader Tipe Penjualan dengan baris terbanyak (tabel penggulung bisa punya salinan header tanpa baris)
+        const tabel = Array.from(doc.querySelectorAll('table')).filter(punyaHeader).sort((a, b) => jumlahBaris(b) - jumlahBaris(a))[0] || doc.getElementById('data_table');
         if (!tabel) return null;
         const hr = (tabel.tHead && tabel.tHead.rows[0]) || tabel.querySelector('tr');
         if (!hr) return null;
@@ -117,6 +134,7 @@
             .filter((c) => c.length >= 5);   // baris pesan kosong ("tidak ada data") dilewati
         return { head: head, baris: baris };
     }
+    const sidikTabel = (doc) => { const t = bacaTabel(doc); return t ? t.baris.length + '|' + (t.baris[0] || []).join('|') + '|' + (t.baris[t.baris.length - 1] || []).join('|') : ''; };
 
     function cariGeser(head, baris) {
         const iTipe = head.findIndex((h) => /^tipe\s*penjualan$/.test(h));
@@ -146,105 +164,315 @@
         };
     }
 
-    // satu baris sel -> {key, tipe, outlet, tgl, jam, rp, batal}; tgl/jam null bila waktu tidak terbaca
+    // satu baris sel -> {key, tipe, outlet, upd, dibuat, rp, batal}; upd/dibuat = {tgl:'dd-mm-yyyy', jam} atau null bila tidak terbaca
     function objekBaris(c, k) {
-        const waktu = (i) => { const m = i >= 0 ? RE_WAKTU.exec(c[i] || '') : null; return m ? { tgl: m[1] + '-' + m[2] + '-' + m[3], jam: parseInt(m[4], 10) } : null; };
+        const waktu = (i) => { const m = i >= 0 ? RE_WAKTU.exec(c[i] || '') : null; return m && parseInt(m[4], 10) <= 23 ? { tgl: m[1] + '-' + m[2] + '-' + m[3], jam: parseInt(m[4], 10) } : null; };
         const isi = (i) => i >= 0 && /[^\s\-–—]/.test(c[i] || '');   // sel berisi (bukan kosong / "-")
-        const w = waktu(k.iDiperbarui) || waktu(k.iDibuat);   // jam dari Diperbaharui Tanggal; cadangan: Dibuat Tanggal
         return {
             key: (k.iFaktur >= 0 && c[k.iFaktur]) || c.join('|').slice(0, 200),
             tipe: c[k.iTipe] || '',
             outlet: k.iOutlet >= 0 ? (c[k.iOutlet] || '') : (c.find((x) => RE_OUTLET.test(x)) || ''),
-            tgl: w ? w.tgl : null,
-            jam: w ? w.jam : null,
+            upd: waktu(k.iDiperbarui),    // jam dihitung dari Diperbaharui Tanggal
+            dibuat: waktu(k.iDibuat),     // cadangan bila Diperbaharui Tanggal kosong / bukan hari ini
             rp: k.iTotal >= 0 ? parseUang(c[k.iTotal]) : null,
             batal: isi(k.iBatalOleh) || isi(k.iLog) || /-VOID-/i.test(c.join(' '))
         };
     }
 
-    async function ambilHalaman(n) {
-        const res = await fetch(LIST_URL + (n > 1 ? '?page=' + n : ''), { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'text/html' } });
-        if (!res.ok) throw new Error('HTTP ' + res.status + ' (halaman ' + n + ')');
-        const t = bacaTabel(new DOMParser().parseFromString(await res.text(), 'text/html'));
-        if (!t) throw new Error('tabel Data Penjualan tidak terbaca (halaman ' + n + ', sesi habis?)');
-        if (!t.baris.length) return { jumlah: 0, rows: [], adaTotal: false };
-        const g = cariGeser(t.head, t.baris);
-        if (g === null) throw new Error('kolom Tipe Penjualan tidak terbaca (halaman ' + n + ')');
-        const k = petaKolom(t.head, g);
-        return { jumlah: t.baris.length, rows: t.baris.map((c) => objekBaris(c, k)), adaTotal: k.iTotal >= 0 };
+    // tautan "Selanjutnya" di dokumen (halaman hasil fetch atau halaman asli di iframe): {el, href}; href null bila tautannya "#"/javascript
+    const RE_NEXT_KATA = /^(?:selanjutnya|berikutnya|next)(?:\s*[›»→>]+)?$/i;
+    function cariNext(doc, base) {
+        let terbaik = null, skor = 0;
+        doc.querySelectorAll('a').forEach((a) => {
+            const t = rapih(a.textContent);
+            let s = 0;
+            if ((a.getAttribute('rel') || '').toLowerCase() === 'next') s = 5;
+            else if (RE_NEXT_KATA.test(t)) s = 4;
+            else if (t === '›') s = 3;
+            else if (t === '→' || t === '>') s = 2;
+            else if (t === '»') s = 1;
+            if (!s) return;
+            if (s < 4 && !a.closest('.pagination, [class*="pagin"], .pager, nav')) return;   // simbol saja hanya dihitung di blok penomoran halaman
+            if (a.hasAttribute('disabled') || a.getAttribute('aria-disabled') === 'true' || a.closest('.disabled, [disabled]')) return;
+            if (s > skor) { skor = s; terbaik = a; }
+        });
+        if (!terbaik) return null;
+        const h = (terbaik.getAttribute('href') || '').trim();
+        let href = null;
+        if (h && h !== '#' && !/^javascript/i.test(h)) { try { href = new URL(h, base).href; } catch (e) { href = null; } }
+        return { el: terbaik, href: href };
+    }
+    // "Menampilkan data 1 - 50 dari total data 804" -> 804 (null bila tidak ada)
+    function totalData(doc) {
+        const t = rapih((doc.body && doc.body.textContent) || '');
+        const m = /menampilkan[^0-9]{0,30}[\d.,]+\s*(?:-|s\/d|sampai)\s*[\d.,]+\s*dari\s*(?:total\s*(?:data)?\s*)?([\d.,]+)/i.exec(t);
+        return m ? parseInt(m[1].replace(/[.,]/g, ''), 10) : null;
     }
 
-    // ---------- pemindaian: halaman 1,2,3,... sampai halaman tidak penuh / tidak ada lagi baris hari ini ----------
-    let jalan = false, progres = '';
-    let cobaTerakhir = 0, cobaGagal = false;   // jadwal muat ulang: tidak bergantung pada hasil yang sedang tampil
-    async function pindai() {
-        if (jalan) return;
-        jalan = true;
-        cobaTerakhir = Date.now();
-        progres = 'memuat halaman 1 ...';
-        gambar();
-        const hariIni = tglHariIni();
-        const baru = { tgl: hariIni, data: {}, tipes: [], outlets: [], adaTotal: false, baris: 0, hal: 0, t: 0, error: '', selesai: false };
-        const sementara = !hasil || !hasil.selesai;   // belum ada hasil lengkap: tampilkan hasil sementara yang bertambah; kalau ada, tetap tampil (dipudarkan)
+    // dokumen halaman Data Penjualan -> {jumlah, rows, adaTotal, next, total}
+    function bacaDokumen(doc, base) {
+        const t = bacaTabel(doc);
+        if (!t) throw galat('tabel Data Penjualan tidak terbaca (sesi habis?)');
+        let rows = [], adaTotal = false;
+        if (t.baris.length) {
+            const g = cariGeser(t.head, t.baris);
+            if (g === null) throw galat('kolom Tipe Penjualan tidak terbaca');
+            const k = petaKolom(t.head, g);
+            rows = t.baris.map((c) => objekBaris(c, k));
+            adaTotal = k.iTotal >= 0;
+        }
+        return { jumlah: t.baris.length, rows: rows, adaTotal: adaTotal, next: cariNext(doc, base), total: totalData(doc) };
+    }
+
+    // ---------- pengumpul: menjumlah nota per tipe x outlet x jam, hanya yang bertanggal hari ini ----------
+    function buatPengumpul(hariIni) {
+        const baru = { tgl: hariIni, data: {}, tipes: [], outlets: [], adaTotal: false, baris: 0, hal: 0, t: 0, error: '', selesai: false, sumber: '',
+            diag: { hariIni: 0, batal: 0, bukanHariIni: 0, tanpaWaktu: 0, contoh: '' } };
         const dilihat = new Set(), tipeSemua = new Set(), outletSemua = new Set();
         const urut = (a, b) => a.localeCompare(b, 'id', { numeric: true });
-        let kosong = 0, tanpaWaktu = 0, batal = 0, terhitung = 0, kolomTotal = false, rpTerbaca = 0;
-        const t0 = Date.now();
-        try {
-            for (let mulai = 1; mulai <= HAL_MAKS && !baru.selesai; mulai += PARALEL) {
-                const nomor = [];
-                for (let i = 0; i < PARALEL && mulai + i <= HAL_MAKS; i++) nomor.push(mulai + i);
-                // semua halaman satu putaran diambil bersamaan, tapi diproses berurutan: kalau satu gagal, halaman sebelumnya tetap terhitung
-                const halaman = await Promise.all(nomor.map((n) => ambilHalaman(n).then((v) => ({ v: v }), (e) => ({ e: e }))));
-                for (const hh of halaman) {
-                    if (baru.selesai) break;
-                    if (hh.e) throw hh.e;
-                    const h = hh.v;
-                    baru.hal++;
-                    if (h.adaTotal) kolomTotal = true;
-                    let barisBaru = 0, adaHariIni = false;
-                    h.rows.forEach((r) => {
-                        if (dilihat.has(r.key)) return;   // baris yang sama terbaca lagi (halaman bergeser / server mengulang halaman)
-                        dilihat.add(r.key);
-                        barisBaru++;
-                        if (r.tgl === null || r.jam > 23) { tanpaWaktu++; return; }
-                        if (r.tgl !== hariIni) return;
-                        adaHariIni = true;
-                        const tp = r.tipe || TANPA_TIPE;
-                        tipeSemua.add(tp);                       // daftar pilihan dari semua nota hari ini (juga yang dibatalkan),
-                        if (r.outlet) outletSemua.add(r.outlet); // supaya tidak berubah-ubah mengikuti pilihan tipe
-                        if (r.batal) { batal++; return; }
-                        terhitung++;
-                        const perTipe = baru.data[tp] || (baru.data[tp] = {});
-                        const perOutlet = perTipe[r.outlet] || (perTipe[r.outlet] = {});
-                        const sel = perOutlet[r.jam] || (perOutlet[r.jam] = [0, 0]);
-                        sel[0]++;
-                        if (r.rp !== null) { sel[1] += r.rp; rpTerbaca++; }
-                    });
-                    baru.baris += barisBaru;
-                    if (h.jumlah < HAL_BARIS || !barisBaru) baru.selesai = true;   // halaman terakhir / tidak ada baris baru
-                    kosong = adaHariIni ? 0 : kosong + 1;
-                    if (kosong >= 2) baru.selesai = true;                          // daftar terbaru di atas: 2 halaman tanpa nota hari ini = sisanya lebih lama
-                }
+        let kolomTotal = false, rpTerbaca = 0, terhitung = 0, kosong = 0;
+        return {
+            baru: baru,
+            get terhitung() { return terhitung; },
+            // 2 halaman beruntun tanpa nota hari ini: daftar tidak tersaring dan sisanya lebih lama
+            get habis() { return kosong >= 2; },
+            // satu halaman (hasil bacaDokumen) -> {barisBaru, adaHariIni}
+            tambah: function (h) {
+                baru.hal++;
+                if (h.adaTotal) kolomTotal = true;
+                let barisBaru = 0, adaHariIni = false;
+                h.rows.forEach((r) => {
+                    if (dilihat.has(r.key)) return;   // baris yang sama terbaca lagi (halaman bergeser / server mengulang halaman)
+                    dilihat.add(r.key);
+                    barisBaru++;
+                    if (!r.upd && !r.dibuat) { baru.diag.tanpaWaktu++; return; }
+                    // "berdasarkan tanggal hari ini": jam dari Diperbaharui Tanggal; kalau itu bukan hari ini, dari Dibuat Tanggal
+                    const w = r.upd && r.upd.tgl === hariIni ? r.upd : (r.dibuat && r.dibuat.tgl === hariIni ? r.dibuat : null);
+                    if (!w) { baru.diag.bukanHariIni++; if (!baru.diag.contoh) baru.diag.contoh = (r.upd || r.dibuat).tgl; return; }
+                    baru.diag.hariIni++;
+                    adaHariIni = true;
+                    const tp = r.tipe || TANPA_TIPE;
+                    tipeSemua.add(tp);                       // daftar pilihan dari semua nota hari ini (juga yang dibatalkan),
+                    if (r.outlet) outletSemua.add(r.outlet); // supaya tidak berubah-ubah mengikuti pilihan tipe
+                    if (r.batal) { baru.diag.batal++; return; }
+                    terhitung++;
+                    const perTipe = baru.data[tp] || (baru.data[tp] = {});
+                    const perOutlet = perTipe[r.outlet] || (perTipe[r.outlet] = {});
+                    const sel = perOutlet[w.jam] || (perOutlet[w.jam] = [0, 0]);
+                    sel[0]++;
+                    if (r.rp !== null) { sel[1] += r.rp; rpTerbaca++; }
+                });
+                baru.baris += barisBaru;
+                kosong = adaHariIni ? 0 : kosong + 1;
                 // kolom Total ada, dan (kalau sudah ada nota) angkanya terbaca; tanpa itu hanya jumlah nota yang ditampilkan
                 baru.adaTotal = kolomTotal && (rpTerbaca > 0 || terhitung === 0);
                 baru.tipes = Array.from(tipeSemua).sort(urut);
                 baru.outlets = Array.from(outletSemua).sort(urut);
-                progres = 'memuat halaman ' + (baru.hal + 1) + ' ... ' + terhitung + ' nota';
-                if (sementara) hasil = baru;
-                gambar();
+                return { barisBaru: barisBaru, adaHariIni: adaHariIni };
             }
-            if (tanpaWaktu > 0 && tanpaWaktu === baru.baris) throw new Error('kolom Diperbaharui Tanggal tidak terbaca di ' + tanpaWaktu + ' baris');
-            baru.t = Date.now();
-            hasil = baru;
+        };
+    }
+
+    // ---------- form Pencarian Data Penjualan: Periode = hari ini, filter lain dikosongkan ----------
+    // Dasar Filter Periode = Tanggal Transaksi (seperti di halaman); filter lain (Tipe, Outlet, dst) dikosongkan karena Erzap bisa
+    // mengingat pencarian terakhir, dan pilihan Tipe / Outlet di grafik disaring di browser, bukan di server.
+    function tglFormatSama(contoh, d) {
+        const dd = dua(d.getDate()), mm = dua(d.getMonth() + 1), yy = d.getFullYear();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(contoh)) return yy + '-' + mm + '-' + dd;
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(contoh)) return dd + '/' + mm + '/' + yy;
+        return dd + '-' + mm + '-' + yy;
+    }
+    // teks label sebuah radio: <label for=id>, <label> pembungkus, atau teks setelah radio sampai input berikutnya
+    function labelRadio(r) {
+        const doc = r.ownerDocument;
+        const lbl = (r.id && doc.querySelector('label[for="' + r.id + '"]')) || r.closest('label');
+        if (lbl) return rapih(lbl.textContent);
+        let t = '', n = r.nextSibling;
+        while (n && !(n.nodeType === 1 && n.matches('input')) && t.length < 60) { t += n.textContent || ''; n = n.nextSibling; }
+        return rapih(t);
+    }
+    const cariForm = (doc) => Array.from(doc.querySelectorAll('form')).find((f) => f.querySelector('[name^="pencarian["]')) || null;
+    function setNilaiForm(el, nilai) {
+        el.value = nilai;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    // form di dokumen hasil fetch -> pasangan nama=nilai untuk dikirim
+    function serialisasi(form, hariIni) {
+        const p = new URLSearchParams();
+        const radio = {};
+        form.querySelectorAll('input[name], select[name], textarea[name]').forEach((el) => {
+            const nama = el.name, tipe = (el.type || '').toLowerCase();
+            if (el.disabled || /^(submit|button|image|reset|file)$/.test(tipe)) return;
+            if (tipe === 'radio') { (radio[nama] = radio[nama] || []).push(el); return; }
+            if (tipe === 'checkbox') { if (el.checked) p.append(nama, el.value || 'on'); return; }
+            if (/^pencarian\[/.test(nama)) {
+                p.append(nama, RE_DARI.test(nama) || RE_SAMPAI.test(nama) ? tglFormatSama(rapih(el.value), hariIni) : '');
+                return;
+            }
+            p.append(nama, el.tagName === 'SELECT' ? ((el.querySelector('option[selected]') || el.options[0] || {}).value || '') : el.value);   // token dll apa adanya
+        });
+        Object.keys(radio).forEach((nama) => {
+            const r = radio[nama];
+            const pilih = (/^pencarian\[/.test(nama) && r.find((x) => /tanggal\s*transaksi/i.test(labelRadio(x)))) || r.find((x) => x.checked);
+            if (pilih) p.append(nama, pilih.value);
+        });
+        return p;
+    }
+    function kirimForm(form, params) {
+        const aksi = new URL(form.getAttribute('action') || LIST_URL, location.origin);
+        const opsi = { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'text/html' } };
+        if ((form.getAttribute('method') || 'get').toLowerCase() === 'post') return fetch(aksi.href, Object.assign({ method: 'POST', body: params }, opsi));
+        params.forEach((v, k) => aksi.searchParams.append(k, v));
+        return fetch(aksi.href, opsi);
+    }
+
+    // form di halaman asli (iframe): isi seperti manual
+    function isiFormLive(form, hariIni) {
+        form.querySelectorAll('input[name], select[name], textarea[name]').forEach((el) => {
+            const nama = el.name, tipe = (el.type || '').toLowerCase();
+            if (el.disabled || /^(submit|button|image|reset|file|checkbox|radio)$/.test(tipe) || !/^pencarian\[/.test(nama)) return;
+            if (RE_DARI.test(nama) || RE_SAMPAI.test(nama)) { setNilaiForm(el, tglFormatSama(rapih(el.value), hariIni)); return; }
+            if (el.tagName === 'SELECT') {
+                const kosong = Array.from(el.options).findIndex((o) => o.value === '');
+                const i = kosong >= 0 ? kosong : 0;
+                if (el.selectedIndex !== i) { el.selectedIndex = i; el.dispatchEvent(new Event('change', { bubbles: true })); }
+                return;
+            }
+            if (el.value) setNilaiForm(el, '');   // termasuk hidden id milik kolom autocomplete (Outlet, Pelanggan)
+        });
+        const rTrx = Array.from(form.querySelectorAll('input[type="radio"]')).find((r) => /tanggal\s*transaksi/i.test(labelRadio(r)));
+        if (rTrx && !rTrx.checked) rTrx.click();
+    }
+
+    // ---------- jalur 1 (cepat): kirim form lewat fetch (cara ppob.js), halaman berikutnya lewat tautan "Selanjutnya" ----------
+    async function jalurFetch(kol, hariIni, tampil) {
+        const res0 = await fetch(LIST_URL, { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'text/html' } });
+        if (!res0.ok) throw galat('HTTP ' + res0.status + ' saat membuka Data Penjualan', false, true);
+        const doc0 = new DOMParser().parseFromString(await res0.text(), 'text/html');
+        if (doc0.querySelector('input[type="password"]')) throw galat('sesi Erzap habis (halaman login), buka ulang / login lagi', false, true);
+        const form = cariForm(doc0);
+        if (!form) throw galat('form Pencarian Data Penjualan tidak ditemukan');
+        let res = await kirimForm(form, serialisasi(form, new Date()));
+        if (!res.ok) throw galat('HTTP ' + res.status + ' saat mencari Data Penjualan');
+        let h = bacaDokumen(new DOMParser().parseFromString(await res.text(), 'text/html'), res.url);
+        if (!h.jumlah) throw galat('hasil pencarian tanpa baris di HTML mentah (tabel diisi lewat skrip?)', true);
+        kol.tambah(h);
+        if (!kol.baru.diag.hariIni) throw galat('Periode hari ini tidak berlaku pada hasil pencarian (' + h.jumlah + ' baris bukan hari ini)', true);
+        tampil(h.total ? kol.baru.baris + '/' + h.total + ' baris' : '');
+        const sudah = new Set([res.url]);
+        let n = 1, next = h.next;
+        while (next && next.href && n < HAL_MAKS && !kol.habis && !(h.total && kol.baru.baris >= h.total)) {
+            if (sudah.has(next.href)) break;
+            sudah.add(next.href);
+            res = await fetch(next.href, { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'text/html' } });
+            if (!res.ok) throw galat('HTTP ' + res.status + ' (halaman ' + (n + 1) + ')', false, true);
+            const hp = bacaDokumen(new DOMParser().parseFromString(await res.text(), 'text/html'), res.url);
+            if (!hp.jumlah) throw galat('halaman ' + (n + 1) + ' tanpa baris');
+            const t = kol.tambah(hp);
+            n++;
+            if (!t.barisBaru) throw galat('halaman ' + n + ' mengulang baris sebelumnya (tautan halaman tidak membawa hasil pencarian)');
+            tampil(h.total ? kol.baru.baris + '/' + h.total + ' baris' : '');
+            next = hp.next;
+        }
+        // tautan berikutnya ada tapi tidak bisa diikuti lewat fetch ("#" / skrip): serahkan ke jalur 2
+        if (next && !next.href && !kol.habis && !(h.total && kol.baru.baris >= h.total)) throw galat('tautan halaman berikutnya hanya lewat skrip');
+    }
+
+    // ---------- jalur 2 (cadangan): halaman Data Penjualan sungguhan di iframe tersembunyi, persis seperti manual ----------
+    async function jalurIframe(kol, hariIni, tampil) {
+        const fr = document.createElement('iframe');
+        fr.style.cssText = 'position:fixed;left:-10000px;top:0;width:1400px;height:1400px;border:0;opacity:0;pointer-events:none';
+        fr.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(fr);
+        // tunggu isi tabel berganti (submit/klik = dokumen baru, atau tabel diganti lewat ajax)
+        const tungguBerganti = async (docAwal, sidikAwal, ms) => {
+            await tungguDi(() => {
+                const d = fr.contentDocument;
+                if (!d || d.readyState !== 'complete') return false;
+                return (d !== docAwal && bacaTabel(d)) || (d === docAwal && sidikTabel(d) !== sidikAwal);
+            }, ms, '').catch(() => {});
+            await tidur(500);
+        };
+        try {
+            fr.src = LIST_URL;
+            const form = await tungguDi(() => { const d = fr.contentDocument; return d && d.readyState === 'complete' && cariForm(d); }, 40000, 'halaman Data Penjualan tidak termuat');
+            isiFormLive(form, new Date());
+            const docAwal = fr.contentDocument, sidikAwal = sidikTabel(docAwal);
+            const tombol = Array.from(form.querySelectorAll('button, input[type="submit"], input[type="button"], a')).find((b) => /^(cari|filter|search)/i.test(rapih(b.textContent) || rapih(b.value || ''))) ||
+                           form.querySelector('button[type="submit"], input[type="submit"]');
+            if (tombol) tombol.click(); else if (form.requestSubmit) form.requestSubmit(); else form.submit();
+            await tungguBerganti(docAwal, sidikAwal, 12000);
+            for (let n = 1; n <= HAL_MAKS; n++) {
+                const d = fr.contentDocument;
+                const h = bacaDokumen(d, d.location.href);
+                kol.tambah(h);
+                tampil(h.total ? kol.baru.baris + '/' + h.total + ' baris' : '');
+                if (kol.habis || (h.total && kol.baru.baris >= h.total) || !h.next) break;
+                const sidik = sidikTabel(d);
+                h.next.el.click();
+                await tungguBerganti(d, sidik, 20000);
+                if (fr.contentDocument === d && sidikTabel(d) === sidik) break;   // tidak berpindah halaman
+            }
+        } finally {
+            fr.remove();
+        }
+    }
+
+    // ---------- pemindaian: seluruh halaman hasil pencarian hari ini ----------
+    let jalan = false, progres = '';
+    let cobaTerakhir = 0, cobaGagal = false;   // jadwal muat ulang: tidak bergantung pada hasil yang sedang tampil
+    let jalurIframeDulu = false;               // jalur cepat gagal sedangkan halaman asli berhasil: berikutnya langsung halaman asli
+    let cekAsliTerakhir = 0;                   // waktu terakhir jalur 2 dicoba karena hasil kosong (jangan diulang tiap muat ulang)
+    async function pindai() {
+        if (jalan) return;
+        jalan = true;
+        cobaTerakhir = Date.now();
+        progres = 'menyiapkan pencarian ...';
+        gambar();
+        const hariIni = tglHariIni();
+        const sementara = !hasil || !hasil.selesai;   // belum ada hasil lengkap: tampilkan hasil sementara yang bertambah; kalau ada, tetap tampil (dipudarkan)
+        let kol = buatPengumpul(hariIni);
+        const t0 = Date.now();
+        const tampil = (info) => {
+            progres = 'memuat halaman ' + (kol.baru.hal + 1) + (info ? ' (' + info + ')' : '') + ' · ' + kol.terhitung + ' nota';
+            if (sementara) hasil = kol.baru;
+            gambar();
+        };
+        try {
+            let sumber = '', galatCepat = null;
+            for (const j of (jalurIframeDulu ? ['iframe'] : ['fetch', 'iframe'])) {
+                kol = buatPengumpul(hariIni);
+                try {
+                    await (j === 'fetch' ? jalurFetch : jalurIframe)(kol, hariIni, tampil);
+                    sumber = j;
+                    break;
+                } catch (e) {
+                    if (j === 'iframe' || e.fatal) throw e;
+                    galatCepat = e;
+                    console.warn('[grafik.js] jalur cepat gagal: ' + e.message + ' -> mencoba halaman asli');
+                    // memang belum ada nota hari ini + halaman asli baru saja dicek: terima hasil kosong, jangan buka halaman asli lagi
+                    if (e.kosong && Date.now() - cekAsliTerakhir < CEK_ASLI_JEDA_MS) { sumber = 'fetch'; break; }
+                    if (e.kosong) cekAsliTerakhir = Date.now();
+                }
+            }
+            const b = kol.baru;
+            if (galatCepat && sumber === 'iframe' && b.diag.hariIni > 0) jalurIframeDulu = true;
+            if (b.diag.tanpaWaktu > 0 && b.diag.tanpaWaktu === b.baris) throw new Error('kolom Diperbaharui / Dibuat Tanggal tidak terbaca di ' + b.diag.tanpaWaktu + ' baris');
+            b.sumber = sumber;
+            b.selesai = true;
+            b.t = Date.now();
+            hasil = b;
             cobaGagal = false;
             simpanCache();
-            console.log('[grafik.js] ' + terhitung + ' nota hari ini (' + batal + ' batal dilewati; ' + baru.tipes.length + ' tipe, ' + baru.outlets.length + ' outlet), ' + baru.baris + ' baris dari ' + baru.hal + ' halaman, ' + ((Date.now() - t0) / 1000).toFixed(1) + ' dtk');
+            console.log('[grafik.js] ' + kol.terhitung + ' nota hari ini (' + b.diag.batal + ' batal dilewati; ' + b.tipes.length + ' tipe, ' + b.outlets.length + ' outlet), ' + b.baris + ' baris dari ' + b.hal + ' halaman, sumber ' + sumber + ', ' + ((Date.now() - t0) / 1000).toFixed(1) + ' dtk');
         } catch (err) {
-            baru.error = err.message;
-            baru.t = Date.now();
+            const b = kol.baru;
+            b.error = err.message;
+            b.t = Date.now();
             cobaGagal = true;
-            if (sementara) hasil = baru;   // ada hasil lengkap sebelumnya: dipertahankan, galat hanya dicatat
+            if (sementara) hasil = b;   // ada hasil lengkap sebelumnya: dipertahankan, galat hanya dicatat
             else hasil.galat = err.message;
             console.warn('[grafik.js] ' + err.message);
         } finally {
@@ -503,7 +731,14 @@
         if (jalan && progres) bagian.push('Data Penjualan: ' + progres);
         else if (d.galat || d.error) bagian.push('Gagal memperbarui: ' + (d.galat || d.error) + (d.baris ? ' (data yang tampil belum lengkap / dari pembacaan sebelumnya)' : ''));
         else if (d.t) bagian.push('Diperbarui ' + dua(new Date(d.t).getHours()) + ':' + dua(new Date(d.t).getMinutes()) + (d.dariCache ? ' (tersimpan; memperbarui ...)' : ''));
-        bagian.push('jam dari Diperbaharui Tanggal · nota dibatalkan tidak dihitung' + (d.baris ? ' · ' + d.baris.toLocaleString('en-US') + ' baris dibaca (' + d.hal + ' halaman)' : ''));
+        bagian.push('jam dari Diperbaharui Tanggal · nota dibatalkan tidak dihitung' + (d.baris ? ' · ' + d.baris.toLocaleString('en-US') + ' baris dibaca (' + d.hal + ' halaman' + (d.sumber ? ', ' + (d.sumber === 'iframe' ? 'halaman asli' : 'fetch') : '') + ')' : ''));
+        // rincian yang menjelaskan hasil: berapa baris bertanggal hari ini, dibatalkan, atau bertanggal lain (contoh tanggalnya)
+        const g = d.diag;
+        if (g && d.baris && !d.error) {
+            bagian.push('bertanggal hari ini ' + g.hariIni.toLocaleString('en-US') + (g.batal ? ' (batal ' + g.batal + ')' : '') +
+                (g.bukanHariIni ? ' · tanggal lain ' + g.bukanHariIni.toLocaleString('en-US') + (g.contoh ? ' (mis. ' + g.contoh + ')' : '') : '') +
+                (g.tanpaWaktu ? ' · tanpa tanggal ' + g.tanpaWaktu : ''));
+        }
         catatanEl.textContent = bagian.join(' · ');
     }
 
