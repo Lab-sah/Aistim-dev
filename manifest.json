@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Aistim Tool",
-  "version": "2.10.2",
+  "version": "2.10.3",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlIdzenFAcn87VjsMkABseGAgu9THBmoOT5mxpayn8RMsPTrZ0ViM2B0qBGskXQ1cTekoiDxfXWFSR9VtjWvLsq7OONQlA9SvSB0BpbzyPlqcLv+bS3ZRR/G25Vx2AH8unjbkUFXcQNaMtwemo0EB1y/kGfluM23iFGbXXG64khwcAzzbz0WR1WashsvNANCtPrWd+7PrvZbhk9Xki2HxasYbmJq9J0o/zuFQz86pjtlQhVoyJkikKTC1vgIfxNzHRmspcZpiFwoFI/Q6CupJmsuUOiHtPQxIvawXZIyQkY76xCcTWaPtoRsLJFk46Rmnrtw2tCuL9BdSAzYUi++VSQIDAQAB",
   "update_url": "https://github.com/devtim-lab/aistim-dev/releases/latest/download/updates.xml",
   "description": "Multi Userscript Manager \u2014 bundled scripts + auto-sync GitHub, engine userScripts (CSP-safe)",

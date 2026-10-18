@@ -1,4 +1,4 @@
-# Aistim Tool v2.10.2
+# Aistim Tool v2.10.3
 
 **Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -98,7 +98,21 @@ window.addEventListener('message', ev => {
 - **Di GitHub** (direkomendasikan): upload/edit file `.js` di folder `scripts/` → klik 🔄 di popup → langsung aktif
 - **Di paket ekstensi**: taruh file di folder `scripts/` + tambahkan nama file ke `scripts/index.json` → reload ekstensi
 
-Script tampil sebagai kartu di popup (nama, halaman, versi), bisa di-toggle ON/OFF. Menghapus script = hapus file + entri di `index.json`.
+Script tampil sebagai kartu di popup (nama, halaman, versi), bisa di-toggle ON/OFF.
+
+## 🗑️ Menghapus Script
+
+Script yang sudah terlanjur dibundel tetap ada di paket ekstensi pengguna, jadi **menghapus file dari GitHub saja tidak cukup** (salinan bundel akan jalan lagi). Caranya (ekstensi v2.10.3+):
+
+1. Tambahkan nama file ke daftar `"hapus"` di `scripts/index.json`, dan keluarkan dari `"scripts"`:
+   ```json
+   { "scripts": ["koreksiso.js", "..."], "hapus": ["ppob.js"] }
+   ```
+2. File `.js`-nya boleh dihapus dari folder `scripts/`.
+3. Dalam ±1 menit script berhenti jalan dan hilang dari popup di semua pengguna, termasuk salinan bundel. Daftar hapus disimpan di ekstensi, jadi tetap berlaku saat offline.
+4. **Biarkan nama di `"hapus"`** selama masih ada pengguna dengan paket lama yang membundel script itu. Mengeluarkan nama dari `"hapus"` = script bundel aktif lagi.
+
+Ekstensi < v2.10.3 belum membaca `"hapus"`. Untuk mereka: timpa file di GitHub dengan versi kosong ber-`@name` sama, `@version` lebih tinggi, dan `@match https://*.erzap.com/__dihapus__*`.
 
 ## Fitur
 - **Engine userScripts** — CSP-safe, script jalan di dunia aman
@@ -131,6 +145,9 @@ Buka DevTools (F12) -> Console:
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.10.3
+- **Daftar hapus script**: `scripts/index.json` boleh berisi `"hapus": ["file.js"]`. Script di daftar itu tidak dijalankan dan tidak tampil di popup, termasuk salinan yang sudah terlanjur dibundel di paket ekstensi. Daftar disimpan di storage `daftarHapus` (tetap berlaku saat offline)
 
 ## Changelog v2.10.2
 - Deskripsi ekstensi tanpa kata "AI" (ekstensi ini tidak memakai AI): "Multi Userscript Manager"

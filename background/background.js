@@ -1,4 +1,4 @@
-const VERSION = '2.10.2';
+const VERSION = '2.10.3';
 const X_FETCH_ALLOW = ['partdistro.com'];   // host yang boleh diakses lewat jembatan x-fetch
 
 // ===== KONFIGURASI =====
@@ -64,14 +64,29 @@ function isUserScriptsAvailable() {
   }
 }
 
+// ===== DAFTAR HAPUS =====
+// scripts/index.json boleh berisi "hapus": ["nama_file.js", ...]. Script di daftar itu tidak dijalankan
+// dan tidak tampil di popup, termasuk salinan yang sudah terlanjur dibundel di paket ekstensi pengguna.
+// Daftar dari GitHub disimpan permanen (storage 'daftarHapus') supaya tetap berlaku saat offline;
+// ditimpa setiap kali index.json GitHub berhasil dibaca (hapus nama dari daftar = script kembali).
+function bacaDaftarHapus(idx) {
+  return Array.isArray(idx && idx.hapus) ? idx.hapus.filter(n => typeof n === 'string' && n) : [];
+}
+
+async function getDaftarHapus() {
+  return (await chrome.storage.local.get(['daftarHapus'])).daftarHapus || [];
+}
+
 // ===== BUNDLED: baca scripts/index.json + kode dari paket ekstensi =====
-async function loadBundledScripts() {
+async function loadBundledScripts(hapus) {
   try {
     const idxRes = await fetch(chrome.runtime.getURL('scripts/index.json'));
     if (!idxRes.ok) throw new Error('HTTP ' + idxRes.status);
     const idx = await idxRes.json();
+    const dihapus = new Set(hapus.concat(bacaDaftarHapus(idx)));
     const out = [];
     for (const file of (idx.scripts || [])) {
+      if (dihapus.has(file)) continue;
       try {
         const url = chrome.runtime.getURL('scripts/' + file);
         const res = await fetch(url);
@@ -117,10 +132,12 @@ async function discoverRemoteFiles() {
     const res = await fetch(bust(rawUrl('index.json')), { cache: 'no-store' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const idx = await res.json();
+    const hapus = bacaDaftarHapus(idx);
     files = (idx.scripts || [])
-      .filter(n => typeof n === 'string' && /\.js$/i.test(n))
+      .filter(n => typeof n === 'string' && /\.js$/i.test(n) && hapus.indexOf(n) === -1)
       .map(n => ({ name: n, url: rawUrl(n) }));
     if (!files.length) throw new Error('index.json kosong');
+    await chrome.storage.local.set({ daftarHapus: hapus });
   } catch (e) {
     console.warn('[Aistim] index.json remote gagal (' + e.message + ') — coba GitHub API');
     files = null;
@@ -236,9 +253,13 @@ async function syncUserScriptsSekarang() {
   const data = await chrome.storage.local.get(['disabledAuto']);
   const disabledAuto = data.disabledAuto || [];
 
-  const bundled = await loadBundledScripts();
-  const remote = await loadRemoteScripts();
+  // Remote dulu: membaca index.json GitHub sekaligus memperbarui daftar hapus
+  const remoteMentah = await loadRemoteScripts();
+  const hapus = await getDaftarHapus();
+  const remote = remoteMentah.filter(s => hapus.indexOf(s.file) === -1);   // mis. daftar file dari cache / GitHub API
+  const bundled = await loadBundledScripts(hapus);
   const manual = await loadManualScripts();
+  if (hapus.length) console.log('[Aistim] Dihapus lewat index.json:', hapus.join(', '));
 
   // Gabung: auto (bundled+remote) dedupe by @name; manual digabung apa adanya
   const merged = mergeScripts(bundled, remote);
