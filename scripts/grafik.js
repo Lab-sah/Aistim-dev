@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Grafik Penjualan Home
 // @namespace    http://tampermonkey.net/
-// @version      2.2.4
+// @version      2.2.5
 // @description  Halaman Home: kotak "Penjualan per Jam" di ATAS panel AI Agent (Rekomendasi Marketing Produk Kurang Laku). Data dari Data Penjualan (/penjualans) berdasarkan tanggal HARI INI: form Pencarian diisi Periode = hari ini (Dasar Filter Periode = Tanggal Transaksi, filter lain dikosongkan), lalu SEMUA halaman hasil dibaca lewat tautan "Selanjutnya" (ukuran halaman tidak diasumsikan). Jalur cepat lewat fetch (cara ppob.js); kalau gagal (mis. tabel diisi lewat skrip) dipakai halaman Data Penjualan sungguhan di iframe tersembunyi. Nota dibatalkan tidak dihitung, dan jamnya diambil dari kolom "Diperbaharui Tanggal". Tipe Penjualan (bawaan Offline / Instore, atau Semua tipe) dan Outlet (bawaan Semua outlet) dipilih lewat dropdown di judul; daftar pilihannya diambil dari nota yang terbaca, dan ganti pilihan tidak membaca ulang karena disaring di browser. Kolom = penjualan (Rp) atau jumlah nota per jam hari ini, tooltip per jam, dan tampilan Tabel sebagai pasangan grafik. Hasil terakhir disimpan di localStorage (tampil langsung saat Home dibuka, lalu diperbarui tiap 10 menit atau lewat tombol Muat ulang). Digambar sendiri (SVG, tanpa library). Hanya di Home; tidak jalan di halaman Login / nota / popup.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -19,7 +19,7 @@
     if (location.pathname !== '/') return;   // grafik hanya di Home
     if (window.__aistimGrafik) return;
     window.__aistimGrafik = true;
-    console.log('[grafik.js] v2.2.4 aktif di ' + location.pathname);
+    console.log('[grafik.js] v2.2.5 aktif di ' + location.pathname);
 
     const LIST_URL = '/penjualans';
     // Daftar Tipe Penjualan & Outlet diambil dari nota yang terbaca (kolom Tipe Penjualan, mis. "1. Offline / Instore").
@@ -917,9 +917,14 @@
             kolomEl[i] = p;
             lapisKolom.appendChild(p);
         }
-        // satu label saja: nilai puncak, di atas kolomnya (sisanya lewat sumbu, tooltip, dan tabel)
-        if (puncak >= 0) {
-            lapisLabel.appendChild(sv('text', { x: cx(puncak), y: y(nilaiJam[puncak]) - 6, 'text-anchor': 'middle', 'font-size': 12, 'font-weight': 700, fill: '#0b0b0b', teks: ringkas(nilaiJam[puncak]) }));
+        // nilai di atas SETIAP kolom, tebal. Kalau kolom terlalu sempit untuk teksnya (layar kecil / banyak jam), huruf
+        // dikecilkan; kalau masih tidak muat, hanya nilai puncak yang diberi label (sisanya lewat tooltip & tabel)
+        const teksLabel = nilaiJam.map((v) => (v > 0 ? ringkas(v) : ''));
+        const terpanjang = Math.max.apply(null, teksLabel.map((t) => t.length).concat([0]));
+        const ukuranHuruf = terpanjang * 6.6 <= bw - 4 ? 12 : (terpanjang * 5.6 <= bw - 2 ? 10 : 0);
+        for (let i = 0; i < n; i++) {
+            if (!teksLabel[i] || (!ukuranHuruf && i !== puncak)) continue;
+            lapisLabel.appendChild(sv('text', { x: cx(i), y: y(nilaiJam[i]) - 6, 'text-anchor': 'middle', 'font-size': ukuranHuruf || 12, 'font-weight': 700, fill: '#0b0b0b', teks: teksLabel[i] }));
         }
         if (!(maks > 0)) {
             svg.appendChild(sv('text', { x: m.kiri + lebarPlot / 2, y: m.atas + TINGGI_PLOT / 2, 'text-anchor': 'middle', 'font-size': 13, fill: '#767570',
