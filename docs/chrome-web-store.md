@@ -3,7 +3,8 @@
 Update otomatis = lewat Web Store (Chrome memperbarui sendiri begitu versi baru disetujui).
 
 1. Naikkan `version` di `manifest.json`, push ke `main`.
-2. Workflow Release membuat `Aistim-dev-store-<versi>.zip` (manifest tanpa `key`/`update_url`, izin hanya Erzap, partdistro, GitHub).
+2. Workflow Release membuat `Aistim-dev-store-<versi>.zip` (manifest tanpa `key`/`update_url`, izin hanya Erzap, partdistro, GitHub, tanpa `activeTab`;
+   `content.js` tanpa fallback inject `<script>` yang tidak diizinkan Web Store).
 3. Unggah zip itu di Dashboard -> Paket -> "Upload paket baru" -> kirim untuk review.
 4. Perubahan **script** (folder `scripts/`) tidak perlu review: tersinkron otomatis dari GitHub `main`.
 

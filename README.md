@@ -1,6 +1,6 @@
-# Aistim Tool v2.10.1
+# Aistim Tool v2.10.2
 
-**AI Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
+**Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
 ---
 
@@ -131,6 +131,10 @@ Buka DevTools (F12) -> Console:
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.10.2
+- Deskripsi ekstensi tanpa kata "AI" (ekstensi ini tidak memakai AI): "Multi Userscript Manager"
+- ZIP Chrome Web Store (`tools/build-store.py`): izin `activeTab` yang tidak dipakai dibuang, dan `content.js` dibangun tanpa fallback inject `<script>` (blok `FALLBACK-SCRIPT-TAG`). ZIP/CRX dari GitHub tidak berubah
 
 ## Changelog v2.10.1
 - Popup: status "Engine Aktif" tetap benar walau semua script dimatikan atau sync pertama setelah update belum selesai (`us-status` kini juga mengirim `tersedia`)

@@ -1,7 +1,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2.10.1';
+  var VERSION = '2.10.2';
   console.log('[Aistim] ===== Content script v' + VERSION + ' loaded =====');
   console.log('[Aistim] URL:', window.location.href);
 
@@ -63,6 +63,9 @@
   // Jalur utama: chrome.userScripts API di background (kebal CSP halaman).
   // Jalur fallback: inject <script> tag + handshake — untuk browser tanpa userScripts.
 
+  // ===== FALLBACK-SCRIPT-TAG MULAI =====
+  // Blok ini dibuang dari ZIP Chrome Web Store oleh tools/build-store.py (inject <script> berisi kode
+  // dari luar paket tidak diizinkan Web Store) dan diganti fallbackDynamic() yang hanya memberi log.
   // Penampung hasil handshake dari script yang diinject ke page world
   var execResults = {};
   document.addEventListener('aistim-exec', function(e) {
@@ -147,6 +150,7 @@
       }
     }, 2000);
   }
+  // ===== FALLBACK-SCRIPT-TAG SELESAI =====
 
   // ===== INIT =====
   function init() {
