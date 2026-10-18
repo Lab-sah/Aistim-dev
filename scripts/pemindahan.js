@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.7.3
+// @version      1.8.1
 // @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel. Tombol "Data Pembelian" mengambil daftar barang dengan cara yang sama dari Faktur Pembelian (No Faktur atau link /faktur_pembelians/<ID>).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
@@ -46,10 +46,16 @@
         '#llb_btn_simpan_header:disabled{opacity:0.6;cursor:not-allowed;}',
         '#llb_hasil{margin-top:12px;max-height:320px;overflow:auto;',
         '-webkit-overflow-scrolling:touch;}',
-        '.llb_table{width:100%;min-width:420px;border-collapse:collapse;font-size:13px;}',
-        '.llb_table th, .llb_table td{border:1px solid #ddd;padding:6px 8px;text-align:left;',
-        'white-space:nowrap;}',
-        '.llb_table th{background:#f5f5f5;}',
+        // Header tabel menempel di atas area scroll (#llb_hasil). Garis tabel dibuat dengan
+        // border-collapse:separate - kalau collapse, garis header ikut terscroll walau latarnya menempel.
+        '.llb_table{width:100%;min-width:420px;border-collapse:separate;border-spacing:0;font-size:13px;}',
+        '.llb_table th, .llb_table td{border-right:1px solid #ddd;border-bottom:1px solid #ddd;',
+        'padding:6px 8px;text-align:left;white-space:nowrap;}',
+        '.llb_table th:first-child, .llb_table td:first-child{border-left:1px solid #ddd;}',
+        '.llb_table th{background:#f5f5f5;border-top:1px solid #ddd;position:sticky;top:0;z-index:1;}',
+        '#llb_ringkasan{margin-top:12px;font-size:13px;color:#333;}',
+        '#llb_ringkasan:empty{display:none;}',
+        '#llb_ringkasan:not(:empty) + #llb_hasil{margin-top:6px;}',
         '.mib_modal .mib_footer{flex:0 0 auto;padding:12px 16px;border-top:1px solid #eee;',
         'text-align:right;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;}',
         '.mib_modal .mib_footer button{padding:6px 14px;',
@@ -114,6 +120,7 @@
                 '<div id="llb_status"></div>' +
                 '<div id="llb_header"></div>' +
                 '<button type="button" id="llb_btn_simpan_header">Simpan</button>' +
+                '<div id="llb_ringkasan"></div>' +
                 '<div id="llb_hasil"></div>' +
                 '<div class="mib_progress" id="llb_progress"></div>' +
             '</div>' +
@@ -645,12 +652,37 @@
     var data_lihat_barang_terakhir = [];
     var data_tr_barang_terakhir = []; // elemen <tr> asli (detached) dari halaman sumber - dipakai oleh V2
 
+    // Ringkasan di atas tabel (di luar area scroll, jadi selalu kelihatan): jumlah baris barang dan
+    // total jumlah. Total hanya ditampilkan kalau semua jumlah terbaca angka (jumlah kosong dihitung 1,
+    // sama seperti saat dimasukkan ke tabel); format lain tidak ditebak.
+    function ringkasan_barang_html(rows) {
+        var total = 0;
+        var semua_angka = true;
+        rows.forEach(function (r) {
+            var j = $.trim(String(r.jumlah === null || r.jumlah === undefined ? '' : r.jumlah));
+            if (j === '') {
+                total += 1;
+            } else if (/^\d+(\.\d+)?$/.test(j)) {
+                total += parseFloat(j);
+            } else {
+                semua_angka = false;
+            }
+        });
+        var html = 'Jumlah barang: <b>' + rows.length + '</b>';
+        if (semua_angka) {
+            html += ' &middot; Total jumlah: <b>' + (Math.round(total * 1000) / 1000) + '</b>';
+        }
+        return html;
+    }
+
     function render_hasil_lihat_barang(rows) {
         data_lihat_barang_terakhir = rows;
         if (rows.length === 0) {
+            $('#llb_ringkasan').empty();
             $('#llb_hasil').html('<p style="font-size:12px;color:#999;">Tidak ada data barang ditemukan.</p>');
             return;
         }
+        $('#llb_ringkasan').html(ringkasan_barang_html(rows));
         var html = '<table class="llb_table"><thead><tr><th>No</th><th>Barcode</th><th>Jumlah Transfer</th><th>Keterangan</th></tr></thead><tbody>';
         rows.forEach(function (r, i) {
             html += '<tr><td>' + (i + 1) + '</td><td>' + escape_html(r.barcode) + '</td><td>' + escape_html(r.jumlah) + '</td><td>' + escape_html(r.keterangan) + '</td></tr>';
@@ -768,7 +800,7 @@
 
     function muat_data_dari_link(link) {
         $('#llb_status').text('Memuat data dari ' + link + ' ...');
-        $('#llb_hasil').empty();
+        $('#llb_hasil, #llb_ringkasan').empty();
         // Data dari muatan sebelumnya jangan sampai ikut dimasukkan kalau muatan baru ini gagal.
         data_lihat_barang_terakhir = [];
         data_tr_barang_terakhir = [];
@@ -822,7 +854,7 @@
         $('#llb_petunjuk').html(pembelian ? PETUNJUK_PEMBELIAN : PETUNJUK_BARANG);
         $('#llb_input_link').val('').attr('placeholder', pembelian ? PLACEHOLDER_PEMBELIAN : PLACEHOLDER_BARANG);
         $('#llb_status').text('');
-        $('#llb_hasil').empty();
+        $('#llb_hasil, #llb_ringkasan').empty();
         $('#llb_progress').hide().text('');
         render_header_lihat_barang();
         // "Masukkan ke Tabel" hanya masuk akal kalau tabel di halaman ini masih bisa diisi.
@@ -1232,7 +1264,7 @@
         if (pembelian ? !adalah_link : POLA_KODE_PEMINDAHAN.test(isi)) {
             // Kode berpola (mis. J1026-68557) dibakukan ke huruf besar; nomor bebas dari supplier dikirim apa adanya.
             var kode = POLA_KODE_PEMINDAHAN.test(isi) ? isi.toUpperCase() : isi;
-            $('#llb_hasil').empty();
+            $('#llb_hasil, #llb_ringkasan').empty();
             // Hasil muatan sebelumnya jangan sampai ikut dimasukkan kalau pencarian kode ini gagal.
             data_lihat_barang_terakhir = [];
             data_tr_barang_terakhir = [];
@@ -1260,6 +1292,8 @@
     function masukkan_sesuai_sumber() {
         var bisa_salin_langsung = data_tr_barang_terakhir.length > 0 &&
             data_tr_barang_terakhir.length === data_lihat_barang_terakhir.length;
+        console.log('[lihat-barang] Masukkan ke Tabel:', bisa_salin_langsung ? 'salin langsung (V2)' : 'scan barcode (V1)',
+            '| baris:', data_lihat_barang_terakhir.length, '| baris form:', data_tr_barang_terakhir.length);
         if (bisa_salin_langsung) {
             masukkan_hasil_ke_table_v2();
         } else {
@@ -1300,11 +1334,13 @@
                 if (!validasi_header_sebelum_scan_produk(HTML_IDOUTLET_OWN, 'Tentukan Outlet terlebih dahulu', true)) {
                     $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', false);
                     lepas_kunci_scroll();
+                    $('#llb_progress').hide();
                     return;
                 }
                 if (!validasi_header_sebelum_scan_produk(HTML_IDGUDANG, 'Tentukan Gudang terlebih dahulu', false)) {
                     $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', false);
                     lepas_kunci_scroll();
+                    $('#llb_progress').hide();
                     return;
                 }
             }
@@ -1312,13 +1348,38 @@
             var baris = data_lihat_barang_terakhir.map(function (r) {
                 return (r.jumlah || 1) + ' ' + r.barcode;
             });
+            var barcode_unik = data_lihat_barang_terakhir.map(function (r) { return r.barcode; })
+                .filter(function (b, i, semua) { return semua.indexOf(b) === i; });
+            var jumlah_sebelum = barcode_terisi_di_tabel().length;
+            console.log('[lihat-barang] Masukkan ke Tabel lewat scan barcode:', baris.length, 'baris');
 
             jalankan_baris_qty_barcode(baris, '#llb_progress', function () {
                 $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', false);
                 lepas_kunci_scroll();
+                // Halaman Erzap bisa menolak sebagian barcode (produk tidak ketemu, stok kurang, dst) tanpa
+                // memberi tahu kita. Jangan menutup modal seolah semuanya masuk: laporkan yang kurang.
+                var terisi = barcode_terisi_di_tabel();
+                var masuk = terisi.length - jumlah_sebelum;
+                if (masuk < barcode_unik.length) {
+                    var belum = barcode_unik.filter(function (b) { return terisi.indexOf(b) === -1; });
+                    $('#llb_progress').text('Selesai, tapi hanya ' + masuk + ' dari ' + barcode_unik.length + ' barang yang masuk.');
+                    info_dialog('Sebagian barang belum masuk ke tabel',
+                        '<p>Baru <b>' + masuk + '</b> dari <b>' + barcode_unik.length + '</b> barang yang masuk ke tabel.</p>' +
+                        '<p>Barcode yang belum terlihat di tabel:</p>' + daftar_html(belum.slice(0, 10)) +
+                        (belum.length > 10 ? '<p>... dan ' + (belum.length - 10) + ' lainnya.</p>' : '') +
+                        '<p class="llb_dialog_kecil">Cek pesan dari halaman Erzap (mis. produk tidak ditemukan atau stok kurang). ' +
+                        'Barang yang sudah masuk tidak dihapus.</p>', true);
+                    return;
+                }
                 tutup_semua_modal();
             });
         });
+    }
+
+    // Barcode yang sudah terisi di tabel Daftar Barang halaman ini.
+    function barcode_terisi_di_tabel() {
+        return $('.searching_produk_barcode').map(function () { return $.trim(this.value); }).get()
+            .filter(function (b) { return b !== ''; });
     }
 
     // ---------- V2: copy langsung semua field produk ke baris kosong, tanpa scan ulang ----------
