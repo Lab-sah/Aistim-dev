@@ -24,5 +24,14 @@
     "home.js",
     "penjualan.js",
     "grafik.js"
+  ],
+  "hapus": [
+    "analisastok.js",
+    "pengisianso.js",
+    "rakstok_lama.js",
+    "rekapbeban.js",
+    "rekapservis.js",
+    "rekapstokmin.js",
+    "smart_repair.js"
   ]
 }

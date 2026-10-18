@@ -114,6 +114,8 @@ Script yang sudah terlanjur dibundel tetap ada di paket ekstensi pengguna, jadi 
 
 Ekstensi < v2.10.3 belum membaca `"hapus"`. Untuk mereka: timpa file di GitHub dengan versi kosong ber-`@name` sama, `@version` lebih tinggi, dan `@match https://*.erzap.com/__dihapus__*`.
 
+**Gabungan keduanya** (dipakai sekarang untuk `analisastok`, `pengisianso`, `rakstok_lama`, `rekapbeban`, `rekapservis`, `rekapstokmin`, `smart_repair`): file stub kosong v99.0.0 **tetap ada dan tetap terdaftar di `"scripts"`** (untuk ekstensi lama), dan namanya juga ada di `"hapus"` (ekstensi v2.10.3+ mengabaikannya sepenuhnya, tidak tampil di popup). Stub baru boleh dibuang setelah tidak ada lagi pengguna ekstensi < v2.10.3.
+
 ## Fitur
 - **Engine userScripts** — CSP-safe, script jalan di dunia aman
 - **Bundled + auto-sync** — jalan offline dari bundel; update otomatis dari GitHub
