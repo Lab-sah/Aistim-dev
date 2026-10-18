@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Barcode (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      2.0.1
+// @version      2.0.2
 // @description  [v2.0.1] Pindah link "Cetak Barcode" dari kolom kosong paling kanan ke kolom "Barcode - Nama Barang - Kode Ref" (gabung dengan info nama produk, mirip posisinya di Faktur Pembelian). [v2.0.0] Ganti dari satu tombol di bawah tabel -> link "Cetak Barcode" di tiap baris produk Daftar Barang Pemindahan, meniru fitur cetak barcode native di Faktur Pembelian (modal jumlah label + SN kalau produk pakai SN, lalu AJAX ke /produks/get_zpl_raw/new dan kirim ke printer via write_raw_printer_zpl). Modal dibuat sendiri (prefix bc_) supaya tidak gantung ke openBarcodeModal/#barcodeModal yang belum pasti ada di halaman ini. idproduk/is_sn/jumlah diambil dari input tersembunyi baris (searching_barcode_produk_id, produk_is_sn, jumlah_produk).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
@@ -155,6 +155,7 @@
     }
 
     $(function () {
+        console.log('[barcode.js] v2.0.2 aktif');
         siapkanDialog();
         pasangLinkBarcode();
 
