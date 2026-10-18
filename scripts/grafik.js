@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Grafik Penjualan Home
 // @namespace    http://tampermonkey.net/
-// @version      2.0.0
-// @description  Halaman Home: kotak "Penjualan per Jam" di ATAS panel AI Agent (Rekomendasi Marketing Produk Kurang Laku). Data dari Data Penjualan (/penjualans): halaman 1,2,3,... dibaca lewat fetch (50 baris/halaman, seperti pesanan_web.js), diambil hanya Tipe Penjualan "Offline / Instore" (tipe lain bisa ditambah di daftar TIPE), nota dibatalkan tidak dihitung, dan jamnya diambil dari kolom "Diperbaharui Tanggal". Kolom = penjualan (Rp) atau jumlah nota per jam hari ini, tooltip per jam, dan tampilan Tabel sebagai pasangan grafik. Hasil terakhir disimpan di localStorage (tampil langsung saat Home dibuka, lalu diperbarui tiap 10 menit atau lewat tombol Muat ulang). Digambar sendiri (SVG, tanpa library). Hanya di Home; tidak jalan di halaman Login / nota / popup.
+// @version      2.1.0
+// @description  Halaman Home: kotak "Penjualan per Jam" di ATAS panel AI Agent (Rekomendasi Marketing Produk Kurang Laku). Data dari Data Penjualan (/penjualans): halaman 1,2,3,... dibaca lewat fetch (50 baris/halaman, seperti pesanan_web.js), nota dibatalkan tidak dihitung, dan jamnya diambil dari kolom "Diperbaharui Tanggal". Tipe Penjualan (bawaan Offline / Instore, atau Semua tipe) dan Outlet (bawaan Semua outlet) dipilih lewat dropdown di judul; daftar pilihannya diambil dari nota yang terbaca, dan ganti pilihan tidak membaca ulang karena disaring di browser. Kolom = penjualan (Rp) atau jumlah nota per jam hari ini, tooltip per jam, dan tampilan Tabel sebagai pasangan grafik. Hasil terakhir disimpan di localStorage (tampil langsung saat Home dibuka, lalu diperbarui tiap 10 menit atau lewat tombol Muat ulang). Digambar sendiri (SVG, tanpa library). Hanya di Home; tidak jalan di halaman Login / nota / popup.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -19,12 +19,13 @@
     if (location.pathname !== '/') return;   // grafik hanya di Home
     if (window.__aistimGrafik) return;
     window.__aistimGrafik = true;
-    console.log('[grafik.js] v2.0.0 aktif di ' + location.pathname);
+    console.log('[grafik.js] v2.1.0 aktif di ' + location.pathname);
 
     const LIST_URL = '/penjualans';
-    // Tipe Penjualan yang dihitung. `cocok` diuji ke teks kolom Tipe Penjualan, mis. "1. Offline / Instore".
-    // Tipe lain (online, marketplace, ...) cukup ditambah di sini; sekarang hanya Offline.
-    const TIPE = [{ id: 'offline', label: 'Offline / Instore', cocok: /offline/i }];
+    // Daftar Tipe Penjualan & Outlet diambil dari nota yang terbaca (kolom Tipe Penjualan, mis. "1. Offline / Instore").
+    // Tipe yang terpilih pertama kali = yang cocok pola ini; sesudahnya mengikuti pilihan yang disimpan.
+    const TIPE_BAWAAN = /offline/i;
+    const TANPA_TIPE = '(tanpa tipe)';
     const HAL_BARIS = 50;                      // baris per halaman Data Penjualan
     const HAL_MAKS = 150;                      // batas pengaman jumlah halaman yang dibaca (7.500 baris)
     const PARALEL = 3;                         // halaman yang diambil bersamaan
@@ -32,8 +33,8 @@
     const ULANG_GALAT_MS = 60 * 1000;          // setelah gagal, coba lagi lebih cepat
     const MULAI_TUNDA_MS = 3000;               // beri waktu Home selesai memuat dulu
     const CEK_TIAP_MS = 2000;
-    const K_CACHE = 'aistim_grafik_jam_v1';    // {tgl, jam:[{n,rp}x24], adaTotal, baris, hal, t}
-    const K_PREF = 'aistim_grafik_pref2';      // {metrik:'rp'|'nota', tampil:'grafik'|'tabel'}
+    const K_CACHE = 'aistim_grafik_jam_v2';    // {tgl, data:{tipe:{outlet:{jam:[n,rp]}}}, tipes, outlets, adaTotal, baris, hal, t}
+    const K_PREF = 'aistim_grafik_pref2';      // {metrik:'rp'|'nota', tampil:'grafik'|'tabel', tipe:''|'*'|<teks tipe>, outlet:''|<nama outlet>}
     const JAM_AWAL = 7, JAM_AKHIR = 21;        // rentang jam bawaan di sumbu X (melebar bila ada nota di luarnya)
     const TINGGI_PLOT = 200;
     const WARNA = '#2a78d6';                   // palet kategorikal slot 1 (lolos validate_palette, permukaan putih)
@@ -71,24 +72,29 @@
     }
 
     // ---------- preferensi & cache (localStorage; semua akses dibungkus try/catch) ----------
-    const pref = { metrik: 'rp', tampil: 'grafik' };
+    // tipe: '' = bawaan (Offline), '*' = semua tipe, selain itu teks tipe persis; outlet: '' = semua outlet
+    const pref = { metrik: 'rp', tampil: 'grafik', tipe: '', outlet: '' };
     try {
         const p = JSON.parse(localStorage.getItem(K_PREF) || 'null');
         if (p && (p.metrik === 'rp' || p.metrik === 'nota')) pref.metrik = p.metrik;
         if (p && (p.tampil === 'grafik' || p.tampil === 'tabel')) pref.tampil = p.tampil;
+        if (p && typeof p.tipe === 'string') pref.tipe = p.tipe;
+        if (p && typeof p.outlet === 'string') pref.outlet = p.outlet;
     } catch (e) { /* pakai bawaan */ }
     function simpanPref() { try { localStorage.setItem(K_PREF, JSON.stringify(pref)); } catch (e) { /* abaikan */ } }
 
-    // hasil pemindaian: {tgl, jam:[{n,rp}] x24, adaTotal, baris, hal, t, error, selesai}
+    // hasil pemindaian: {tgl, data:{tipe:{outlet:{jam:[n,rp]}}}, tipes:[...], outlets:[...], adaTotal, baris, hal, t, error, selesai}
+    // (data per tipe x outlet x jam; yang tampil = jumlah bagian yang cocok dengan pilihan, lihat lihat())
     let hasil = null;
     try {
+        localStorage.removeItem('aistim_grafik_jam_v1');   // format lama (tanpa tipe/outlet)
         const c = JSON.parse(localStorage.getItem(K_CACHE) || 'null');
         // cache hanya berlaku untuk hari yang sama; t dibiarkan lama supaya langsung diperbarui di latar
-        if (c && c.tgl === tglHariIni() && Array.isArray(c.jam) && c.jam.length === 24) hasil = { tgl: c.tgl, jam: c.jam, adaTotal: !!c.adaTotal, baris: c.baris || 0, hal: c.hal || 0, t: c.t || 0, error: '', selesai: true, dariCache: true };
+        if (c && c.tgl === tglHariIni() && c.data && typeof c.data === 'object') hasil = { tgl: c.tgl, data: c.data, tipes: c.tipes || [], outlets: c.outlets || [], adaTotal: !!c.adaTotal, baris: c.baris || 0, hal: c.hal || 0, t: c.t || 0, error: '', selesai: true, dariCache: true };
     } catch (e) { /* cache rusak: abaikan */ }
     function simpanCache() {
         if (!hasil || hasil.error) return;
-        try { localStorage.setItem(K_CACHE, JSON.stringify({ tgl: hasil.tgl, jam: hasil.jam, adaTotal: hasil.adaTotal, baris: hasil.baris, hal: hasil.hal, t: hasil.t })); } catch (e) { /* penuh/diblokir: abaikan */ }
+        try { localStorage.setItem(K_CACHE, JSON.stringify({ tgl: hasil.tgl, data: hasil.data, tipes: hasil.tipes, outlets: hasil.outlets, adaTotal: hasil.adaTotal, baris: hasil.baris, hal: hasil.hal, t: hasil.t })); } catch (e) { /* penuh/diblokir: abaikan */ }
     }
 
     // ---------- membaca tabel Data Penjualan ----------
@@ -96,6 +102,7 @@
     // di depan (lihat pesanan_web.js), jadi indeks header bisa bergeser beberapa kolom dari indeks sel. Pergeseran dicari dari
     // kolom Tipe Penjualan ("1. Offline / Instore") dan dipakai untuk semua kolom lain.
     const RE_TIPE = /^\d+\.\s*\S/;
+    const RE_OUTLET = /^[A-Z]\d{1,3}\s+\S/;   // kode outlet di awal nama, mis. "S06 PARTDISTRO JEMBER", "A1 PUSAT" (cadangan bila header Outlet tidak ketemu)
     const RE_WAKTU = /(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}):(\d{2})/;
 
     function bacaTabel(doc) {
@@ -129,6 +136,7 @@
         if (iTotal < 0) iTotal = head.findIndex((h) => /total|tagihan|grand/.test(h) && !/qty|item|jumlah|hpp|laba|diskon|ppn|biaya|ongkir|potongan|modal/.test(h));
         return {
             iTipe: kol(/^tipe\s*penjualan$/),
+            iOutlet: kol(/^outlet(?:\s+penjual)?$/),
             iDiperbarui: kol(/^diperba(?:ha)?rui\s+tanggal$/),
             iDibuat: kol(/^dibuat\s+tanggal$/),
             iFaktur: kol(/^no\.?\s*faktur$/),
@@ -138,7 +146,7 @@
         };
     }
 
-    // satu baris sel -> {key, tipe, tgl, jam, rp, batal}; tgl/jam null bila waktu tidak terbaca
+    // satu baris sel -> {key, tipe, outlet, tgl, jam, rp, batal}; tgl/jam null bila waktu tidak terbaca
     function objekBaris(c, k) {
         const waktu = (i) => { const m = i >= 0 ? RE_WAKTU.exec(c[i] || '') : null; return m ? { tgl: m[1] + '-' + m[2] + '-' + m[3], jam: parseInt(m[4], 10) } : null; };
         const isi = (i) => i >= 0 && /[^\s\-–—]/.test(c[i] || '');   // sel berisi (bukan kosong / "-")
@@ -146,6 +154,7 @@
         return {
             key: (k.iFaktur >= 0 && c[k.iFaktur]) || c.join('|').slice(0, 200),
             tipe: c[k.iTipe] || '',
+            outlet: k.iOutlet >= 0 ? (c[k.iOutlet] || '') : (c.find((x) => RE_OUTLET.test(x)) || ''),
             tgl: w ? w.tgl : null,
             jam: w ? w.jam : null,
             rp: k.iTotal >= 0 ? parseUang(c[k.iTotal]) : null,
@@ -175,10 +184,11 @@
         progres = 'memuat halaman 1 ...';
         gambar();
         const hariIni = tglHariIni();
-        const baru = { tgl: hariIni, jam: Array.from({ length: 24 }, () => ({ n: 0, rp: 0 })), adaTotal: false, baris: 0, hal: 0, t: 0, error: '', selesai: false };
+        const baru = { tgl: hariIni, data: {}, tipes: [], outlets: [], adaTotal: false, baris: 0, hal: 0, t: 0, error: '', selesai: false };
         const sementara = !hasil || !hasil.selesai;   // belum ada hasil lengkap: tampilkan hasil sementara yang bertambah; kalau ada, tetap tampil (dipudarkan)
-        const dilihat = new Set();
-        let kosong = 0, tanpaWaktu = 0, batal = 0, cocokTipe = 0, kolomTotal = false, rpTerbaca = 0;
+        const dilihat = new Set(), tipeSemua = new Set(), outletSemua = new Set();
+        const urut = (a, b) => a.localeCompare(b, 'id', { numeric: true });
+        let kosong = 0, tanpaWaktu = 0, batal = 0, terhitung = 0, kolomTotal = false, rpTerbaca = 0;
         const t0 = Date.now();
         try {
             for (let mulai = 1; mulai <= HAL_MAKS && !baru.selesai; mulai += PARALEL) {
@@ -200,11 +210,16 @@
                         if (r.tgl === null || r.jam > 23) { tanpaWaktu++; return; }
                         if (r.tgl !== hariIni) return;
                         adaHariIni = true;
+                        const tp = r.tipe || TANPA_TIPE;
+                        tipeSemua.add(tp);                       // daftar pilihan dari semua nota hari ini (juga yang dibatalkan),
+                        if (r.outlet) outletSemua.add(r.outlet); // supaya tidak berubah-ubah mengikuti pilihan tipe
                         if (r.batal) { batal++; return; }
-                        if (!TIPE.some((t) => t.cocok.test(r.tipe))) return;
-                        cocokTipe++;
-                        baru.jam[r.jam].n++;
-                        if (r.rp !== null) { baru.jam[r.jam].rp += r.rp; rpTerbaca++; }
+                        terhitung++;
+                        const perTipe = baru.data[tp] || (baru.data[tp] = {});
+                        const perOutlet = perTipe[r.outlet] || (perTipe[r.outlet] = {});
+                        const sel = perOutlet[r.jam] || (perOutlet[r.jam] = [0, 0]);
+                        sel[0]++;
+                        if (r.rp !== null) { sel[1] += r.rp; rpTerbaca++; }
                     });
                     baru.baris += barisBaru;
                     if (h.jumlah < HAL_BARIS || !barisBaru) baru.selesai = true;   // halaman terakhir / tidak ada baris baru
@@ -212,8 +227,10 @@
                     if (kosong >= 2) baru.selesai = true;                          // daftar terbaru di atas: 2 halaman tanpa nota hari ini = sisanya lebih lama
                 }
                 // kolom Total ada, dan (kalau sudah ada nota) angkanya terbaca; tanpa itu hanya jumlah nota yang ditampilkan
-                baru.adaTotal = kolomTotal && (rpTerbaca > 0 || cocokTipe === 0);
-                progres = 'memuat halaman ' + (baru.hal + 1) + ' ... ' + cocokTipe + ' nota';
+                baru.adaTotal = kolomTotal && (rpTerbaca > 0 || terhitung === 0);
+                baru.tipes = Array.from(tipeSemua).sort(urut);
+                baru.outlets = Array.from(outletSemua).sort(urut);
+                progres = 'memuat halaman ' + (baru.hal + 1) + ' ... ' + terhitung + ' nota';
                 if (sementara) hasil = baru;
                 gambar();
             }
@@ -222,7 +239,7 @@
             hasil = baru;
             cobaGagal = false;
             simpanCache();
-            console.log('[grafik.js] ' + cocokTipe + ' nota ' + TIPE.map((t) => t.label).join('/') + ' hari ini (' + batal + ' batal dilewati), ' + baru.baris + ' baris dari ' + baru.hal + ' halaman, ' + ((Date.now() - t0) / 1000).toFixed(1) + ' dtk');
+            console.log('[grafik.js] ' + terhitung + ' nota hari ini (' + batal + ' batal dilewati; ' + baru.tipes.length + ' tipe, ' + baru.outlets.length + ' outlet), ' + baru.baris + ' baris dari ' + baru.hal + ' halaman, ' + ((Date.now() - t0) / 1000).toFixed(1) + ' dtk');
         } catch (err) {
             baru.error = err.message;
             baru.t = Date.now();
@@ -262,7 +279,9 @@
         'border:1px solid #dcdfe4;border-radius:4px;box-shadow:0 1px 2px rgba(0,0,0,.06);font-family:inherit;text-decoration:none}' +
         '.aistim_grafik *{box-sizing:border-box;text-decoration:none}' +
         '.aistim_grafik .ag_kepala{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px}' +
-        '.aistim_grafik .ag_judul{font-size:17px;color:#555}.aistim_grafik .ag_judul b{color:var(--ink)}' +
+        '.aistim_grafik .ag_judul{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:17px;color:#555}.aistim_grafik .ag_judul b{color:var(--ink)}' +
+        '.aistim_grafik .ag_pilih{margin:0;padding:2px 6px;border:1px solid #cfd4dc;border-radius:4px;background:#fff;color:var(--ink);font:inherit;font-size:14px;line-height:1.4;max-width:min(260px,100%);cursor:pointer}' +
+        '.aistim_grafik .ag_pilih:disabled{opacity:.6;cursor:default}.aistim_grafik .ag_pilih:focus-visible{outline:2px solid #0d6efd;outline-offset:1px}' +
         '.aistim_grafik .ag_kontrol{display:flex;flex-wrap:wrap;gap:8px}' +
         '.aistim_grafik .ag_seg{display:inline-flex;border:1px solid #0d6efd;border-radius:4px;overflow:hidden}' +
         '.aistim_grafik .ag_seg button{margin:0;padding:3px 12px;border:0;background:#fff;color:#0d6efd;font:inherit;font-size:13px;line-height:1.5;cursor:pointer}' +
@@ -316,14 +335,18 @@
     const ikonPutar = () => el('span', { 'class': 'ag_putar', teks: '↻' });
 
     // ---------- kotak grafik ----------
-    let kartu = null, ringkasEl = null, badan = null, catatanEl = null, tipEl = null, tombolSegar = null;
+    let kartu = null, ringkasEl = null, badan = null, catatanEl = null, tipEl = null, tombolSegar = null, pilihTipe = null, pilihOutlet = null;
     let lebarTerakhir = 0;   // lebar badan saat terakhir digambar (pembanding untuk ResizeObserver)
     const tombolMetrik = {}, tombolTampil = {};
 
     function bangunKartu() {
         const k = el('div', { 'class': 'aistim_grafik', 'data-aistim-grafik': '1' });
         const kepala = el('div', { 'class': 'ag_kepala' });
-        kepala.appendChild(el('div', { 'class': 'ag_judul' }, [el('b', { teks: 'Penjualan per Jam' }), document.createTextNode(' | ' + TIPE.map((t) => t.label).join(', '))]));
+        pilihTipe = el('select', { 'class': 'ag_pilih', 'aria-label': 'Tipe Penjualan', title: 'Tipe Penjualan' });
+        pilihOutlet = el('select', { 'class': 'ag_pilih', 'aria-label': 'Outlet', title: 'Outlet' });
+        pilihTipe.addEventListener('change', () => { pref.tipe = pilihTipe.value; simpanPref(); gambar(); });
+        pilihOutlet.addEventListener('change', () => { pref.outlet = pilihOutlet.value; simpanPref(); gambar(); });
+        kepala.appendChild(el('div', { 'class': 'ag_judul' }, [el('b', { teks: 'Penjualan per Jam' }), document.createTextNode('|'), pilihTipe, pilihOutlet]));
 
         const segMetrik = el('div', { 'class': 'ag_seg', role: 'group', 'aria-label': 'Ukuran' });
         [['rp', 'Rupiah'], ['nota', 'Jumlah nota']].forEach((t) => {
@@ -379,10 +402,58 @@
         return { atas: Math.max(Math.ceil(maks / langkah), 1) * langkah, langkah: langkah };
     }
 
+    // ---------- pilihan tipe & outlet; angka yang tampil = bagian data yang cocok ----------
+    const labelTipe = (t) => t.replace(/^\d+\.\s*/, '');   // "1. Offline / Instore" -> "Offline / Instore"
+    function tipeAktif(d) {
+        if (pref.tipe === '*') return '*';
+        if (pref.tipe && d.tipes.indexOf(pref.tipe) >= 0) return pref.tipe;
+        return d.tipes.find((t) => TIPE_BAWAAN.test(t)) || '*';   // bawaan Offline; tidak ada nota offline: semua tipe
+    }
+    const outletAktif = (d) => (pref.outlet && d.outlets.indexOf(pref.outlet) >= 0 ? pref.outlet : '');
+
+    // hasil pemindaian -> salinan dengan jam:[{n,rp}] x24 hasil saringan pilihan sekarang (+ label untuk teks)
+    function lihat(d) {
+        const tp = tipeAktif(d), ot = outletAktif(d);
+        const jam = Array.from({ length: 24 }, () => ({ n: 0, rp: 0 }));
+        Object.keys(d.data).forEach((t) => {
+            if (tp !== '*' && t !== tp) return;
+            Object.keys(d.data[t]).forEach((o) => {
+                if (ot && o !== ot) return;
+                const per = d.data[t][o];
+                Object.keys(per).forEach((h) => { jam[h].n += per[h][0]; jam[h].rp += per[h][1]; });
+            });
+        });
+        return Object.assign({}, d, { jam: jam, tipeAktif: tp, outletAktif: ot,
+            labelTipe: tp === '*' ? 'semua tipe' : labelTipe(tp), labelOutlet: ot || 'semua outlet' });
+    }
+
+    // <option> hanya dibangun ulang kalau isinya berubah: dropdown yang sedang dibuka tidak boleh menutup sendiri saat grafik digambar ulang
+    function isiPilihan(sel, opsi, nilai, nonaktif) {
+        const sidik = opsi.map((o) => o[0] + '\u0001' + o[1]).join('\u0002');
+        if (sel.dataset.sidik !== sidik) {
+            sel.textContent = '';
+            opsi.forEach((o) => sel.appendChild(el('option', { value: o[0], teks: o[1] })));
+            sel.dataset.sidik = sidik;
+        }
+        if (sel.value !== nilai) sel.value = nilai;
+        sel.disabled = !!nonaktif;
+    }
+    function gambarPilihan(d) {
+        if (!d || !d.tipes.length) {
+            isiPilihan(pilihTipe, [['', jalan || !d ? 'Memuat ...' : 'Tipe: tidak ada data']], '', true);
+            pilihOutlet.style.display = 'none';
+            return;
+        }
+        isiPilihan(pilihTipe, [['*', 'Semua tipe']].concat(d.tipes.map((t) => [t, labelTipe(t)])), d.tipeAktif, false);
+        pilihOutlet.style.display = d.outlets.length ? '' : 'none';   // tabel tanpa kolom Outlet: pilihan outlet disembunyikan
+        isiPilihan(pilihOutlet, [['', 'Semua outlet (' + d.outlets.length + ')']].concat(d.outlets.map((o) => [o, o])), d.outletAktif, false);
+    }
+
     // ---------- gambar ----------
     function gambar() {
         if (!kartu) return;
-        const d = hasil;
+        const d = hasil ? lihat(hasil) : null;
+        gambarPilihan(d);
         const adaRp = !!(d && d.adaTotal);
         const metrik = adaRp || !d || !d.selesai ? pref.metrik : 'nota';   // tanpa kolom Total: hanya jumlah nota
         ['rp', 'nota'].forEach((m) => tombolMetrik[m].setAttribute('aria-pressed', m === metrik ? 'true' : 'false'));
@@ -416,7 +487,6 @@
 
     function gambarKeterangan(d) {
         ringkasEl.textContent = '';
-        const tipe = TIPE.map((t) => t.label).join(', ');
         if (!d) { catatanEl.textContent = progres ? 'Data Penjualan: ' + progres : ''; return; }
         const t = total(d);
         let puncak = -1;
@@ -433,7 +503,7 @@
         if (jalan && progres) bagian.push('Data Penjualan: ' + progres);
         else if (d.galat || d.error) bagian.push('Gagal memperbarui: ' + (d.galat || d.error) + (d.baris ? ' (data yang tampil belum lengkap / dari pembacaan sebelumnya)' : ''));
         else if (d.t) bagian.push('Diperbarui ' + dua(new Date(d.t).getHours()) + ':' + dua(new Date(d.t).getMinutes()) + (d.dariCache ? ' (tersimpan; memperbarui ...)' : ''));
-        bagian.push('Tipe ' + tipe + ' · jam dari Diperbaharui Tanggal · nota dibatalkan tidak dihitung' + (d.baris ? ' · ' + d.baris.toLocaleString('en-US') + ' baris dibaca (' + d.hal + ' halaman)' : ''));
+        bagian.push('jam dari Diperbaharui Tanggal · nota dibatalkan tidak dihitung' + (d.baris ? ' · ' + d.baris.toLocaleString('en-US') + ' baris dibaca (' + d.hal + ' halaman)' : ''));
         catatanEl.textContent = bagian.join(' · ');
     }
 
@@ -486,7 +556,7 @@
 
         lebarTerakhir = badan.clientWidth;
         const svg = sv('svg', { viewBox: '0 0 ' + W + ' ' + H, width: W, height: H, role: 'group',
-            'aria-label': 'Grafik ' + (metrik === 'rp' ? 'penjualan (Rp)' : 'jumlah nota') + ' per jam hari ini. Tabel tersedia lewat tombol Tabel.' });
+            'aria-label': 'Grafik ' + (metrik === 'rp' ? 'penjualan (Rp)' : 'jumlah nota') + ' per jam hari ini, ' + d.labelTipe + ', ' + d.labelOutlet + '. Tabel tersedia lewat tombol Tabel.' });
 
         // gridline hairline + label sumbu Y
         for (let v = 0; v <= sk.atas + sk.langkah / 1000; v += sk.langkah) {
@@ -495,11 +565,13 @@
             svg.appendChild(sv('text', { x: m.kiri - 8, y: yy, dy: '0.32em', 'text-anchor': 'end', 'font-size': 11, fill: '#767570', teks: fmtSumbu(v) }));
         }
 
-        // label sumbu X: jam (dijarangkan bila sempit); jam berjalan ditebalkan
+        // label sumbu X: jam (dijarangkan bila sempit); jam berjalan ditebalkan, dan jarak label diselaraskan ke jam berjalan
+        // (kalau tidak, labelnya bisa menempel ke label tetangga)
         const langkahX = Math.max(1, Math.ceil(40 / bw));
+        const jangkar = jamKini >= ja && jamKini <= jb ? jamKini - ja : 0;
         for (let i = 0; i < n; i++) {
             const h = ja + i;
-            if (i % langkahX !== 0 && h !== jamKini) continue;
+            if ((((i - jangkar) % langkahX) + langkahX) % langkahX !== 0) continue;
             svg.appendChild(sv('text', { x: cx(i), y: m.atas + TINGGI_PLOT + 18, 'text-anchor': 'middle', 'font-size': 11,
                 fill: h === jamKini ? '#0b0b0b' : '#767570', 'font-weight': h === jamKini ? 700 : 400, teks: fmtJam(h) }));
         }
@@ -528,7 +600,7 @@
         }
         if (!(maks > 0)) {
             svg.appendChild(sv('text', { x: m.kiri + lebarPlot / 2, y: m.atas + TINGGI_PLOT / 2, 'text-anchor': 'middle', 'font-size': 13, fill: '#767570',
-                teks: d.selesai ? 'Belum ada nota ' + TIPE.map((t) => t.label).join(', ') + ' hari ini' : 'Memuat ...' }));
+                teks: d.selesai ? 'Belum ada nota (' + d.labelTipe + ', ' + d.labelOutlet + ') hari ini' : 'Memuat ...' }));
         }
 
         // area hover/fokus: satu kolom penuh per jam (jauh lebih besar dari batangnya)
@@ -570,7 +642,7 @@
             const utama = metrik === 'rp' ? fmtRp(j.rp) : j.n.toLocaleString('en-US') + ' nota';
             tipEl.appendChild(el('div', { 'class': 'baris' }, [
                 el('i', { 'class': 'kunci', style: 'border-color:' + WARNA }),
-                el('span', { 'class': 'nilai', teks: utama }), el('span', { 'class': 'nama', teks: metrik === 'rp' ? 'Penjualan' : TIPE.map((t) => t.label).join(', ') })]));
+                el('span', { 'class': 'nilai', teks: utama }), el('span', { 'class': 'nama', teks: metrik === 'rp' ? 'Penjualan' : 'Jumlah nota' })]));
             const lain = metrik === 'rp' ? j.n.toLocaleString('en-US') + ' nota' : (d.adaTotal ? fmtRp(j.rp) : '');
             const rata = d.adaTotal ? 'rata-rata ' + fmtRp(j.rp / j.n) + ' per nota' : '';
             const teks = [lain, metrik === 'rp' ? rata : (d.adaTotal ? rata : '')].filter(Boolean).join(' · ');
