@@ -1,4 +1,4 @@
-# Aistim Tool v2.10.0
+# Aistim Tool v2.10.1
 
 **AI Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -73,8 +73,8 @@ window.addEventListener('message', ev => {
 
 - `background/background.js` — engine utama: load script bundel (`scripts/index.json`) + remote (GitHub API folder `scripts/`), gabung dedupe by `@name` (versi tertinggi menang), daftarkan via `chrome.userScripts` API
 - `content/content.js` — fallback untuk browser tanpa userScripts + badge handshake
-- `popup/` — UI: daftar script, toggle ON/OFF (storage key `disabledAuto` by nama file), cek update release
-- Storage keys: `disabledAuto`, `autoScripts`, `effectiveScripts`, `repoListCache`, `scripts` (legacy manual)
+- `popup/` — UI (tampilan dari Aistim.sdk): kartu Engine + tombol sinkron 🔄, cari script, daftar script dengan saklar ON/OFF (storage key `disabledAuto` by nama file), kartu versi baru dari GitHub Releases
+- Storage keys: `disabledAuto`, `autoScripts` (+ nama/versi/match untuk popup), `syncStatus`, `effectiveScripts`, `repoListCache`, `releaseCheckCache`, `scripts` (legacy manual, tidak tampil di popup)
 - Toggle OFF script = tambah nama file ke `disabledAuto` — jangan hapus file-nya
 
 ## 📋 Checklist Sebelum Push (untuk AI)
@@ -98,14 +98,14 @@ window.addEventListener('message', ev => {
 - **Di GitHub** (direkomendasikan): upload/edit file `.js` di folder `scripts/` → klik 🔄 di popup → langsung aktif
 - **Di paket ekstensi**: taruh file di folder `scripts/` + tambahkan nama file ke `scripts/index.json` → reload ekstensi
 
-Script tampil dengan badge **AUTO** di popup, bisa di-toggle ON/OFF. Menghapus script = hapus file + entri di `index.json`.
+Script tampil sebagai kartu di popup (nama, halaman, versi), bisa di-toggle ON/OFF. Menghapus script = hapus file + entri di `index.json`.
 
 ## Fitur
 - **Engine userScripts** — CSP-safe, script jalan di dunia aman
 - **Bundled + auto-sync** — jalan offline dari bundel; update otomatis dari GitHub
 - **Load Shim** — listener `window.load` tetap jalan walau script telat diinject
 - **Handshake Check** — badge hijau hanya kalau script benar-benar berjalan (mode fallback)
-- **Cek Update** — notif versi baru + download ZIP berversi (`Aistim-dev-<versi>.zip`)
+- **Cek Update** — kartu "Versi baru" + download ZIP berversi (`Aistim-dev-<versi>.zip`); dicek saat popup dibuka (cache 1 jam) dan langsung saat tombol 🔄 ditekan. Tidak tampil untuk pemasangan dari Chrome Web Store
 
 ## Syarat
 - **Chromium 120+** (Chrome / Kiwi / Edge / Brave / dll)
@@ -119,7 +119,7 @@ Script tampil dengan badge **AUTO** di popup, bisa di-toggle ON/OFF. Menghapus s
 3. Aktifkan **Mode developer**
 4. Klik **Muat yang belum dibongkar** (Load unpacked)
 5. Pilih folder `Aistim-dev`
-6. Buka popup — pastikan tertulis **"Engine: userScripts API ✅ (CSP-safe)"**
+6. Buka popup — pastikan kartu atas tertulis **"Engine Aktif"** (titik hijau)
 
 ## Cara Pakai Erzap (Rekap Pesanan)
 1. Buka halaman Erzap Pesanan Penjualan
@@ -131,6 +131,12 @@ Buka DevTools (F12) -> Console:
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.10.1
+- Popup: status "Engine Aktif" tetap benar walau semua script dimatikan atau sync pertama setelah update belum selesai (`us-status` kini juga mengirim `tersedia`)
+- Popup: tombol sinkron 🔄 juga langsung cek versi ekstensi terbaru (tanpa cache 1 jam), seperti tombol Cek Update lama
+- Popup: kartu "Versi baru" tidak tampil untuk pemasangan dari Chrome Web Store (sudah di-update otomatis); ukurannya disamakan dengan kartu Engine
+- Popup: ikon profil (tidak ada login di Aistim-dev) dan menu tekan-lama Tempel (butuh izin `clipboardRead`) dibuang
 
 ## Changelog v2.10.0
 - **Popup baru, tampilan dari Aistim.sdk**: kartu Engine (status + jam sinkron + tombol 🔄), info "Aktif di halaman ini", kolom Cari script, daftar script berkartu dengan chip halaman, versi, dan saklar on/off. Engine & sinkron tetap sama (`background.js`); popup lama disimpan di branch `main-old`

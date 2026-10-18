@@ -1,4 +1,4 @@
-const VERSION = '2.10.0';
+const VERSION = '2.10.1';
 const X_FETCH_ALLOW = ['partdistro.com'];   // host yang boleh diakses lewat jembatan x-fetch
 
 // ===== KONFIGURASI =====
@@ -345,7 +345,9 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           active = regs.some(s => s.id.indexOf('aistim-') === 0);
         }
       } catch (e) { active = false; }
-      sendResponse({ userScripts: active, version: VERSION });
+      // tersedia = izin "skrip pengguna" sudah dinyalakan, walau belum ada script terdaftar
+      // (mis. semua script dimatikan, atau sync pertama setelah update masih berjalan)
+      sendResponse({ userScripts: active, tersedia: isUserScriptsAvailable(), version: VERSION });
     })();
     return true; // async response
   }

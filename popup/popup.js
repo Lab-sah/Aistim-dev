@@ -94,7 +94,7 @@ async function cekHalaman() {
 
 async function cekEngine() {
   const res = await kirim({ action: 'us-status' });
-  engineSiap = !!(res && res.userScripts);
+  engineSiap = !!(res && (res.userScripts || res.tersedia));
 }
 
 // ---- tampilan ----
@@ -158,6 +158,7 @@ async function jalankanSync() {
   try {
     const res = await kirim({ action: 'resync' });
     await segarkan();
+    cekUpdate(true);
     if (!res) imsg('Gagal sinkron. Periksa internetmu.', 'err');
     else if (!engineSiap) imsg('Aktifkan "Izinkan skrip pengguna" untuk extension ini.', 'err');
     else imsg(`${daftar.filter((s) => s.nyala).length} script berjalan.`, 'ok');
@@ -192,12 +193,17 @@ function compareVersion(a, b) {
   return 0;
 }
 
-async function cekUpdate() {
+// Pasangan dari Chrome Web Store di-update otomatis oleh Web Store: kartu Download tidak perlu.
+const DARI_WEB_STORE = /clients2\.google\.com/.test(chrome.runtime.getManifest().update_url || '');
+
+async function cekUpdate(paksa = false) {
+  if (DARI_WEB_STORE) return;
   try {
-    // Pakai cache 1 jam: GitHub API cuma 60 request/jam per IP tanpa token.
+    // Saat popup dibuka pakai cache 1 jam (GitHub API cuma 60 request/jam per IP tanpa token);
+    // tombol sinkron 🔄 cek langsung.
     let tag = null;
     const c = (await chrome.storage.local.get(['releaseCheckCache'])).releaseCheckCache;
-    if (c && Date.now() - c.time < 60 * 60 * 1000) tag = c.tag;
+    if (!paksa && c && Date.now() - c.time < 60 * 60 * 1000) tag = c.tag;
     if (tag === null) {
       const res = await fetch(RELEASES_API_URL, { cache: 'no-store', headers: { Accept: 'application/vnd.github+json' } });
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -267,78 +273,6 @@ $('update-link').addEventListener('click', (e) => {
     else if (e.key === 'Escape') tutup();
   });
   document.addEventListener('mousedown', (e) => { if (!box.contains(e.target)) tutup(); });
-}
-
-// Tekan lama pada kolom isian: muncul menu Tempel / Salin / Potong / Pilih semua
-// (menu bawaan browser sering tidak muncul di popup, terutama di Android).
-{
-  const menu = $('menu-tempel');
-  const KOLOM = 'input[type=text], input[type=search], textarea:not([readonly])';
-  let target = null, timer = null, mulai = null;
-  const tutup = () => { menu.hidden = true; target = null; };
-  const tombolAksi = (a) => menu.querySelector(`[data-aksi="${a}"]`);
-  const buka = (input) => {
-    target = input;
-    for (const b of menu.querySelectorAll('button')) b.textContent = { tempel: 'Tempel', salin: 'Salin', potong: 'Potong', semua: 'Pilih semua' }[b.dataset.aksi];
-    const r = input.getBoundingClientRect();
-    menu.hidden = false;
-    const w = menu.offsetWidth || 90;
-    menu.style.left = Math.max(8, Math.min(r.left + 8, window.innerWidth - w - 8)) + 'px';
-    menu.style.top = Math.max(8, r.top - 50) + 'px';
-  };
-  const pasang = (input) => {
-    input.addEventListener('contextmenu', (e) => { e.preventDefault(); buka(input); });
-    input.addEventListener('pointerdown', (e) => {
-      mulai = { x: e.clientX, y: e.clientY };
-      clearTimeout(timer);
-      timer = setTimeout(() => buka(input), 500);
-    });
-    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) input.addEventListener(ev, () => clearTimeout(timer));
-    input.addEventListener('pointermove', (e) => {
-      if (mulai && Math.hypot(e.clientX - mulai.x, e.clientY - mulai.y) > 10) clearTimeout(timer);
-    });
-  };
-  document.querySelectorAll(KOLOM).forEach(pasang);
-  document.addEventListener('pointerdown', (e) => { if (!menu.hidden && !e.target.closest('#menu-tempel') && !e.target.matches(KOLOM)) tutup(); });
-  window.addEventListener('scroll', tutup, true);
-  const pesan = (a, teks) => { tombolAksi(a).textContent = teks; setTimeout(tutup, 900); };
-  const salinTeks = async (teks) => {
-    try { await navigator.clipboard.writeText(teks); return true; } catch { /* coba cara lama */ }
-    try { return document.execCommand('copy'); } catch { return false; }
-  };
-  const terpilih = (k) => {
-    const a = k.selectionStart ?? 0, b = k.selectionEnd ?? 0;
-    return b > a ? k.value.slice(a, b) : k.value;   // tanpa blok: seluruh isi kolom
-  };
-  menu.addEventListener('pointerdown', (e) => e.preventDefault());   // jangan melepas fokus/blok kolom
-  menu.addEventListener('click', async (e) => {
-    const b = e.target.closest('button');
-    const k = target;
-    if (!b || !k) return;
-    const aksi = b.dataset.aksi;
-    if (aksi === 'semua') { k.focus(); k.select(); return tutup(); }
-    if (aksi === 'salin' || aksi === 'potong') {
-      const teks = terpilih(k);
-      if (!teks) return pesan(aksi, 'Kosong');
-      if (!(await salinTeks(teks))) return pesan(aksi, 'Gagal menyalin');
-      if (aksi === 'potong') {
-        const a = k.selectionStart ?? 0, z = k.selectionEnd ?? 0;
-        if (z > a) k.setRangeText('', a, z, 'end'); else k.value = '';
-        k.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-      return pesan(aksi, 'Tersalin');
-    }
-    try {
-      const teks = (await navigator.clipboard.readText()).trim();
-      if (!teks) throw new Error('kosong');
-      k.value = teks;
-      k.dispatchEvent(new Event('input', { bubbles: true }));
-      tutup();
-      k.focus();
-    } catch {
-      pesan('tempel', 'Clipboard kosong');
-    }
-  });
 }
 
 // ---- salin teks yang diblok (menu salin bawaan browser sering tidak muncul di popup) ----

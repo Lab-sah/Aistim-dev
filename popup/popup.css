@@ -370,6 +370,7 @@ header { padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(-
 /* Aistim-dev: kartu versi ekstensi baru (dari GitHub Releases) */
 #update { border-color: rgba(21,128,61,.45); }
 #update div { flex: 1; min-width: 0; }
-#update strong { display: block; font-size: 14px; }
-#update small { display: block; color: var(--muted); font-size: 12px; }
-#update-link { flex: none; padding: 7px 12px; border-radius: 10px; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; text-decoration: none; }
+#update { gap: 8px; padding: 6px 10px; margin-bottom: 6px; border-radius: 8px; }
+#update strong { display: block; font-size: 12px; }
+#update small { display: block; color: var(--muted); font-size: 11px; }
+#update-link { flex: none; padding: 4px 10px; border-radius: 6px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; text-decoration: none; }
