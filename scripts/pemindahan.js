@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.8.2
+// @version      1.9.0
 // @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel. Tombol "Data Pembelian" mengambil daftar barang dengan cara yang sama dari Faktur Pembelian (No Faktur atau link /faktur_pembelians/<ID>).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
@@ -221,90 +221,108 @@
     // lagi) - dulunya juga dipakai tombol "Impor Barang" (paste textarea) yang sudah
     // dihapus atas permintaan. Cuma butuh daftar string "qty barcode" yang diumpankan
     // satu-satu lewat simulasi Enter di kolom scan.
+    // Scan "qty barcode" satu per satu lewat kolom scan halaman ini, dengan KONFIRMASI per barang:
+    // barang berikutnya baru dikirim setelah jumlah barcode ini di tabel benar-benar bertambah sebanyak
+    // qty-nya (bukan sekadar menunggu loading hilang - di laptop lambat loading belum sempat muncul dan
+    // barcode berikutnya menimpa kolom scan). Barang yang tidak bertambah dalam BATAS_MS dicatat gagal
+    // (mis. ditolak Erzap: produk tidak ditemukan / stok kurang) lalu lanjut ke barang berikutnya.
+    // on_selesai({ berhasil: [barcode], gagal: [barcode] })
     function jalankan_baris_qty_barcode(baris, progress_selector, on_selesai) {
         $(progress_selector).show();
         var idx = 0;
-        var TUNGGU_MULAI_MS = 4000;   // Enter tidak memicu apa pun selama ini = dianggap tidak diproses
-        var TUNGGU_MAKS_MS = 30000;   // batas satu barcode (ajax macet)
-        var JEDA_TENANG_MS = 400;     // halaman sudah diam selama ini = proses barcode selesai
+        var berhasil = [], gagal = [];
+        var KIRIM_ULANG_MS = 4000;   // Enter tidak memicu apa pun selama ini: kirim ulang sekali
+        var BATAS_MS = 10000;        // jumlah di tabel tidak bertambah selama ini (halaman diam) = gagal
+        var BATAS_SIBUK_MS = 30000;  // batas mutlak satu barang (ajax macet)
+        var JEDA_TENANG_MS = 300;    // setelah jumlah bertambah, tunggu halaman diam sejenak
 
         // Erzap sedang memproses: loading tampil atau masih ada ajax jQuery yang berjalan.
         function sibuk() {
             return $('#loading_body').is(':visible') || (($.active || 0) > 0);
         }
-        // Jumlah ajax jQuery yang sudah dikirim halaman: naik = Enter memicu proses, walau ajaxnya
-        // selesai di antara dua pengecekan.
+        // Jumlah ajax jQuery yang sudah dikirim halaman (naik = Enter memicu proses).
         var ajax_terkirim = 0;
         $(document).on('ajaxSend.llb_scan', function () { ajax_terkirim++; });
-        // Sidik isi tabel Daftar Barang (barcode + jumlah tiap baris): berubah = barcode sudah diproses,
-        // termasuk barcode yang sudah ada di tabel dan cuma jumlahnya bertambah.
-        function sidik_tabel() {
-            return $('.searching_produk_barcode').map(function () {
-                var $tr = $(this).closest('tr');
-                return $.trim(this.value) + '=' + $.trim($tr.find('.jumlah_produk').val() || '');
-            }).get().join('|');
+
+        var normal = function (t) { return $.trim(String(t || '')).toLowerCase(); };
+        var angka = function (t) {
+            var n = parseFloat(String(t || '').replace(/,/g, '.'));
+            return isNaN(n) ? 0 : n;
+        };
+        // Total jumlah barcode ini di tabel Daftar Barang (Erzap bisa menambah ke baris yang ada atau
+        // membuat baris baru: dijumlah semua). Baris tanpa angka jumlah dihitung 1.
+        function total_di_tabel(barcode) {
+            var kunci = normal(barcode), total = 0;
+            $('.searching_produk_barcode').each(function () {
+                if (normal(this.value) !== kunci) {
+                    return;
+                }
+                var j = $.trim($(this).closest('tr').find('.jumlah_produk').val() || '');
+                total += j === '' ? 1 : angka(j);
+            });
+            return total;
         }
 
-        // Tunggu sampai barcode ini benar-benar selesai diproses halaman. Dulu cukup "loading tidak
-        // tampil" dicek 150 ms setelah Enter: di laptop lambat ajax/loading belum sempat mulai, jadi
-        // barcode berikutnya langsung ditimpa dan barcode sebelumnya tidak pernah masuk ke tabel.
-        // Sekarang: tunggu proses terlihat MULAI (loading/ajax, atau isi tabel berubah), lalu tunggu
-        // halaman diam sejenak. cb(diproses) - diproses=false kalau Enter tidak memicu apa pun.
-        function tunggu_barcode_selesai(sidik_awal, ajax_awal, cb) {
+        function kirim(barcode, qty, ulang) {
+            var awal = total_di_tabel(barcode);
+            var ajax_awal = ajax_terkirim;
             var mulai = Date.now();
-            var terakhir_sibuk = 0;
-            var terakhir_berubah = 0;
+            var terakhir_sibuk = 0, cukup_sejak = 0;
+            $('#term_produk_quick').val(qty + ' ' + barcode);
+            simulasikan_enter_pada_input('#term_produk_quick');
             var cek = setInterval(function () {
                 var sekarang = Date.now();
-                if (sibuk()) {
+                var lagi_sibuk = sibuk();
+                if (lagi_sibuk) {
                     terakhir_sibuk = sekarang;
-                } else if (terakhir_sibuk || ajax_terkirim > ajax_awal || sidik_tabel() !== sidik_awal) {
-                    terakhir_berubah = terakhir_berubah || sekarang;
-                    if (sekarang - Math.max(terakhir_sibuk, terakhir_berubah) >= JEDA_TENANG_MS) {
+                }
+                // Masuk: jumlah di tabel sudah bertambah sebanyak qty, lalu halaman diam sejenak.
+                if (total_di_tabel(barcode) >= awal + qty - 1e-9) {
+                    cukup_sejak = cukup_sejak || sekarang;
+                    if (!lagi_sibuk && sekarang - Math.max(cukup_sejak, terakhir_sibuk) >= JEDA_TENANG_MS) {
                         clearInterval(cek);
-                        cb(true);
-                        return;
+                        berhasil.push(barcode);
+                        proses_baris_berikutnya();
                     }
-                } else if (sekarang - mulai >= TUNGGU_MULAI_MS) {
-                    clearInterval(cek);
-                    cb(false);
                     return;
                 }
-                if (sekarang - mulai >= TUNGGU_MAKS_MS) {
+                var ada_aktivitas = terakhir_sibuk || ajax_terkirim > ajax_awal || total_di_tabel(barcode) !== awal;
+                // Enter tidak memicu apa pun (halaman belum siap): kirim ulang sekali.
+                if (!ada_aktivitas && !ulang && sekarang - mulai >= KIRIM_ULANG_MS) {
                     clearInterval(cek);
-                    cb(true);
+                    console.warn('[lihat-barang] Barcode tidak diproses, dikirim ulang:', barcode);
+                    kirim(barcode, qty, true);
+                    return;
+                }
+                // Halaman sudah diam tapi jumlah tidak bertambah: dicatat gagal, lanjut barang berikutnya.
+                var diam_sejak = Math.max(mulai, terakhir_sibuk);
+                if ((!lagi_sibuk && sekarang - diam_sejak >= BATAS_MS) || sekarang - mulai >= BATAS_SIBUK_MS) {
+                    clearInterval(cek);
+                    console.warn('[lihat-barang] Barcode tidak masuk ke tabel:', barcode, '| jumlah di tabel', awal, '->', total_di_tabel(barcode), '(seharusnya +' + qty + ')');
+                    gagal.push(barcode);
+                    proses_baris_berikutnya();
                 }
             }, 100);
-        }
-
-        function kirim(teks, barcode, ulang) {
-            var sidik_awal = sidik_tabel(), ajax_awal = ajax_terkirim;
-            $('#term_produk_quick').val(teks);
-            simulasikan_enter_pada_input('#term_produk_quick');
-            tunggu_barcode_selesai(sidik_awal, ajax_awal, function (diproses) {
-                // Enter tidak memicu proses apa pun (halaman belum siap): kirim ulang sekali.
-                if (!diproses && !ulang) {
-                    console.warn('[lihat-barang] Barcode tidak diproses, dikirim ulang:', barcode);
-                    kirim(teks, barcode, true);
-                    return;
-                }
-                proses_baris_berikutnya();
-            });
         }
 
         function proses_baris_berikutnya() {
             if (idx >= baris.length) {
                 $(document).off('ajaxSend.llb_scan');
-                $(progress_selector).text('Selesai: ' + baris.length + ' baris diproses.');
+                $(progress_selector).text('Selesai: ' + berhasil.length + ' dari ' + baris.length + ' baris masuk' +
+                    (gagal.length ? ', ' + gagal.length + ' gagal.' : '.'));
                 if (on_selesai) {
-                    setTimeout(on_selesai, 800);
+                    setTimeout(function () { on_selesai({ berhasil: berhasil, gagal: gagal }); }, 500);
                 }
                 return;
             }
-            $(progress_selector).text('Memproses baris ' + (idx + 1) + ' dari ' + baris.length + ' ...');
-            var teks = baris[idx];
+            var teks = $.trim(baris[idx]);
             idx++;
-            kirim(teks, $.trim(teks.replace(/^\S+\s+/, '')), false);
+            var m = /^(\S+)\s+(.+)$/.exec(teks);
+            var qty = m ? angka(m[1]) : 0;
+            var barcode = m ? $.trim(m[2]) : teks;
+            $(progress_selector).text('Memproses baris ' + idx + ' dari ' + baris.length + ' (' + barcode + ')' +
+                (gagal.length ? ' - ' + gagal.length + ' gagal' : '') + ' ...');
+            kirim(barcode, qty > 0 ? qty : 1, false);
         }
 
         // Jangan mulai selagi halaman masih memproses sesuatu (mis. ganti Outlet / Gudang barusan),
@@ -1415,24 +1433,20 @@
             var baris = data_lihat_barang_terakhir.map(function (r) {
                 return (r.jumlah || 1) + ' ' + r.barcode;
             });
-            var barcode_unik = data_lihat_barang_terakhir.map(function (r) { return r.barcode; })
-                .filter(function (b, i, semua) { return semua.indexOf(b) === i; });
-            var jumlah_sebelum = barcode_terisi_di_tabel().length;
             console.log('[lihat-barang] Masukkan ke Tabel lewat scan barcode:', baris.length, 'baris');
 
-            jalankan_baris_qty_barcode(baris, '#llb_progress', function () {
+            jalankan_baris_qty_barcode(baris, '#llb_progress', function (hasil) {
                 $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', false);
                 lepas_kunci_scroll();
                 // Halaman Erzap bisa menolak sebagian barcode (produk tidak ketemu, stok kurang, dst) tanpa
-                // memberi tahu kita. Jangan menutup modal seolah semuanya masuk: laporkan yang kurang.
-                var terisi = barcode_terisi_di_tabel();
-                var masuk = terisi.length - jumlah_sebelum;
-                if (masuk < barcode_unik.length) {
-                    var belum = barcode_unik.filter(function (b) { return terisi.indexOf(b) === -1; });
-                    $('#llb_progress').text('Selesai, tapi hanya ' + masuk + ' dari ' + barcode_unik.length + ' barang yang masuk.');
+                // memberi tahu kita. Jangan menutup modal seolah semuanya masuk: laporkan yang gagal
+                // (dari konfirmasi per barang: jumlahnya di tabel tidak bertambah).
+                var belum = hasil.gagal.filter(function (b, i, semua) { return semua.indexOf(b) === i; });
+                if (belum.length > 0) {
+                    $('#llb_progress').text('Selesai, tapi ' + hasil.gagal.length + ' dari ' + baris.length + ' baris tidak masuk.');
                     info_dialog('Sebagian barang belum masuk ke tabel',
-                        '<p>Baru <b>' + masuk + '</b> dari <b>' + barcode_unik.length + '</b> barang yang masuk ke tabel.</p>' +
-                        '<p>Barcode yang belum terlihat di tabel:</p>' + daftar_html(belum.slice(0, 10)) +
+                        '<p><b>' + hasil.berhasil.length + '</b> dari <b>' + baris.length + '</b> baris masuk ke tabel.</p>' +
+                        '<p>Barcode yang jumlahnya tidak bertambah di tabel:</p>' + daftar_html(belum.slice(0, 10)) +
                         (belum.length > 10 ? '<p>... dan ' + (belum.length - 10) + ' lainnya.</p>' : '') +
                         '<p class="llb_dialog_kecil">Cek pesan dari halaman Erzap (mis. produk tidak ditemukan atau stok kurang). ' +
                         'Barang yang sudah masuk tidak dihapus.</p>', true);
@@ -1441,12 +1455,6 @@
                 tutup_semua_modal();
             });
         });
-    }
-
-    // Barcode yang sudah terisi di tabel Daftar Barang halaman ini.
-    function barcode_terisi_di_tabel() {
-        return $('.searching_produk_barcode').map(function () { return $.trim(this.value); }).get()
-            .filter(function (b) { return b !== ''; });
     }
 
     // ---------- V2: copy langsung semua field produk ke baris kosong, tanpa scan ulang ----------
