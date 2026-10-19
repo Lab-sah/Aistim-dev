@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.10.0
+// @version      1.10.1
 // @description  Tambah tombol "Log Data Pemindahan" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel. Tombol "Data Pembelian" mengambil daftar barang dengan cara yang sama dari Faktur Pembelian (No Faktur atau link /faktur_pembelians/<ID>).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
@@ -584,7 +584,7 @@
             bahaya: true,
             isi_html: '<p>Barang akan dimasukkan ke tabel dengan pengaturan ini. Pastikan sudah benar:</p>' +
                 tabel_header_html(header) + peringatan +
-                '<p>Jumlah barang: <b>' + jumlah_barang + '</b></p>' +
+                '<p>Jumlah SKU: <b>' + jumlah_barang + '</b></p>' +
                 '<p class="llb_dialog_kecil">Kalau salah: klik Batal, ganti pilihan di form, ' +
                 'lalu klik "Ganti dengan Pilihan di Form".</p>',
             teks_ya: 'Ya, Masukkan ke Tabel',
@@ -755,9 +755,9 @@
                 semua_angka = false;
             }
         });
-        var html = 'Jumlah barang: <b>' + rows.length + '</b>';
+        var html = 'Jumlah SKU: <b>' + rows.length + '</b>';
         if (semua_angka) {
-            html += ' &middot; Total jumlah: <b>' + (Math.round(total * 1000) / 1000) + '</b>';
+            html += ' &middot; Total Barang: <b>' + (Math.round(total * 1000) / 1000) + '</b>';
         }
         return html;
     }
