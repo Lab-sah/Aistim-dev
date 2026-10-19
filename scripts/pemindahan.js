@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.14.2
+// @version      1.15.0
 // @description  Tambah tombol "Log Data Pemindahan" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel. Tombol "Data Pembelian" mengambil daftar barang dengan cara yang sama dari Faktur Pembelian (No Faktur atau link /faktur_pembelians/<ID>).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
@@ -335,7 +335,9 @@
         sku.forEach(function (x) { x.masuk = Math.round((total_barcode_di_tabel(x.barcode) - x.awal) * 1000) / 1000; });
         return sku.filter(function (x) { return Math.abs(x.masuk - x.qty) > 1e-9; });
     }
-    function laporkan_pencocokan(sku, alasan_untuk) {
+    // header_html (opsional): peringatan Outlet/Gudang yang berubah (peringatan_header_html) - kalau ada,
+    // modal tidak ditutup walau semua SKU cocok.
+    function laporkan_pencocokan(sku, alasan_untuk, header_html) {
         var selisih = hitung_masuk_per_sku(sku);
         console.log('[lihat-barang] Pencocokan per SKU (' + (sku.length - selisih.length) + '/' + sku.length + ' cocok):');
         console.table(sku.map(function (x) {
@@ -360,10 +362,15 @@
                 '<p>SKU yang jumlahnya di tabel tidak sesuai:</p>' + tabel +
                 (selisih.length > 15 ? '<p>... dan ' + (selisih.length - 15) + ' lainnya (lihat Console, F12).</p>' : '') +
                 '<p class="llb_dialog_kecil">Baris SKU ini ditandai merah di daftar, dengan alasannya di kolom Keterangan. ' +
-                'Barang yang sudah masuk tidak dihapus.</p>', true);
+                'Barang yang sudah masuk tidak dihapus.</p>' + (header_html || ''), true);
             return selisih.length;
         }
         $('#llb_progress').text('Selesai: ' + sku.length + ' SKU masuk dengan jumlah yang sesuai.');
+        if (header_html) {
+            info_dialog('Barang masuk, tapi cek Outlet / Gudang',
+                '<p>Semua <b>' + sku.length + '</b> SKU masuk dengan jumlah yang sesuai.</p>' + header_html, true);
+            return 0;
+        }
         setTimeout(tutup_semua_modal, 800);
         return 0;
     }
@@ -424,9 +431,12 @@
                     terakhir_sibuk = sekarang;
                 }
                 // Masuk: jumlah di tabel sudah bertambah sebanyak qty, lalu halaman diam sejenak.
+                // Batas mutlak juga berlaku di sini: kalau halaman terus sibuk (ajax lain yang lama / berulang),
+                // proses jangan sampai menunggu selamanya - jumlahnya sudah masuk, lanjut barang berikutnya.
                 if (total_di_tabel(barcode) >= awal + qty - 1e-9) {
                     cukup_sejak = cukup_sejak || sekarang;
-                    if (!lagi_sibuk && sekarang - Math.max(cukup_sejak, terakhir_sibuk) >= JEDA_TENANG_MS) {
+                    if ((!lagi_sibuk && sekarang - Math.max(cukup_sejak, terakhir_sibuk) >= JEDA_TENANG_MS) ||
+                        sekarang - mulai >= BATAS_SIBUK_MS) {
                         clearInterval(cek);
                         berhasil.push(barcode);
                         proses_baris_berikutnya();
@@ -718,9 +728,17 @@
                 $field.selectpicker('refresh');
             }
         } catch (e) {}
+    }
+
+    // Satu event change saja: event bawaan browser sudah sampai ke handler jQuery halaman. Dulu
+    // .trigger('change') + dispatchEvent dipakai bersamaan -> handler Erzap jalan 2x, ajax muat ulang
+    // Ke Outlet / Gudang jadi dobel dan jawaban yang telat bisa mengosongkan pilihan yang sudah di-set.
+    function picu_change($field) {
         try {
             $field[0].dispatchEvent(new Event('change', { bubbles: true }));
-        } catch (e) {}
+        } catch (e) {
+            $field.trigger('change');
+        }
     }
 
     // ID asli field header di form ini (dari HTML yang dikirim user) - dipakai
@@ -746,7 +764,7 @@
         }
         var id_asli = ID_FIELD_HEADER[label];
         var mulai = Date.now();
-        maks_tunggu_ms = maks_tunggu_ms || 5000;
+        maks_tunggu_ms = maks_tunggu_ms || 10000;
 
         (function cek() {
             var $field = $('#' + id_asli);
@@ -760,7 +778,8 @@
                 return;
             }
             if (!$field.is('select')) {
-                $field.val(nilai_teks).trigger('change');
+                $field.val(nilai_teks);
+                picu_change($field);
                 console.log('[lihat-barang]', label, '-> berhasil di-set (input teks) ke:', nilai_teks);
                 cb(true);
                 return;
@@ -770,14 +789,16 @@
             }).first();
             if ($opsi.length > 0) {
                 var nilai_target = $opsi.val();
-                $field.val(nilai_target).trigger('change');
+                if ($field.val() != nilai_target) {
+                    $field.val(nilai_target);
+                    picu_change($field);
+                }
                 segarkan_tampilan_dropdown($field);
-                // Verifikasi setelah jeda - beberapa field di halaman ini kelihatannya
-                // diganti/direset lewat ajax tak lama setelah field LAIN berubah, yang
-                // bisa menimpa balik nilai yang barusan di-set di sini. Kalau ternyata
-                // balik kosong/berubah, ulangi dari awal (cari elemen #id_asli lagi,
-                // karena elemennya sendiri bisa jadi sudah diganti).
-                setTimeout(function () {
+                // Verifikasi setelah ajax yang dipicu perubahan ini selesai (bukan jeda tetap 400ms -
+                // di laptop/internet lambat jawaban Erzap datang belakangan dan mengosongkan field ini
+                // SETELAH dianggap beres). Kalau ternyata balik kosong/berubah, ulangi dari awal (cari
+                // elemen #id_asli lagi, karena elemennya sendiri bisa jadi sudah diganti).
+                tunggu_halaman_diam(function () {
                     var $field_lagi = $('#' + id_asli);
                     if ($field_lagi.length > 0 && $field_lagi.val() == nilai_target) {
                         console.log('[lihat-barang]', label, '-> berhasil di-set ke opsi (terverifikasi):', nilai_teks);
@@ -789,7 +810,7 @@
                         console.warn('[lihat-barang]', label, '-> sempat di-set tapi nilainya balik berubah (kemungkinan elemennya diganti/direset), mencoba lagi...');
                         cek();
                     }
-                }, 400);
+                }, 400, 8000);
                 return;
             }
             if (Date.now() - mulai > maks_tunggu_ms) {
@@ -803,29 +824,104 @@
         })();
     }
 
-    function terapkan_header_ke_form(header, on_selesai) {
-        var gagal = [];
+    // Field header yang pilihannya di form sekarang beda dengan header (urut LABEL_HEADER_URUT).
+    var LABEL_HEADER_URUT = ['Dari Outlet', 'Ke Outlet', 'Dari Gudang', 'Ke Gudang'];
+    function header_tidak_sesuai(header, daftar_label) {
+        var di_form = baca_header_dari_form();
+        return (daftar_label || LABEL_HEADER_URUT).filter(function (l) {
+            return header[l] && di_form[l] !== header[l];
+        });
+    }
 
-        function langkah(label, next) {
-            terapkan_satu_field_header_async(label, header[label], function (berhasil) {
-                if (!berhasil) {
-                    gagal.push(label);
+    // Isi Dari Outlet -> Ke Outlet -> Dari Gudang -> Ke Gudang. Tiap field baru diisi setelah ajax dari
+    // field sebelumnya selesai, lalu SEMUA dicek ulang: ganti Dari Outlet / Gudang bisa memuat ulang
+    // Ke Outlet lewat ajax dan mengosongkannya setelah ia diisi. Field yang berubah lagi diisi ulang
+    // (paling banyak 3 putaran); on_selesai(gagal) = field yang tetap tidak sesuai.
+    function terapkan_header_ke_form(header, on_selesai) {
+        var putaran = 0;
+
+        function isi_berurutan(daftar_label, selesai) {
+            var gagal = [];
+            var i = 0;
+            (function langkah() {
+                if (i >= daftar_label.length) {
+                    selesai(gagal);
+                    return;
                 }
-                next();
-            });
+                var label = daftar_label[i++];
+                tunggu_halaman_diam(function () {
+                    terapkan_satu_field_header_async(label, header[label], function (berhasil) {
+                        if (!berhasil) {
+                            gagal.push(label);
+                        }
+                        langkah();
+                    });
+                }, 300, 8000);
+            })();
         }
 
-        langkah('Dari Outlet', function () {
-            langkah('Ke Outlet', function () {
-                langkah('Dari Gudang', function () {
-                    langkah('Ke Gudang', function () {
+        (function satu_putaran(daftar_label) {
+            putaran++;
+            isi_berurutan(daftar_label, function (gagal) {
+                tunggu_halaman_diam(function () {
+                    var berubah = header_tidak_sesuai(header);
+                    if (berubah.length === 0) {
                         if (on_selesai) {
-                            on_selesai(gagal);
+                            on_selesai([]);
                         }
-                    });
-                });
+                        return;
+                    }
+                    if (putaran >= 3) {
+                        console.warn('[lihat-barang] Outlet/Gudang tetap tidak sesuai setelah ' + putaran + ' putaran:', berubah, '| di form:', baca_header_dari_form());
+                        if (on_selesai) {
+                            on_selesai(berubah);
+                        }
+                        return;
+                    }
+                    console.warn('[lihat-barang] Outlet/Gudang berubah lagi setelah diisi (putaran ' + putaran + '), diisi ulang:', berubah,
+                        gagal.length ? '| gagal saat diisi: ' + gagal.join(', ') : '');
+                    satu_putaran(berubah);
+                }, 800, 15000);
             });
-        });
+        })(LABEL_HEADER_URUT);
+    }
+
+    // Setelah barang masuk: pastikan Ke Outlet / Ke Gudang tidak dikosongkan halaman di tengah proses.
+    // Hanya bagian "Ke" yang diisi ulang otomatis - mengganti Dari Outlet / Dari Gudang bisa mereset
+    // tabel Daftar Barang. cb(masih_salah) = field yang masih tidak sesuai (kosong = beres).
+    function pastikan_header_tetap(header, cb) {
+        tunggu_halaman_diam(function () {
+            var salah = header_tidak_sesuai(header);
+            var bisa_diisi_ulang = salah.filter(function (l) { return l.indexOf('Ke ') === 0; });
+            if (bisa_diisi_ulang.length === 0) {
+                cb(salah);
+                return;
+            }
+            console.warn('[lihat-barang] Setelah barang masuk, field ini berubah dan diisi ulang:', bisa_diisi_ulang);
+            var i = 0;
+            (function langkah() {
+                if (i >= bisa_diisi_ulang.length) {
+                    tunggu_halaman_diam(function () { cb(header_tidak_sesuai(header)); }, 800, 15000);
+                    return;
+                }
+                var label = bisa_diisi_ulang[i++];
+                terapkan_satu_field_header_async(label, header[label], function () {
+                    tunggu_halaman_diam(langkah, 300, 8000);
+                });
+            })();
+        }, 800, 15000);
+    }
+
+    function peringatan_header_html(salah, header) {
+        if (salah.length === 0) {
+            return '';
+        }
+        var di_form = baca_header_dari_form();
+        return '<div class="llb_dialog_awas">⚠️ Outlet / Gudang di form berubah dan tidak bisa dikembalikan otomatis:</div>' +
+            '<table class="llb_dialog_tabel">' + salah.map(function (l) {
+                return '<tr><td>' + escape_html(l) + '</td><td>seharusnya <b>' + escape_html(header[l]) + '</b>, sekarang <b>' +
+                    escape_html(di_form[l] || '(kosong)') + '</b></td></tr>';
+            }).join('') + '</table><p>Pilih ulang manual di form sebelum menyimpan.</p>';
     }
 
     function normalisasi_link(input) {
@@ -1559,6 +1655,8 @@
             sku.forEach(function (x) { x.awal = total_barcode_di_tabel(x.barcode); });
 
             jalankan_baris_qty_barcode(baris, '#llb_progress', function (hasil) {
+                $('#llb_progress').text('Mengecek ulang Outlet & Gudang ...');
+                pastikan_header_tetap(header, function (header_salah) {
                 $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', false);
                 lepas_kunci_scroll();
                 // Pencocokan per SKU: yang seharusnya masuk vs yang benar-benar bertambah di tabel. Halaman Erzap bisa
@@ -1567,6 +1665,7 @@
                     var pesan = (hasil.alasan || {})[normal_barcode(x.barcode)] || '';
                     return (x.masuk > 0 ? 'Masuk ' + x.masuk + ' dari ' + x.qty : 'Ditolak') +
                         (pesan ? ': ' + pesan : ' (tidak ada pesan dari Erzap - cek stok di gudang asal / barcode produk)');
+                }, peringatan_header_html(header_salah, header));
                 });
             });
             }, 800, 15000);
@@ -1632,7 +1731,7 @@
         }
     }
 
-    function proses_satu_baris_v2(tr_sumber, cb) {
+    function proses_satu_baris_v2(tr_sumber, barcode, cb) {
         cari_baris_kosong_atau_tambah(function (tr_tujuan) {
             if (!tr_tujuan) {
                 cb(false);
@@ -1642,6 +1741,12 @@
                 salin_satu_field_v2(tr_sumber, tr_tujuan, '.' + kelas);
             });
             salin_satu_field_v2(tr_sumber, tr_tujuan, 'input[name$="[harga_jual]"]');
+            // Sumber yang barcodenya hanya ada di .data_produk_barcode (mis. Faktur Pembelian): tanpa ini
+            // baris tujuan tetap terlihat kosong dan barang berikutnya menimpa baris yang sama.
+            var $barcode_tujuan = $(tr_tujuan).find('.searching_produk_barcode').first();
+            if ($.trim($barcode_tujuan.val() || '') === '' && barcode) {
+                $barcode_tujuan.val(barcode);
+            }
 
             var $jumlah_sumber = $(tr_sumber).find('.jumlah_produk');
             var nilai_jumlah = $jumlah_sumber.val() || 1;
@@ -1705,7 +1810,7 @@
                     var idx = daftar_idx[i++];
                     var data = data_lihat_barang_terakhir[idx] || {};
                     $('#llb_progress').text(label + ' barang ' + i + ' dari ' + daftar_idx.length + ' ...');
-                    proses_satu_baris_v2(data_tr_barang_terakhir[idx], function (berhasil) {
+                    proses_satu_baris_v2(data_tr_barang_terakhir[idx], data.barcode, function (berhasil) {
                         if (!berhasil) {
                             tanpa_baris[normal_barcode(data.barcode)] = true;
                         }
@@ -1732,6 +1837,8 @@
                     // SKU yang sama sekali tidak ada di tabel (mis. tabel direset halaman di tengah proses): salin ulang sekali.
                     var hilang = hitung_masuk_per_sku(sku).filter(function (x) { return x.masuk <= 0; });
                     var sesudah = function () {
+                        $('#llb_progress').text('Mengecek ulang Outlet & Gudang ...');
+                        pastikan_header_tetap(header, function (header_salah) {
                         $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', false);
                         lepas_kunci_scroll();
                         laporkan_pencocokan(sku, function (x) {
@@ -1740,6 +1847,7 @@
                             }
                             return (x.masuk > 0 ? 'Masuk ' + x.masuk + ' dari ' + x.qty : 'Tidak masuk') +
                                 ': hilang dari tabel setelah disalin (kemungkinan tabel direset halaman, mis. saat Outlet/Gudang berubah)';
+                        }, peringatan_header_html(header_salah, header));
                         });
                     };
                     if (hilang.length === 0) {
@@ -1819,7 +1927,7 @@
     }
 
     $(function () {
-        console.log('[lihat-barang] pemindahan.js v1.14.2 aktif');
+        console.log('[lihat-barang] pemindahan.js v1.15.0 aktif');
         buang_header_lama();
         siapkan_modal_dan_handler();
         pastikan_tombol_ada();
