@@ -15,9 +15,19 @@ Jangan aktifkan "Upload CRX terverifikasi" (memaksa semua upload berikutnya bert
 ## Unggah otomatis (GitHub Actions)
 
 Workflow `Release` mengunggah zip store dan mengirimnya untuk review **setiap kali versi di `manifest.json` naik**
-(hanya jika empat secret di bawah terisi). Review dari Google tetap berjalan. Versi harus lebih tinggi dari yang sudah ada di store.
+(hanya jika secret di bawah terisi: `CWS_PUBLISHER_ID` + service account, atau + tiga secret OAuth). Review dari Google tetap berjalan. Versi harus lebih tinggi dari yang sudah ada di store.
 
-### Menyiapkan kredensial (sekali saja)
+### Cara 1 (disarankan): service account
+Tanpa OAuth Playground, tanpa refresh token, tidak kedaluwarsa.
+1. Google Cloud Console -> project yang sama -> pastikan "Chrome Web Store API" sudah **Enable**.
+2. IAM & Admin -> **Service Accounts** -> *Create service account* (tanpa role/izin apa pun) -> salin emailnya (`...@<project>.iam.gserviceaccount.com`).
+3. Klik service account itu -> tab **Keys** -> *Add key* -> *Create new key* -> **JSON** -> file `.json` terunduh.
+4. Dashboard Web Store -> **Account** -> bagian *Service accounts* -> tambahkan email dari langkah 2 (hanya 1 service account per publisher).
+5. GitHub secret `CWS_SERVICE_ACCOUNT` = **seluruh isi** file JSON:
+   `gh secret set CWS_SERVICE_ACCOUNT -R devtim-lab/Aistim-dev < file-kunci.json` lalu hapus file JSON-nya.
+6. `CWS_PUBLISHER_ID` tetap diperlukan. Kalau `CWS_SERVICE_ACCOUNT` terisi, `CWS_CLIENT_ID/SECRET/REFRESH_TOKEN` tidak dipakai.
+
+### Cara 2: OAuth client + refresh token (sekali saja)
 1. Google Cloud Console -> buat/pilih project -> **Enable** "Chrome Web Store API".
 2. OAuth consent screen: tipe External, tambahkan email penerbit sebagai *Test user*.
 3. Credentials -> Create **OAuth client ID** tipe *Web application*, redirect URI `https://developers.google.com/oauthplayground`.
