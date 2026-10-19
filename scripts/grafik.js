@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Grafik Penjualan Home
 // @namespace    http://tampermonkey.net/
-// @version      2.2.5
-// @description  Halaman Home: kotak "Penjualan per Jam" di ATAS panel AI Agent (Rekomendasi Marketing Produk Kurang Laku). Data dari Data Penjualan (/penjualans) berdasarkan tanggal HARI INI: form Pencarian diisi Periode = hari ini (Dasar Filter Periode = Tanggal Transaksi, filter lain dikosongkan), lalu SEMUA halaman hasil dibaca lewat tautan "Selanjutnya" (ukuran halaman tidak diasumsikan). Jalur cepat lewat fetch (cara ppob.js); kalau gagal (mis. tabel diisi lewat skrip) dipakai halaman Data Penjualan sungguhan di iframe tersembunyi. Nota dibatalkan tidak dihitung, dan jamnya diambil dari kolom "Diperbaharui Tanggal". Tipe Penjualan (bawaan Offline / Instore, atau Semua tipe) dan Outlet (bawaan Semua outlet) dipilih lewat dropdown di judul; daftar pilihannya diambil dari nota yang terbaca, dan ganti pilihan tidak membaca ulang karena disaring di browser. Kolom = penjualan (Rp) atau jumlah nota per jam hari ini, tooltip per jam, dan tampilan Tabel sebagai pasangan grafik. Hasil terakhir disimpan di localStorage (tampil langsung saat Home dibuka, lalu diperbarui tiap 10 menit atau lewat tombol Muat ulang). Digambar sendiri (SVG, tanpa library). Hanya di Home; tidak jalan di halaman Login / nota / popup.
+// @version      2.2.6
+// @description  [NONAKTIF SEMENTARA - lihat NONAKTIF di awal kode] Halaman Home: kotak "Penjualan per Jam" di ATAS panel AI Agent (Rekomendasi Marketing Produk Kurang Laku). Data dari Data Penjualan (/penjualans) berdasarkan tanggal HARI INI: form Pencarian diisi Periode = hari ini (Dasar Filter Periode = Tanggal Transaksi, filter lain dikosongkan), lalu SEMUA halaman hasil dibaca lewat tautan "Selanjutnya" (ukuran halaman tidak diasumsikan). Jalur cepat lewat fetch (cara ppob.js); kalau gagal (mis. tabel diisi lewat skrip) dipakai halaman Data Penjualan sungguhan di iframe tersembunyi. Nota dibatalkan tidak dihitung, dan jamnya diambil dari kolom "Diperbaharui Tanggal". Tipe Penjualan (bawaan Offline / Instore, atau Semua tipe) dan Outlet (bawaan Semua outlet) dipilih lewat dropdown di judul; daftar pilihannya diambil dari nota yang terbaca, dan ganti pilihan tidak membaca ulang karena disaring di browser. Kolom = penjualan (Rp) atau jumlah nota per jam hari ini, tooltip per jam, dan tampilan Tabel sebagai pasangan grafik. Hasil terakhir disimpan di localStorage (tampil langsung saat Home dibuka, lalu diperbarui tiap 10 menit atau lewat tombol Muat ulang). Digambar sendiri (SVG, tanpa library). Hanya di Home; tidak jalan di halaman Login / nota / popup.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -10,6 +10,14 @@
 
 (function () {
     'use strict';
+
+    // Dinonaktifkan sementara untuk semua pengguna: script langsung berhenti, kode di bawah tetap utuh.
+    // Menyalakan lagi: ubah jadi false dan naikkan @version (mis. 2.2.7).
+    const NONAKTIF = true;
+    if (NONAKTIF) {
+        console.log('[grafik.js] v2.2.6 dinonaktifkan sementara');
+        return;
+    }
 
     if (window.top !== window) return;
     // Jendela cetak / nota / popup (layout=simple, /nota...) dilewati
@@ -19,7 +27,7 @@
     if (location.pathname !== '/') return;   // grafik hanya di Home
     if (window.__aistimGrafik) return;
     window.__aistimGrafik = true;
-    console.log('[grafik.js] v2.2.5 aktif di ' + location.pathname);
+    console.log('[grafik.js] v2.2.6 aktif di ' + location.pathname);
 
     const LIST_URL = '/penjualans';
     // Daftar Tipe Penjualan & Outlet diambil dari nota yang terbaca (kolom Tipe Penjualan, mis. "1. Offline / Instore").
