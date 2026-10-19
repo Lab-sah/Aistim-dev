@@ -128,6 +128,7 @@ jobs:
               ws=tidak; case "$v" in *[[:space:]]*) ws=ADA;; esac
               echo "$n: panjang ${#v}, spasi/baris baru: $ws"
             done
+            echo "CWS_CLIENT_ID diawali: ${CWS_CLIENT_ID%%-*}-${CWS_CLIENT_ID#*-}" | cut -c1-40 | sed 's/^/  /'
             case "$CWS_CLIENT_ID" in *.apps.googleusercontent.com) echo "CWS_CLIENT_ID berakhiran .apps.googleusercontent.com: ya";; *) echo "CWS_CLIENT_ID berakhiran .apps.googleusercontent.com: TIDAK";; esac
             case "$CWS_CLIENT_SECRET" in GOCSPX-*) echo "CWS_CLIENT_SECRET diawali GOCSPX-: ya";; *) echo "CWS_CLIENT_SECRET diawali GOCSPX-: TIDAK";; esac
             case "$CWS_REFRESH_TOKEN" in 1//*) echo "CWS_REFRESH_TOKEN diawali 1//: ya";; *) echo "CWS_REFRESH_TOKEN diawali 1//: TIDAK";; esac
