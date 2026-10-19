@@ -122,6 +122,15 @@ jobs:
           if [ -z "$TOKEN" ]; then
             # Hanya kode & keterangan error dari Google yang dicetak (tanpa secret)
             printf '%s' "$TOKRES" | python3 -c "import sys,json;d=json.load(sys.stdin);print('Google:',d.get('error',''),'-',d.get('error_description',''))" 2>/dev/null || true
+            # Diagnosa tanpa membuka isi secret: panjang, spasi/baris baru, dan bentuk umum
+            for n in CWS_CLIENT_ID CWS_CLIENT_SECRET CWS_REFRESH_TOKEN; do
+              v="${!n}"
+              ws=tidak; case "$v" in *[[:space:]]*) ws=ADA;; esac
+              echo "$n: panjang ${#v}, spasi/baris baru: $ws"
+            done
+            case "$CWS_CLIENT_ID" in *.apps.googleusercontent.com) echo "CWS_CLIENT_ID berakhiran .apps.googleusercontent.com: ya";; *) echo "CWS_CLIENT_ID berakhiran .apps.googleusercontent.com: TIDAK";; esac
+            case "$CWS_CLIENT_SECRET" in GOCSPX-*) echo "CWS_CLIENT_SECRET diawali GOCSPX-: ya";; *) echo "CWS_CLIENT_SECRET diawali GOCSPX-: TIDAK";; esac
+            case "$CWS_REFRESH_TOKEN" in 1//*) echo "CWS_REFRESH_TOKEN diawali 1//: ya";; *) echo "CWS_REFRESH_TOKEN diawali 1//: TIDAK";; esac
             echo "Gagal mengambil access token (cek secret CWS_*)"; exit 1
           fi
           echo "::add-mask::$TOKEN"
