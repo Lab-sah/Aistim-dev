@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.9.2
-// @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel. Tombol "Data Pembelian" mengambil daftar barang dengan cara yang sama dari Faktur Pembelian (No Faktur atau link /faktur_pembelians/<ID>).
+// @version      1.10.0
+// @description  Tambah tombol "Log Data Pemindahan" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel. Tombol "Data Pembelian" mengambil daftar barang dengan cara yang sama dari Faktur Pembelian (No Faktur atau link /faktur_pembelians/<ID>).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -111,7 +111,7 @@
         '<div id="overlay_modal_umum"></div>' +
         '<div id="modal_lihat_barang" class="mib_modal">' +
             '<div class="mib_header">' +
-                '<span id="llb_judul">Lihat Data Barang</span>' +
+                '<span id="llb_judul">Log Data Pemindahan</span>' +
                 '<span class="mib_close" id="llb_btn_close_x">&times;</span>' +
             '</div>' +
             '<div class="mib_body">' +
@@ -131,7 +131,7 @@
             '</div>' +
         '</div>';
 
-    // Modal yang sama dipakai dua tombol: 'barang' (Lihat Data Barang, sumber = Pemindahan Barang)
+    // Modal yang sama dipakai dua tombol: 'barang' (Log Data Pemindahan, sumber = Pemindahan Barang)
     // dan 'pembelian' (Data Pembelian, sumber = Faktur Pembelian). Bedanya cuma teks petunjuk,
     // cara membentuk link, dan cara membaca baris barang dari halaman sumber.
     var PETUNJUK_BARANG =
@@ -263,12 +263,14 @@
             return total;
         }
 
-        function kirim(barcode, qty, ulang) {
+        // teks = baris apa adanya ("qty barcode", dikirim ke kolom scan seperti diketik manual);
+        // qty = angkanya, hanya untuk mengecek bertambahnya jumlah di tabel
+        function kirim(teks, barcode, qty, ulang) {
             var awal = total_di_tabel(barcode);
             var ajax_awal = ajax_terkirim;
             var mulai = Date.now();
             var terakhir_sibuk = 0, cukup_sejak = 0;
-            $('#term_produk_quick').val(qty + ' ' + barcode);
+            $('#term_produk_quick').val(teks);
             simulasikan_enter_pada_input('#term_produk_quick');
             var cek = setInterval(function () {
                 var sekarang = Date.now();
@@ -291,7 +293,7 @@
                 if (!ada_aktivitas && !ulang && sekarang - mulai >= KIRIM_ULANG_MS) {
                     clearInterval(cek);
                     console.warn('[lihat-barang] Barcode tidak diproses, dikirim ulang:', barcode);
-                    kirim(barcode, qty, true);
+                    kirim(teks, barcode, qty, true);
                     return;
                 }
                 // Halaman sudah diam tapi jumlah tidak bertambah: dicatat gagal, lanjut barang berikutnya.
@@ -322,7 +324,7 @@
             var barcode = m ? $.trim(m[2]) : teks;
             $(progress_selector).text('Memproses baris ' + idx + ' dari ' + baris.length + ' (' + barcode + ')' +
                 (gagal.length ? ' - ' + gagal.length + ' gagal' : '') + ' ...');
-            kirim(barcode, qty > 0 ? qty : 1, false);
+            kirim(teks, barcode, qty > 0 ? qty : 1, false);
         }
 
         // Jangan mulai selagi halaman masih memproses sesuatu (mis. ganti Outlet / Gudang barusan),
@@ -337,7 +339,7 @@
         })();
     }
 
-    // ---------- Lihat Data Barang (Barcode, Jumlah Transfer, Keterangan dari halaman ini atau link lain) ----------
+    // ---------- Log Data Pemindahan (Barcode, Jumlah Transfer, Keterangan dari halaman ini atau link lain) ----------
 
     function ambil_data_baris(tr) {
         var $tr = $(tr);
@@ -533,7 +535,7 @@
         if (kosong.length > 0) {
             info_dialog('Belum dipilih di form',
                 '<p>Field berikut belum dipilih di form halaman ini:</p>' + daftar_html(kosong) +
-                '<p>Tutup jendela ini, pilih dulu di form, lalu buka lagi Lihat Data Barang dan klik Simpan.</p>', true);
+                '<p>Tutup jendela ini, pilih dulu di form, lalu buka lagi Log Data Pemindahan dan klik Simpan.</p>', true);
             return;
         }
         var lama = baca_header_tersimpan();
@@ -572,7 +574,7 @@
         if (!header) {
             info_dialog('Outlet & Gudang belum disimpan',
                 '<p>Pilih dulu Dari Outlet, Dari Gudang, Ke Outlet &amp; Ke Gudang di form halaman ini, ' +
-                'lalu buka Lihat Data Barang dan klik <b>Simpan dari Form</b>.</p>', true);
+                'lalu buka Log Data Pemindahan dan klik <b>Simpan dari Form</b>.</p>', true);
             return;
         }
         var peringatan = header['Dari Gudang'] === header['Ke Gudang']
@@ -883,7 +885,12 @@
         return { rows: rows, tr_list: [] };
     }
 
+    // Nomor muatan terakhir: respons dari muatan sebelumnya (modal sudah ditutup / ganti mode / user
+    // menekan Tampilkan lagi) datang belakangan dan tidak boleh menimpa hasil muatan yang baru.
+    var nomor_muatan = 0;
+
     function muat_data_dari_link(link) {
+        var nomor = ++nomor_muatan;
         $('#llb_status').text('Memuat data dari ' + link + ' ...');
         $('#llb_hasil, #llb_ringkasan').empty();
         // Data dari muatan sebelumnya jangan sampai ikut dimasukkan kalau muatan baru ini gagal.
@@ -895,6 +902,9 @@
             url: link,
             dataType: 'html',
             success: function (html) {
+                if (nomor !== nomor_muatan) {
+                    return;
+                }
                 var $wrap = $('<div>').append($($.parseHTML(html)));
                 var hasil = mode_sumber === 'pembelian' ? ekstrak_baris_pembelian($wrap) : ekstrak_baris_pemindahan($wrap);
                 var rows = hasil.rows;
@@ -910,10 +920,14 @@
                 log_nilai_dropdown_halaman('SESUDAH fetch selesai (' + link + ')');
             },
             error: function () {
-                $('#llb_status').text('Gagal memuat data dari link tersebut.');
+                if (nomor === nomor_muatan) {
+                    $('#llb_status').text('Gagal memuat data dari link tersebut.');
+                }
             },
             complete: function () {
-                $('#llb_btn_tampilkan').prop('disabled', false);
+                if (nomor === nomor_muatan) {
+                    $('#llb_btn_tampilkan').prop('disabled', false);
+                }
             }
         });
     }
@@ -933,14 +947,16 @@
     function buka_modal_dengan_mode(mode) {
         var pembelian = mode === 'pembelian';
         mode_sumber = mode;
+        nomor_muatan++;   // muatan / pencarian dari modal sebelumnya diabaikan
         data_lihat_barang_terakhir = [];
         data_tr_barang_terakhir = [];
-        $('#llb_judul').text(pembelian ? 'Data Pembelian' : 'Lihat Data Barang');
+        $('#llb_judul').text(pembelian ? 'Data Pembelian' : 'Log Data Pemindahan');
         $('#llb_petunjuk').html(pembelian ? PETUNJUK_PEMBELIAN : PETUNJUK_BARANG);
         $('#llb_input_link').val('').attr('placeholder', pembelian ? PLACEHOLDER_PEMBELIAN : PLACEHOLDER_BARANG);
         $('#llb_status').text('');
         $('#llb_hasil, #llb_ringkasan').empty();
         $('#llb_progress').hide().text('');
+        $('#llb_btn_tampilkan').prop('disabled', false);
         render_header_lihat_barang();
         // "Masukkan ke Tabel" hanya masuk akal kalau tabel di halaman ini masih bisa diisi.
         var bisa_impor = $('#term_produk_quick').length > 0 && !$('#term_produk_quick').is(':disabled');
@@ -1354,13 +1370,21 @@
             data_lihat_barang_terakhir = [];
             data_tr_barang_terakhir = [];
             $('#llb_btn_tampilkan').prop('disabled', true);
-            (pembelian ? cari_id_faktur_dari_kode : cari_id_dari_kode)(kode, function (teks) { $('#llb_status').text(teks); })
+            var nomor = ++nomor_muatan;
+            var masih_berlaku = function () { return nomor === nomor_muatan; };
+            (pembelian ? cari_id_faktur_dari_kode : cari_id_dari_kode)(kode, function (teks) { if (masih_berlaku()) { $('#llb_status').text(teks); } })
                 .done(function (id) {
+                    if (!masih_berlaku()) {
+                        return;
+                    }
                     // Pesan status berikutnya ("Memuat ...", lalu "Ditemukan N barang.") diurus muat_data_dari_link
                     console.log('[lihat-barang] Kode ' + kode + ' = ID ' + id);
                     muat_data_dari_link(location.origin + (pembelian ? '/faktur_pembelians/' : '/pemindahan_barangs/') + id);
                 })
                 .fail(function (pesan) {
+                    if (!masih_berlaku()) {
+                        return;
+                    }
                     $('#llb_status').text(pesan);
                     $('#llb_btn_tampilkan').prop('disabled', false);
                 });
@@ -1540,7 +1564,12 @@
 
             salin_satu_field_v2(tr_sumber, tr_tujuan, 'input[name$="[keterangan]"], textarea[name$="[keterangan]"]');
 
-            $(tr_tujuan).effect('highlight', {}, 1500);
+            // effect() milik jQuery UI: tanpa itu (atau kalau melempar galat) proses jangan sampai berhenti
+            try {
+                if ($.fn.effect) {
+                    $(tr_tujuan).effect('highlight', {}, 1500);
+                }
+            } catch (e) {}
             cb(true);
         });
     }
@@ -1572,19 +1601,31 @@
             }
             var idx = 0;
             var total = data_tr_barang_terakhir.length;
+            var gagal_salin = [];
 
             function lanjut() {
                 if (idx >= total) {
+                    $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', false);
+                    lepas_kunci_scroll();
+                    if (gagal_salin.length > 0) {
+                        $('#llb_progress').text('Selesai, tapi ' + gagal_salin.length + ' dari ' + total + ' barang tidak masuk.');
+                        info_dialog('Sebagian barang belum masuk ke tabel',
+                            '<p><b>' + (total - gagal_salin.length) + '</b> dari <b>' + total + '</b> barang disalin ke tabel.</p>' +
+                            '<p>Tidak ada baris kosong untuk barang berikut (tambah baris di halaman gagal):</p>' +
+                            daftar_html(gagal_salin.slice(0, 10)) +
+                            (gagal_salin.length > 10 ? '<p>... dan ' + (gagal_salin.length - 10) + ' lainnya.</p>' : ''), true);
+                        return;
+                    }
                     $('#llb_progress').text('Selesai: ' + total + ' barang disalin langsung ke tabel.');
-                    setTimeout(function () {
-                        $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', false);
-                        lepas_kunci_scroll();
-                        tutup_semua_modal();
-                    }, 800);
+                    setTimeout(tutup_semua_modal, 800);
                     return;
                 }
                 $('#llb_progress').text('Menyalin barang ' + (idx + 1) + ' dari ' + total + ' ...');
-                proses_satu_baris_v2(data_tr_barang_terakhir[idx], function () {
+                var data = data_lihat_barang_terakhir[idx] || {};
+                proses_satu_baris_v2(data_tr_barang_terakhir[idx], function (berhasil) {
+                    if (!berhasil) {
+                        gagal_salin.push(data.barcode || ('baris ' + (idx + 1)));
+                    }
                     idx++;
                     lanjut();
                 });
@@ -1615,7 +1656,9 @@
 
         $(document).on('keydown', '#llb_input_link', function (e) {
             if (e.which === 13) {
-                tampilkan_dari_input_link();
+                if (!$('#llb_btn_tampilkan').prop('disabled')) {
+                    tampilkan_dari_input_link();
+                }
                 return false;
             }
         });
@@ -1639,7 +1682,7 @@
             wrapper.append(
                 '<div class="additional_button" id="wrapper_bt_lihat_barang">' +
                     '<div id="bt_lihat_barang">' +
-                        '<span class="fa fa-table" aria-hidden="true" style="color:#198754;font-size:14px"></span> Lihat Data Barang' +
+                        '<span class="fa fa-table" aria-hidden="true" style="color:#198754;font-size:14px"></span> Log Data Pemindahan' +
                     '</div>' +
                 '</div>'
             );
