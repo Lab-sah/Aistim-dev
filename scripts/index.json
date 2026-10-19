@@ -28,6 +28,7 @@
     "grafik.js"
   ],
   "hapus": [
+    "pesananbaru.js",
     "rak_barang.js",
     "analisastok.js",
     "koreksiso.js",
