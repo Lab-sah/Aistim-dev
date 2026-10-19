@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.8.1
+// @version      1.8.2
 // @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel. Tombol "Data Pembelian" mengambil daftar barang dengan cara yang sama dari Faktur Pembelian (No Faktur atau link /faktur_pembelians/<ID>).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
@@ -224,18 +224,77 @@
     function jalankan_baris_qty_barcode(baris, progress_selector, on_selesai) {
         $(progress_selector).show();
         var idx = 0;
+        var TUNGGU_MULAI_MS = 4000;   // Enter tidak memicu apa pun selama ini = dianggap tidak diproses
+        var TUNGGU_MAKS_MS = 30000;   // batas satu barcode (ajax macet)
+        var JEDA_TENANG_MS = 400;     // halaman sudah diam selama ini = proses barcode selesai
 
-        function tunggu_ajax_selesai(cb) {
+        // Erzap sedang memproses: loading tampil atau masih ada ajax jQuery yang berjalan.
+        function sibuk() {
+            return $('#loading_body').is(':visible') || (($.active || 0) > 0);
+        }
+        // Jumlah ajax jQuery yang sudah dikirim halaman: naik = Enter memicu proses, walau ajaxnya
+        // selesai di antara dua pengecekan.
+        var ajax_terkirim = 0;
+        $(document).on('ajaxSend.llb_scan', function () { ajax_terkirim++; });
+        // Sidik isi tabel Daftar Barang (barcode + jumlah tiap baris): berubah = barcode sudah diproses,
+        // termasuk barcode yang sudah ada di tabel dan cuma jumlahnya bertambah.
+        function sidik_tabel() {
+            return $('.searching_produk_barcode').map(function () {
+                var $tr = $(this).closest('tr');
+                return $.trim(this.value) + '=' + $.trim($tr.find('.jumlah_produk').val() || '');
+            }).get().join('|');
+        }
+
+        // Tunggu sampai barcode ini benar-benar selesai diproses halaman. Dulu cukup "loading tidak
+        // tampil" dicek 150 ms setelah Enter: di laptop lambat ajax/loading belum sempat mulai, jadi
+        // barcode berikutnya langsung ditimpa dan barcode sebelumnya tidak pernah masuk ke tabel.
+        // Sekarang: tunggu proses terlihat MULAI (loading/ajax, atau isi tabel berubah), lalu tunggu
+        // halaman diam sejenak. cb(diproses) - diproses=false kalau Enter tidak memicu apa pun.
+        function tunggu_barcode_selesai(sidik_awal, ajax_awal, cb) {
+            var mulai = Date.now();
+            var terakhir_sibuk = 0;
+            var terakhir_berubah = 0;
             var cek = setInterval(function () {
-                if (!$('#loading_body').is(':visible')) {
+                var sekarang = Date.now();
+                if (sibuk()) {
+                    terakhir_sibuk = sekarang;
+                } else if (terakhir_sibuk || ajax_terkirim > ajax_awal || sidik_tabel() !== sidik_awal) {
+                    terakhir_berubah = terakhir_berubah || sekarang;
+                    if (sekarang - Math.max(terakhir_sibuk, terakhir_berubah) >= JEDA_TENANG_MS) {
+                        clearInterval(cek);
+                        cb(true);
+                        return;
+                    }
+                } else if (sekarang - mulai >= TUNGGU_MULAI_MS) {
                     clearInterval(cek);
-                    cb();
+                    cb(false);
+                    return;
                 }
-            }, 150);
+                if (sekarang - mulai >= TUNGGU_MAKS_MS) {
+                    clearInterval(cek);
+                    cb(true);
+                }
+            }, 100);
+        }
+
+        function kirim(teks, barcode, ulang) {
+            var sidik_awal = sidik_tabel(), ajax_awal = ajax_terkirim;
+            $('#term_produk_quick').val(teks);
+            simulasikan_enter_pada_input('#term_produk_quick');
+            tunggu_barcode_selesai(sidik_awal, ajax_awal, function (diproses) {
+                // Enter tidak memicu proses apa pun (halaman belum siap): kirim ulang sekali.
+                if (!diproses && !ulang) {
+                    console.warn('[lihat-barang] Barcode tidak diproses, dikirim ulang:', barcode);
+                    kirim(teks, barcode, true);
+                    return;
+                }
+                proses_baris_berikutnya();
+            });
         }
 
         function proses_baris_berikutnya() {
             if (idx >= baris.length) {
+                $(document).off('ajaxSend.llb_scan');
                 $(progress_selector).text('Selesai: ' + baris.length + ' baris diproses.');
                 if (on_selesai) {
                     setTimeout(on_selesai, 800);
@@ -243,13 +302,21 @@
                 return;
             }
             $(progress_selector).text('Memproses baris ' + (idx + 1) + ' dari ' + baris.length + ' ...');
-            $('#term_produk_quick').val(baris[idx]);
+            var teks = baris[idx];
             idx++;
-            simulasikan_enter_pada_input('#term_produk_quick');
-            tunggu_ajax_selesai(proses_baris_berikutnya);
+            kirim(teks, $.trim(teks.replace(/^\S+\s+/, '')), false);
         }
 
-        proses_baris_berikutnya();
+        // Jangan mulai selagi halaman masih memproses sesuatu (mis. ganti Outlet / Gudang barusan),
+        // paling lama 10 detik (ajax lain yang lama jangan sampai menahan selamanya).
+        var mulai_tunggu = Date.now();
+        (function tunggu_diam() {
+            if (sibuk() && Date.now() - mulai_tunggu < 10000) {
+                setTimeout(tunggu_diam, 150);
+                return;
+            }
+            proses_baris_berikutnya();
+        })();
     }
 
     // ---------- Lihat Data Barang (Barcode, Jumlah Transfer, Keterangan dari halaman ini atau link lain) ----------
