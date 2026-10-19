@@ -1,4 +1,4 @@
-# Aistim Tool v2.10.3
+# Aistim Tool v2.10.4
 
 **Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -149,6 +149,12 @@ Buka DevTools (F12) -> Console:
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.10.4
+- ZIP Chrome Web Store tanpa `web_accessible_resources` (hanya dipakai fallback inject `<script>` yang sudah dibuang dari ZIP itu)
+- `icons/logo-round.png` dihapus (tidak dipakai sejak popup v2.10.0)
+- Workflow Release menampilkan alasan galat dari Google kalau access token Web Store gagal diambil
+- Script terbaru ikut dibundel (mis. `pemindahan.js` v1.14.2, `grafik.js` v2.2.6 nonaktif sementara)
 
 ## Changelog v2.10.3
 - **Daftar hapus script**: `scripts/index.json` boleh berisi `"hapus": ["file.js"]`. Script di daftar itu tidak dijalankan dan tidak tampil di popup, termasuk salinan yang sudah terlanjur dibundel di paket ekstensi. Daftar disimpan di storage `daftarHapus` (tetap berlaku saat offline)
