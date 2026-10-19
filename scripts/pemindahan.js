@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.11.0
+// @version      1.12.0
 // @description  Tambah tombol "Log Data Pemindahan" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel. Tombol "Data Pembelian" mengambil daftar barang dengan cara yang sama dari Faktur Pembelian (No Faktur atau link /faktur_pembelians/<ID>).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
@@ -258,12 +258,22 @@
                 return;
             }
             if (!per[k]) {
-                per[k] = { barcode: $.trim(r.barcode), qty: 0, baris: 0 };
+                // teks_jumlah = jumlah apa adanya dari baris pertama (dipakai kalau SKU ini cuma 1 baris)
+                per[k] = { barcode: $.trim(r.barcode), qty: 0, baris: 0, teks_jumlah: r.jumlah, keterangan: [] };
                 urut.push(per[k]);
             }
             var q = angka_jumlah(r.jumlah);
             per[k].qty += q > 0 ? q : 1;
             per[k].baris++;
+            var ket = $.trim(String(r.keterangan || ''));
+            if (ket && per[k].keterangan.indexOf(ket) === -1) {
+                per[k].keterangan.push(ket);
+            }
+        });
+        urut.forEach(function (x) {
+            x.qty = Math.round(x.qty * 1000) / 1000;
+            // jumlah yang ditampilkan & dikirim ke kolom scan: teks asli kalau 1 baris, total kalau digabung
+            x.jumlah = x.baris === 1 ? x.teks_jumlah : String(x.qty);
         });
         return urut;
     }
@@ -796,9 +806,12 @@
             return;
         }
         $('#llb_ringkasan').html(ringkasan_barang_html(rows));
+        // Satu baris per SKU (barcode unik), sama seperti yang nanti terbentuk di tabel Erzap: barcode yang
+        // muncul di beberapa baris sumber digabung, jumlahnya dijumlah, keterangan yang berbeda disambung.
         var html = '<table class="llb_table"><thead><tr><th>No</th><th>Barcode</th><th>Jumlah Transfer</th><th>Keterangan</th></tr></thead><tbody>';
-        rows.forEach(function (r, i) {
-            html += '<tr><td>' + (i + 1) + '</td><td>' + escape_html(r.barcode) + '</td><td>' + escape_html(r.jumlah) + '</td><td>' + escape_html(r.keterangan) + '</td></tr>';
+        rekap_per_sku(rows).forEach(function (x, i) {
+            var jumlah = escape_html($.trim(String(x.jumlah || '')) || x.qty) + (x.baris > 1 ? ' <span style="color:#999;font-size:11px;">(' + x.baris + ' baris)</span>' : '');
+            html += '<tr><td>' + (i + 1) + '</td><td>' + escape_html(x.barcode) + '</td><td>' + jumlah + '</td><td>' + escape_html(x.keterangan.join('; ')) + '</td></tr>';
         });
         html += '</tbody></table>';
         $('#llb_hasil').html(html);
@@ -1480,11 +1493,12 @@
                 }
             }
 
-            var baris = data_lihat_barang_terakhir.map(function (r) {
-                return (r.jumlah || 1) + ' ' + r.barcode;
+            // Satu scan per SKU dengan jumlah totalnya (sama dengan yang ditampilkan di modal).
+            var sku = rekap_per_sku(data_lihat_barang_terakhir);
+            var baris = sku.map(function (x) {
+                return (x.jumlah || 1) + ' ' + x.barcode;
             });
             // Jumlah tiap SKU di tabel sebelum mulai: setelah selesai dibandingkan dengan yang seharusnya masuk.
-            var sku = rekap_per_sku(data_lihat_barang_terakhir);
             sku.forEach(function (x) { x.awal = total_barcode_di_tabel(x.barcode); });
             console.log('[lihat-barang] Masukkan ke Tabel lewat scan barcode:', baris.length, 'baris,', sku.length, 'SKU');
 
