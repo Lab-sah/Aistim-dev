@@ -12,6 +12,7 @@
     "tombol_so_list.js",
     "smart_repair.js",
     "rak_barang.js",
+    "erzap_rak_barang.js",
     "rakstok.js",
     "rekam.js",
     "pesanan_web.js",
@@ -27,6 +28,7 @@
     "grafik.js"
   ],
   "hapus": [
+    "rak_barang.js",
     "analisastok.js",
     "koreksiso.js",
     "pengisianso.js",
