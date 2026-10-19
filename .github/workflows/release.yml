@@ -151,6 +151,7 @@ jobs:
           echo "Mengunggah $STORE_ZIP (versi $VERSION) ..."
           RES=$(curl -sS -X POST -H "Authorization: Bearer $TOKEN" -T "$STORE_ZIP" "$BASE/upload/v2/$ITEM:upload")
           echo "Respons upload: $RES"
+          printf '%s' "$RES" | grep -q '"error"' && { echo "Unggahan ditolak Web Store"; exit 1; }
           STATE=$(printf '%s' "$RES" | python3 -c "import sys,json;print(json.load(sys.stdin).get('uploadState',''))" 2>/dev/null || true)
           for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
             [ "$STATE" = "UPLOAD_IN_PROGRESS" ] || break
