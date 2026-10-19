@@ -86,8 +86,8 @@ jobs:
           if [ "$CRX_BUILT" = "1" ]; then ASSETS="$ASSETS $CRX updates.xml"; fi
           echo "Version di manifest: $VERSION (tag: $TAG), asset: $ASSETS"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG sudah ada — perbarui ZIP asset saja"
-            gh release upload "$TAG" $ASSETS --clobber
+            # Release bersifat immutable: asset tidak bisa diganti, jadi push tanpa naik versi dilewati
+            echo "Release $TAG sudah ada (immutable) — versi belum naik, lewati upload"
           else
             gh release create "$TAG" $ASSETS \
               --title "Aistim Tool v$VERSION" \
