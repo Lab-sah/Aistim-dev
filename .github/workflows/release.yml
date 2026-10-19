@@ -115,10 +115,15 @@ jobs:
           BASE="https://chromewebstore.googleapis.com"
           ITEM="publishers/$CWS_PUBLISHER_ID/items/$CWS_ITEM_ID"
 
-          TOKEN=$(curl -sS https://oauth2.googleapis.com/token \
+          TOKRES=$(curl -sS https://oauth2.googleapis.com/token \
             -d client_id="$CWS_CLIENT_ID" -d client_secret="$CWS_CLIENT_SECRET" \
-            -d refresh_token="$CWS_REFRESH_TOKEN" -d grant_type=refresh_token | python3 -c "import sys,json;print(json.load(sys.stdin).get('access_token',''))")
-          [ -n "$TOKEN" ] || { echo "Gagal mengambil access token (cek secret CWS_*)"; exit 1; }
+            -d refresh_token="$CWS_REFRESH_TOKEN" -d grant_type=refresh_token)
+          TOKEN=$(printf '%s' "$TOKRES" | python3 -c "import sys,json;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
+          if [ -z "$TOKEN" ]; then
+            # Hanya kode & keterangan error dari Google yang dicetak (tanpa secret)
+            printf '%s' "$TOKRES" | python3 -c "import sys,json;d=json.load(sys.stdin);print('Google:',d.get('error',''),'-',d.get('error_description',''))" 2>/dev/null || true
+            echo "Gagal mengambil access token (cek secret CWS_*)"; exit 1
+          fi
           echo "::add-mask::$TOKEN"
 
           echo "Mengunggah $STORE_ZIP (versi $VERSION) ..."
