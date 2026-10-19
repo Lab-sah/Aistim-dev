@@ -151,7 +151,19 @@ jobs:
           echo "Mengunggah $STORE_ZIP (versi $VERSION) ..."
           RES=$(curl -sS -X POST -H "Authorization: Bearer $TOKEN" -T "$STORE_ZIP" "$BASE/upload/v2/$ITEM:upload")
           echo "Respons upload: $RES"
-          printf '%s' "$RES" | grep -q '"error"' && { echo "Unggahan ditolak Web Store"; exit 1; }
+          if printf '%s' "$RES" | grep -q '"error"'; then
+            if printf '%s' "$RES" | grep -q 'PERMISSION_DENIED'; then
+              # Diagnosa tanpa membuka isi CWS_PUBLISHER_ID: panjang, spasi/baris baru, dan bentuk umum
+              v="$CWS_PUBLISHER_ID"
+              ws=tidak; case "$v" in *[[:space:]]*) ws=ADA;; esac
+              echo "CWS_PUBLISHER_ID: panjang ${#v}, spasi/baris baru: $ws"
+              case "$v" in *[/:@]*) echo "CWS_PUBLISHER_ID berisi / : atau @ (URL/email?): YA";; *) echo "CWS_PUBLISHER_ID berisi / : atau @: tidak";; esac
+              if [[ "$v" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then echo "CWS_PUBLISHER_ID bentuk UUID: ya"; else echo "CWS_PUBLISHER_ID bentuk UUID: tidak"; fi
+              [ "$v" = "$CWS_ITEM_ID" ] && echo "CWS_PUBLISHER_ID sama dengan item ID: YA (salah)"
+              echo "Pastikan ${SA_EMAIL:-service account} ada di Dashboard Web Store -> Account -> Service accounts milik publisher pemilik item $CWS_ITEM_ID"
+            fi
+            echo "Unggahan ditolak Web Store"; exit 1
+          fi
           STATE=$(printf '%s' "$RES" | python3 -c "import sys,json;print(json.load(sys.stdin).get('uploadState',''))" 2>/dev/null || true)
           for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
             [ "$STATE" = "UPLOAD_IN_PROGRESS" ] || break
