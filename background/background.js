@@ -1,4 +1,4 @@
-const VERSION = '2.10.3';
+const VERSION = '2.10.4';
 const X_FETCH_ALLOW = ['partdistro.com'];   // host yang boleh diakses lewat jembatan x-fetch
 
 // ===== KONFIGURASI =====
@@ -189,11 +189,13 @@ async function loadRemoteScripts() {
   }
 }
 
-// ===== MERGE: dedupe by @name, versi lebih tinggi menang =====
-function mergeScripts(bundled, remote) {
+// ===== MERGE: dedupe, versi lebih tinggi menang =====
+// v2.10.4: bundled+remote dicocokkan per nama file (id register = 'auto-' + file),
+// jadi @name boleh diganti tanpa bikin 2 entri ber-id sama. Manual tetap per @name.
+function mergeScripts(bundled, remote, perFile) {
   const byName = {};
   for (const s of bundled.concat(remote)) {
-    const key = String(s.meta.name || s.file).toLowerCase();
+    const key = String(perFile ? s.file : (s.meta.name || s.file)).toLowerCase();
     const cur = byName[key];
     if (!cur || compareVersion(s.meta.version, cur.meta.version) > 0) {
       byName[key] = s;
@@ -261,8 +263,8 @@ async function syncUserScriptsSekarang() {
   const manual = await loadManualScripts();
   if (hapus.length) console.log('[Aistim] Dihapus lewat index.json:', hapus.join(', '));
 
-  // Gabung: auto (bundled+remote) dedupe by @name; manual digabung apa adanya
-  const merged = mergeScripts(bundled, remote);
+  // Gabung: auto (bundled+remote) dedupe per file; manual digabung per @name
+  const merged = mergeScripts(bundled, remote, true);
   const all = mergeScripts(merged, manual);
 
   // Status untuk popup: hanya script auto (bundled/remote) yang dapat toggle disabledAuto

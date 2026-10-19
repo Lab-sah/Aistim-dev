@@ -1,4 +1,4 @@
-# Aistim Tool v2.10.3
+# Aistim Tool v2.10.4
 
 **Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -147,6 +147,10 @@ Buka DevTools (F12) -> Console:
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.10.4
+- **Script bundel & GitHub dicocokkan per nama file** (sebelumnya per `@name`): `@name` script sekarang boleh diganti tanpa bikin 2 entri ber-id sama ("Duplicate script ID"). Script manual tetap dicocokkan per `@name`
+- `koreksiso.js` v1.12.1: nama jadi **"Erzap - Auto Koreksi"** (sebelumnya "Auto Koreksi, Simpan, & Reload - Erzap")
 
 ## Changelog v2.10.3
 - **Daftar hapus script**: `scripts/index.json` boleh berisi `"hapus": ["file.js"]`. Script di daftar itu tidak dijalankan dan tidak tampil di popup, termasuk salinan yang sudah terlanjur dibundel di paket ekstensi. Daftar disimpan di storage `daftarHapus` (tetap berlaku saat offline)
