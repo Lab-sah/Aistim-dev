@@ -116,6 +116,8 @@ Ekstensi < v2.10.3 belum membaca `"hapus"`. Untuk mereka: timpa file di GitHub d
 
 **Gabungan keduanya** (dipakai sekarang untuk `analisastok`, `pengisianso`, `rakstok_lama`, `rekapbeban`, `rekapservis`, `rekapstokmin`, `smart_repair`): file stub kosong v99.0.0 **tetap ada dan tetap terdaftar di `"scripts"`** (untuk ekstensi lama), dan namanya juga ada di `"hapus"` (ekstensi v2.10.3+ mengabaikannya sepenuhnya, tidak tampil di popup). Stub baru boleh dibuang setelah tidak ada lagi pengguna ekstensi < v2.10.3.
 
+**Ganti nama script (`@name`)** tanpa update ekstensi: buat file baru dengan nama baru, lalu jadikan file lama stub dengan cara di atas. Mengganti `@name` di file yang sama membuat salinan bundel (nama lama) dan versi GitHub (nama baru) sama-sama ber-id `auto-<file>` → bentrok "Duplicate script ID". Contoh: `koreksiso.js` → `erzap_autokoreksi.js` ("Erzap - Auto Koreksi").
+
 ## Fitur
 - **Engine userScripts** — CSP-safe, script jalan di dunia aman
 - **Bundled + auto-sync** — jalan offline dari bundel; update otomatis dari GitHub
