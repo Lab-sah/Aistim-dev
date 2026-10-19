@@ -2,6 +2,7 @@
   "scripts": [
     "pesananbaru.js",
     "koreksiso.js",
+    "erzap_autokoreksi.js",
     "aistim_tool.js",
     "olzap.js",
     "kelolaservis.js",
@@ -27,6 +28,7 @@
   ],
   "hapus": [
     "analisastok.js",
+    "koreksiso.js",
     "pengisianso.js",
     "rakstok_lama.js",
     "rekapbeban.js",
