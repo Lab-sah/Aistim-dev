@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.14.1
+// @version      1.14.2
 // @description  Tambah tombol "Log Data Pemindahan" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel. Tombol "Data Pembelian" mengambil daftar barang dengan cara yang sama dari Faktur Pembelian (No Faktur atau link /faktur_pembelians/<ID>).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
@@ -504,54 +504,7 @@
         return { barcode: barcode, jumlah: jumlah, keterangan: keterangan };
     }
 
-    // Field header (Dari Outlet/Gudang, Ke Outlet/Gudang) belum pernah kelihatan HTML aslinya
-    // di sini, jadi dicari berdasarkan teks <label> yang tampil di layar - lebih tahan
-    // dibanding menebak id, walau tidak 100% pasti kalau markup-nya di luar pola umum.
     var LABEL_HEADER = ['Dari Outlet', 'Dari Gudang', 'Ke Outlet', 'Ke Gudang'];
-
-    function cari_field_by_label($root, label_text) {
-        var $label = $root.find('label').filter(function () {
-            return $.trim($(this).text()).replace(/\*/g, '') === label_text;
-        }).first();
-        if ($label.length === 0) {
-            return $();
-        }
-        var $container = $label.closest('.field');
-        if ($container.length === 0) {
-            $container = $label.parent();
-        }
-        var $field = $container.find('select, input[type="text"], input[type="hidden"]').first();
-        if ($field.length === 0) {
-            $field = $label.nextAll('select, input').first();
-        }
-        return $field;
-    }
-
-    // Catatan: tidak dipanggil dari mana pun (Dari/Ke Outlet & Gudang sekarang dari
-    // pengaturan tersimpan user) - disimpan kalau-kalau nanti mau balik ke perilaku
-    // "ambil header asli dari halaman/link yang di-fetch".
-    function ambil_header_dari_wrap($wrap) {
-        var header = {};
-        LABEL_HEADER.forEach(function (label) {
-            var $field = cari_field_by_label($wrap, label);
-            var teks = '';
-            if ($field.length > 0) {
-                if ($field.is('select')) {
-                    // Opsi placeholder ("Please select" dsb) biasanya value="" - kalau
-                    // masih di situ berarti belum benar-benar dipilih, jangan dianggap
-                    // sebagai nilai asli (nanti malah bisa menimpa pilihan yang sudah
-                    // benar di form tujuan dengan "Please select").
-                    if ($field.val()) {
-                        teks = $.trim($field.find('option:selected').text());
-                    }
-                } else {
-                    teks = $.trim($field.val() || '');
-                }
-            }
-            header[label] = teks;
-        });
-        return header;
-    }
 
     // ---------- Pengaturan Dari/Ke Outlet & Gudang (disimpan user, bukan hardcode) ----------
     // Pertama kali: pilih Dari Outlet, Dari Gudang, Ke Outlet & Ke Gudang MANUAL di form
@@ -1071,7 +1024,6 @@
                 }
                 $('#llb_status').text(pesan);
                 render_hasil_lihat_barang(rows);
-                log_nilai_dropdown_halaman('SESUDAH fetch selesai (' + link + ')');
             },
             error: function () {
                 if (nomor === nomor_muatan) {
@@ -1083,18 +1035,6 @@
                     $('#llb_btn_tampilkan').prop('disabled', false);
                 }
             }
-        });
-    }
-
-    // Diagnostik sementara: cetak nilai dropdown Dari/Ke Outlet & Gudang DI HALAMAN
-    // INI (bukan hasil fetch), buat mastiin apakah benar-benar berubah cuma karena
-    // buka modal / klik Tampilkan (yang harusnya cuma baca, tidak menulis apa pun
-    // ke halaman ini).
-    function log_nilai_dropdown_halaman(konteks) {
-        LABEL_HEADER.forEach(function (label) {
-            var $f = cari_field_by_label($(document), label);
-            console.log('[cek-dropdown]', konteks, '|', label, '=',
-                $f.length > 0 ? $f.val() : '(field tidak ditemukan di halaman ini)');
         });
     }
 
@@ -1119,7 +1059,6 @@
     }
 
     function buka_modal_lihat_barang() {
-        log_nilai_dropdown_halaman('SEBELUM buka modal');
         buka_modal_dengan_mode('barang');
         muat_data_dari_link(window.location.href);
     }
@@ -1880,7 +1819,7 @@
     }
 
     $(function () {
-        console.log('[lihat-barang] pemindahan.js v1.14.1 aktif');
+        console.log('[lihat-barang] pemindahan.js v1.14.2 aktif');
         buang_header_lama();
         siapkan_modal_dan_handler();
         pastikan_tombol_ada();

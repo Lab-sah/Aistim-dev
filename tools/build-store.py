@@ -5,6 +5,7 @@ Beda dengan ZIP biasa (jalur "Load unpacked"/CRX):
   - buang "key" dan "update_url" (Web Store memakai kunci & mekanisme update sendiri -> update otomatis)
   - host/izin dipersempit: hanya Erzap (+ partdistro untuk jembatan fetch, + GitHub untuk sinkronisasi script)
   - izin yang tidak dipakai (activeTab) dibuang
+  - tanpa web_accessible_resources: hanya dipakai fallback inject <script> yang ikut dibuang
   - content.js tanpa fallback inject <script> (blok FALLBACK-SCRIPT-TAG): Web Store tidak mengizinkan
     kode dari luar paket dijalankan selain lewat chrome.userScripts
 
@@ -25,8 +26,7 @@ m['host_permissions'] = HOSTS
 m['permissions'] = [p for p in m.get('permissions', []) if p != 'activeTab']
 for cs in m.get('content_scripts', []):
     cs['matches'] = [ERZAP]
-for war in m.get('web_accessible_resources', []):
-    war['matches'] = [ERZAP]
+m.pop('web_accessible_resources', None)
 
 assert 'key' not in m and 'update_url' not in m
 assert '<all_urls>' not in json.dumps(m), 'masih ada <all_urls>'
