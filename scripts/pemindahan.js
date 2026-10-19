@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.13.0
+// @version      1.14.0
 // @description  Tambah tombol "Log Data Pemindahan" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel. Tombol "Data Pembelian" mengambil daftar barang dengan cara yang sama dari Faktur Pembelian (No Faktur atau link /faktur_pembelians/<ID>).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
@@ -230,6 +230,31 @@
     // barcode berikutnya menimpa kolom scan). Barang yang tidak bertambah dalam BATAS_MS dicatat gagal
     // (mis. ditolak Erzap: produk tidak ditemukan / stok kurang) lalu lanjut ke barang berikutnya.
     // on_selesai({ berhasil: [barcode], gagal: [barcode], alasan: {normal_barcode: pesan halaman} })
+    // ---------- halaman Erzap sedang memproses ----------
+    // Loading tampil atau masih ada ajax jQuery yang berjalan.
+    function halaman_sibuk() {
+        return $('#loading_body').is(':visible') || (($.active || 0) > 0);
+    }
+    // cb() setelah halaman diam (tidak sibuk) terus-menerus selama tenang_ms, paling lama maks_ms.
+    // Dipakai sebelum menyalin barang: mengganti Outlet/Gudang memicu ajax Erzap yang bisa mereset /
+    // menggambar ulang tabel Daftar Barang SETELAH barang mulai disalin, sehingga sebagian hilang.
+    function tunggu_halaman_diam(cb, tenang_ms, maks_ms) {
+        var mulai = Date.now(), diam_sejak = 0;
+        (function cek() {
+            var t = Date.now();
+            if (halaman_sibuk()) {
+                diam_sejak = 0;
+            } else if (!diam_sejak) {
+                diam_sejak = t;
+            }
+            if ((diam_sejak && t - diam_sejak >= tenang_ms) || t - mulai >= maks_ms) {
+                cb();
+                return;
+            }
+            setTimeout(cek, 100);
+        })();
+    }
+
     // ---------- helper SKU (barcode unik) ----------
     function normal_barcode(t) {
         return $.trim(String(t || '')).toLowerCase();
@@ -302,6 +327,47 @@
         return hasil;
     }
 
+    // Laporan pencocokan per SKU setelah Masukkan ke Tabel (V1 maupun V2). sku = hasil rekap_per_sku dengan
+    // x.awal (jumlah di tabel sebelum mulai); alasan_untuk(x) = teks alasan bila SKU itu tidak sesuai.
+    // SKU yang tidak sesuai ditandai merah di daftar modal (alasan di kolom Keterangan) + dialog ringkasan.
+    // Mengembalikan jumlah SKU yang tidak sesuai (0 = semua cocok, modal ditutup).
+    function hitung_masuk_per_sku(sku) {
+        sku.forEach(function (x) { x.masuk = Math.round((total_barcode_di_tabel(x.barcode) - x.awal) * 1000) / 1000; });
+        return sku.filter(function (x) { return Math.abs(x.masuk - x.qty) > 1e-9; });
+    }
+    function laporkan_pencocokan(sku, alasan_untuk) {
+        var selisih = hitung_masuk_per_sku(sku);
+        console.log('[lihat-barang] Pencocokan per SKU (' + (sku.length - selisih.length) + '/' + sku.length + ' cocok):');
+        console.table(sku.map(function (x) {
+            return { barcode: x.barcode, baris_sumber: x.baris, seharusnya: x.qty, di_tabel_sebelum: x.awal, bertambah: x.masuk };
+        }));
+        selisih.forEach(function (x) {
+            x.alasan = alasan_untuk(x);
+            var $tr = $('#llb_hasil tr').filter(function () { return $(this).attr('data-sku') === normal_barcode(x.barcode); });
+            $tr.addClass('llb_ditolak');
+            var ket = x.keterangan.join('; ');
+            $tr.children('td').last().text(x.alasan + (ket ? ' \u00b7 ' + ket : ''));
+        });
+        if (selisih.length > 0) {
+            $('#llb_progress').text('Selesai, tapi ' + selisih.length + ' dari ' + sku.length + ' SKU tidak sesuai (baris merah).');
+            var tabel = '<table class="llb_dialog_tabel"><tr><td><b>Barcode</b></td><td><b>Seharusnya</b></td><td><b>Masuk</b></td><td><b>Alasan</b></td></tr>' +
+                selisih.slice(0, 15).map(function (x) {
+                    return '<tr><td>' + escape_html(x.barcode) + '</td><td>' + x.qty + '</td><td><b>' + x.masuk + '</b></td><td>' +
+                        escape_html(x.alasan) + '</td></tr>';
+                }).join('') + '</table>';
+            info_dialog('Sebagian barang belum sesuai di tabel',
+                '<p><b>' + (sku.length - selisih.length) + '</b> dari <b>' + sku.length + '</b> SKU masuk dengan jumlah yang sesuai.</p>' +
+                '<p>SKU yang jumlahnya di tabel tidak sesuai:</p>' + tabel +
+                (selisih.length > 15 ? '<p>... dan ' + (selisih.length - 15) + ' lainnya (lihat Console, F12).</p>' : '') +
+                '<p class="llb_dialog_kecil">Baris SKU ini ditandai merah di daftar, dengan alasannya di kolom Keterangan. ' +
+                'Barang yang sudah masuk tidak dihapus.</p>', true);
+            return selisih.length;
+        }
+        $('#llb_progress').text('Selesai: ' + sku.length + ' SKU masuk dengan jumlah yang sesuai.');
+        setTimeout(tutup_semua_modal, 800);
+        return 0;
+    }
+
     function jalankan_baris_qty_barcode(baris, progress_selector, on_selesai) {
         $(progress_selector).show();
         var idx = 0;
@@ -320,10 +386,7 @@
         var BATAS_SIBUK_MS = 30000;  // batas mutlak satu barang (ajax macet)
         var JEDA_TENANG_MS = 300;    // setelah jumlah bertambah, tunggu halaman diam sejenak
 
-        // Erzap sedang memproses: loading tampil atau masih ada ajax jQuery yang berjalan.
-        function sibuk() {
-            return $('#loading_body').is(':visible') || (($.active || 0) > 0);
-        }
+        var sibuk = halaman_sibuk;
         // Jumlah ajax jQuery yang sudah dikirim halaman (naik = Enter memicu proses).
         var ajax_terkirim = 0;
         $(document).on('ajaxSend.llb_scan', function () { ajax_terkirim++; });
@@ -1550,50 +1613,24 @@
             var baris = sku.map(function (x) {
                 return (x.jumlah || 1) + ' ' + x.barcode;
             });
-            // Jumlah tiap SKU di tabel sebelum mulai: setelah selesai dibandingkan dengan yang seharusnya masuk.
-            sku.forEach(function (x) { x.awal = total_barcode_di_tabel(x.barcode); });
             console.log('[lihat-barang] Masukkan ke Tabel lewat scan barcode:', baris.length, 'baris,', sku.length, 'SKU');
+            $('#llb_progress').text('Menunggu halaman selesai memuat Outlet & Gudang ...');
+            tunggu_halaman_diam(function () {
+            // Jumlah tiap SKU di tabel sebelum mulai (sesudah halaman diam: ajax ganti Gudang bisa mereset tabel).
+            sku.forEach(function (x) { x.awal = total_barcode_di_tabel(x.barcode); });
 
             jalankan_baris_qty_barcode(baris, '#llb_progress', function (hasil) {
                 $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', false);
                 lepas_kunci_scroll();
-                // Laporan pencocokan per SKU: yang seharusnya masuk (total jumlah semua baris dengan barcode itu)
-                // vs yang benar-benar bertambah di tabel. Halaman Erzap bisa menolak sebagian barcode (produk tidak
-                // ketemu, stok kurang, dst) tanpa memberi tahu kita, jadi modal hanya ditutup kalau semuanya cocok.
-                sku.forEach(function (x) { x.masuk = Math.round((total_barcode_di_tabel(x.barcode) - x.awal) * 1000) / 1000; });
-                var selisih = sku.filter(function (x) { return Math.abs(x.masuk - x.qty) > 1e-9; });
-                console.log('[lihat-barang] Pencocokan per SKU (' + (sku.length - selisih.length) + '/' + sku.length + ' cocok):');
-                console.table(sku.map(function (x) {
-                    return { barcode: x.barcode, baris_faktur: x.baris, seharusnya: x.qty, di_tabel_sebelum: x.awal, bertambah: x.masuk };
-                }));
-                // Tandai di tabel modal: baris merah, kolom Keterangan berisi alasannya.
-                selisih.forEach(function (x) {
+                // Pencocokan per SKU: yang seharusnya masuk vs yang benar-benar bertambah di tabel. Halaman Erzap bisa
+                // menolak sebagian barcode (produk tidak ketemu, stok kurang, dst); alasannya dari pesan halaman.
+                laporkan_pencocokan(sku, function (x) {
                     var pesan = (hasil.alasan || {})[normal_barcode(x.barcode)] || '';
-                    x.alasan = (x.masuk > 0 ? 'Masuk ' + x.masuk + ' dari ' + x.qty : 'Ditolak') +
+                    return (x.masuk > 0 ? 'Masuk ' + x.masuk + ' dari ' + x.qty : 'Ditolak') +
                         (pesan ? ': ' + pesan : ' (tidak ada pesan dari Erzap - cek stok di gudang asal / barcode produk)');
-                    var $tr = $('#llb_hasil tr').filter(function () { return $(this).attr('data-sku') === normal_barcode(x.barcode); });
-                    $tr.addClass('llb_ditolak');
-                    var ket = x.keterangan.join('; ');
-                    $tr.children('td').last().text(x.alasan + (ket ? ' \u00b7 ' + ket : ''));
                 });
-                if (selisih.length > 0) {
-                    $('#llb_progress').text('Selesai, tapi ' + selisih.length + ' dari ' + sku.length + ' SKU tidak sesuai (baris merah).');
-                    var tabel = '<table class="llb_dialog_tabel"><tr><td><b>Barcode</b></td><td><b>Seharusnya</b></td><td><b>Masuk</b></td><td><b>Alasan</b></td></tr>' +
-                        selisih.slice(0, 15).map(function (x) {
-                            return '<tr><td>' + escape_html(x.barcode) + '</td><td>' + x.qty + '</td><td><b>' + x.masuk + '</b></td><td>' +
-                                escape_html((hasil.alasan || {})[normal_barcode(x.barcode)] || '-') + '</td></tr>';
-                        }).join('') + '</table>';
-                    info_dialog('Sebagian barang belum sesuai di tabel',
-                        '<p><b>' + (sku.length - selisih.length) + '</b> dari <b>' + sku.length + '</b> SKU masuk dengan jumlah yang sesuai.</p>' +
-                        '<p>SKU yang jumlahnya di tabel tidak sesuai:</p>' + tabel +
-                        (selisih.length > 15 ? '<p>... dan ' + (selisih.length - 15) + ' lainnya (lihat Console, F12).</p>' : '') +
-                        '<p class="llb_dialog_kecil">Baris SKU ini ditandai merah di daftar, dengan alasannya di kolom Keterangan. ' +
-                        'Barang yang sudah masuk tidak dihapus.</p>', true);
-                    return;
-                }
-                $('#llb_progress').text('Selesai: ' + sku.length + ' SKU masuk dengan jumlah yang sesuai.');
-                setTimeout(tutup_semua_modal, 800);
             });
+            }, 800, 15000);
         });
     }
 
@@ -1715,39 +1752,66 @@
                 $('#llb_progress').hide();
                 return;
             }
-            var idx = 0;
-            var total = data_tr_barang_terakhir.length;
-            var gagal_salin = [];
+            var sku = rekap_per_sku(data_lihat_barang_terakhir);
+            var tanpa_baris = {};   // normal_barcode -> true: tidak dapat baris kosong (Tambah Data gagal)
 
-            function lanjut() {
-                if (idx >= total) {
-                    $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', false);
-                    lepas_kunci_scroll();
-                    if (gagal_salin.length > 0) {
-                        $('#llb_progress').text('Selesai, tapi ' + gagal_salin.length + ' dari ' + total + ' barang tidak masuk.');
-                        info_dialog('Sebagian barang belum masuk ke tabel',
-                            '<p><b>' + (total - gagal_salin.length) + '</b> dari <b>' + total + '</b> barang disalin ke tabel.</p>' +
-                            '<p>Tidak ada baris kosong untuk barang berikut (tambah baris di halaman gagal):</p>' +
-                            daftar_html(gagal_salin.slice(0, 10)) +
-                            (gagal_salin.length > 10 ? '<p>... dan ' + (gagal_salin.length - 10) + ' lainnya.</p>' : ''), true);
+            // Salin daftar indeks baris sumber satu per satu; tiap baris ditunggu sampai halaman diam.
+            function salin_semua(daftar_idx, label, selesai) {
+                var i = 0;
+                (function lanjut() {
+                    if (i >= daftar_idx.length) {
+                        tunggu_halaman_diam(selesai, 800, 15000);
                         return;
                     }
-                    $('#llb_progress').text('Selesai: ' + total + ' barang disalin langsung ke tabel.');
-                    setTimeout(tutup_semua_modal, 800);
-                    return;
-                }
-                $('#llb_progress').text('Menyalin barang ' + (idx + 1) + ' dari ' + total + ' ...');
-                var data = data_lihat_barang_terakhir[idx] || {};
-                proses_satu_baris_v2(data_tr_barang_terakhir[idx], function (berhasil) {
-                    if (!berhasil) {
-                        gagal_salin.push(data.barcode || ('baris ' + (idx + 1)));
+                    var idx = daftar_idx[i++];
+                    var data = data_lihat_barang_terakhir[idx] || {};
+                    $('#llb_progress').text(label + ' barang ' + i + ' dari ' + daftar_idx.length + ' ...');
+                    proses_satu_baris_v2(data_tr_barang_terakhir[idx], function (berhasil) {
+                        if (!berhasil) {
+                            tanpa_baris[normal_barcode(data.barcode)] = true;
+                        }
+                        tunggu_halaman_diam(lanjut, 200, 8000);
+                    });
+                })();
+            }
+            function indeks_untuk(daftar_sku) {
+                var kunci = daftar_sku.map(function (x) { return normal_barcode(x.barcode); });
+                var hasil = [];
+                data_lihat_barang_terakhir.forEach(function (r, i) {
+                    if (kunci.indexOf(normal_barcode(r.barcode)) !== -1) {
+                        hasil.push(i);
                     }
-                    idx++;
-                    lanjut();
                 });
+                return hasil;
             }
 
-            lanjut();
+            // Ganti Outlet/Gudang memicu ajax Erzap yang bisa mereset tabel: mulai menyalin setelah halaman diam.
+            $('#llb_progress').text('Menunggu halaman selesai memuat Outlet & Gudang ...');
+            tunggu_halaman_diam(function () {
+                sku.forEach(function (x) { x.awal = total_barcode_di_tabel(x.barcode); });
+                salin_semua(data_lihat_barang_terakhir.map(function (r, i) { return i; }), 'Menyalin', function () {
+                    // SKU yang sama sekali tidak ada di tabel (mis. tabel direset halaman di tengah proses): salin ulang sekali.
+                    var hilang = hitung_masuk_per_sku(sku).filter(function (x) { return x.masuk <= 0; });
+                    var sesudah = function () {
+                        $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', false);
+                        lepas_kunci_scroll();
+                        laporkan_pencocokan(sku, function (x) {
+                            if (tanpa_baris[normal_barcode(x.barcode)]) {
+                                return 'Tidak masuk: tidak dapat baris kosong di tabel (Tambah Data gagal / lambat)';
+                            }
+                            return (x.masuk > 0 ? 'Masuk ' + x.masuk + ' dari ' + x.qty : 'Tidak masuk') +
+                                ': hilang dari tabel setelah disalin (kemungkinan tabel direset halaman, mis. saat Outlet/Gudang berubah)';
+                        });
+                    };
+                    if (hilang.length === 0) {
+                        sesudah();
+                        return;
+                    }
+                    console.warn('[lihat-barang] ' + hilang.length + ' SKU tidak ada di tabel setelah disalin, disalin ulang:',
+                        hilang.map(function (x) { return x.barcode; }));
+                    salin_semua(indeks_untuk(hilang), 'Menyalin ulang', sesudah);
+                });
+            }, 800, 15000);
         });
     }
 
