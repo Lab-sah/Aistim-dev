@@ -168,20 +168,43 @@ async function discoverRemoteFiles() {
   return files;
 }
 
+// v2.10.5: kode remote terakhir + ETag-nya disimpan (storage 'remoteCache'). Tiap sinkron dikirim
+// If-None-Match, jadi file yang tidak berubah dijawab 304 tanpa isi — sebelumnya semua script
+// (±1,6 MB) diunduh ulang tiap menit. Kalau fetch satu file gagal (offline / GitHub error),
+// dipakai kode terakhir dari GitHub, bukan salinan bundel yang lebih lama.
 async function loadRemoteScripts() {
   try {
     const files = await discoverRemoteFiles();
+    const lama = (await chrome.storage.local.get(['remoteCache'])).remoteCache || {};
+    const baru = {};
+    let berubah = false;
     const out = [];
     for (const f of files) {
+      const c = lama[f.name] && lama[f.name].url === f.url ? lama[f.name] : null;
       try {
-        const res = await fetch(bust(f.url), { cache: 'no-store' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const code = await res.text();
+        const headers = c && c.etag ? { 'If-None-Match': c.etag } : {};
+        const res = await fetch(bust(f.url), { cache: 'no-store', headers: headers });
+        let code;
+        if (res.status === 304 && c && c.etag) {
+          code = c.code;
+          baru[f.name] = c;
+        } else {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          code = await res.text();
+          baru[f.name] = { url: f.url, etag: res.headers.get('ETag') || '', code: code };
+          berubah = true;
+        }
         out.push({ file: f.name, code: code, meta: parseMetadata(code), url: f.url, source: 'remote' });
       } catch (e) {
         console.error('[Aistim] ❌ Fetch remote gagal:', f.name, e);
+        if (c) {
+          baru[f.name] = c;
+          out.push({ file: f.name, code: c.code, meta: parseMetadata(c.code), url: f.url, source: 'remote' });
+        }
       }
     }
+    // Tulis ulang hanya kalau ada file baru/berubah atau file yang keluar dari daftar
+    if (berubah || Object.keys(lama).some(n => !baru[n])) await chrome.storage.local.set({ remoteCache: baru });
     return out;
   } catch (e) {
     console.log('[Aistim] Remote sync dilewati (offline / rate limit) — pakai bundel saja');
