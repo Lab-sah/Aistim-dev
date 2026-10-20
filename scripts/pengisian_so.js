@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pengisian SO
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
+// @version      1.3.1
 // @description  Kolom "Stok Sistem" di tabel Pengisian Hasil SO: diisi otomatis dari stok gudang SO yang sedang dibuka (cari per barcode di Lihat Stok, lalu rincian stok per gudang)
 // @match        https://*.erzap.com/stok_opnams/proses_pengisian_hasil_so*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -178,9 +178,12 @@
         let outlet = '', gudang = '';
         doc.querySelectorAll('label, a.bt_detail_stok_aktifitas').forEach((el) => {
             if (el.tagName === 'LABEL') {
-                const teks = el.textContent.replace(/\s+/g, ' ').trim();
-                if (/bold|font-weight:\s*[6-9]00/i.test(el.getAttribute('style') || '')) outlet = teks;
-                else gudang = teks;
+                // buang titik dua di akhir ("GUDANG PUSAT :" -> "GUDANG PUSAT")
+                const teks = el.textContent.replace(/\s+/g, ' ').replace(/\s*:\s*$/, '').trim();
+                const tebal = /bold|font-weight:\s*[6-9]00/i.test(el.getAttribute('style') || '') ||
+                    /bold/i.test(el.className || '') || !!el.querySelector('b, strong');
+                if (tebal) outlet = teks;   // judul outlet (tebal), mis. "P12 PARTDISTRO SIDOARJO"
+                else gudang = teks;         // nama gudang, mis. "TOKO SIDOARJO"
                 return;
             }
             list.push({
@@ -235,17 +238,24 @@
 
     const rapi = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
-    // Pilih baris rincian milik gudang SO: ID dulu, lalu nama ("gudang", "outlet - gudang", atau
-    // gudang sebagai akhiran). -> { stok } atau null kalau tidak dikenali
+    // Pilih baris rincian milik gudang SO: ID dulu, lalu nama. Nama gudang SO di Erzap berbentuk
+    // "gudang - outlet" (mis. "TOKO SIDOARJO - P12 PARTDISTRO SIDOARJO"; di popup rincian: judul
+    // outlet "P12 PARTDISTRO SIDOARJO", baris gudang "TOKO SIDOARJO"). -> { stok } atau null kalau tidak dikenali
     function stokDiGudang(rincian, so) {
         let cocok = [];
         if (so.id) cocok = rincian.filter((e) => e.id === so.id);
         if (!cocok.length && so.nama) {
             const n = rapi(so.nama);
-            cocok = rincian.filter((e) => rapi(e.nama) === n || rapi(e.outlet + ' - ' + e.nama) === n);
-            // nama outlet di SO bisa beda tulisan dengan di rincian: terima kalau nama gudang menjadi
-            // bagian akhir setelah " - " (bukan sekadar termuat: "GUDANG B" tidak sama dengan "GUDANG BARU")
-            if (!cocok.length) cocok = rincian.filter((e) => rapi(e.nama).length >= 3 && n.endsWith(' - ' + rapi(e.nama)));
+            cocok = rincian.filter((e) => rapi(e.nama) === n ||
+                rapi(e.nama + ' - ' + e.outlet) === n || rapi(e.outlet + ' - ' + e.nama) === n);
+            // tulisan outlet beda / judul outlet tidak terbaca: terima kalau nama gudang menjadi awalan atau
+            // akhiran dengan pemisah " - " ("GUDANG B" tidak sama dengan "GUDANG BARU"), asal hanya SATU
+            // gudang yang cocok (kalau ada dua gudang bernama sama di outlet berbeda, jangan menebak)
+            if (!cocok.length) {
+                const kandidat = rincian.filter((e) => rapi(e.nama).length >= 3 &&
+                    (n.startsWith(rapi(e.nama) + ' - ') || n.endsWith(' - ' + rapi(e.nama))));
+                if (kandidat.length === 1) cocok = kandidat;
+            }
         }
         if (cocok.length) return { stok: cocok.reduce((a, e) => a + (isNaN(e.stok) ? 0 : e.stok), 0) };
         // ID gudang pasti tapi tidak ada di rincian = produk tidak punya stok di gudang itu
