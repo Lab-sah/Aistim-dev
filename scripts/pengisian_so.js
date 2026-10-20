@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pengisian SO
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.3.0
 // @description  Kolom "Stok Sistem" di tabel Pengisian Hasil SO: diisi otomatis dari stok gudang SO yang sedang dibuka (cari per barcode di Lihat Stok, lalu rincian stok per gudang)
 // @match        https://*.erzap.com/stok_opnams/proses_pengisian_hasil_so*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -95,9 +95,26 @@
             const nama = input && (input.name || input.id);
             if (!nama) throw new Error('Kolom filter Barcode/Nama Produk di form Lihat Stok tidak ketemu');
 
-            const dasar = new URLSearchParams(new FormData(form));
-            dasar.delete('page');
-            log('filter Lihat Stok: field "' + nama + '"');
+            // Filter dikirim BERSIH: hanya kolom barcode yang diisi. Form yang dibaca dari server bisa
+            // membawa filter terakhir dari tab lain (Erzap menyimpan di sesi login yang sama), jadi nilai
+            // bawaannya tidak dipakai: kolom teks dikosongkan, pilihan diatur ke "Semua", dan hidden input
+            // pasangan filter (outlet, gudang, supplier, kategori, merek, warna, ...) dikosongkan.
+            // Hidden input lain (konstanta form) dibiarkan.
+            const dasar = new URLSearchParams();
+            form.querySelectorAll('input[name], select[name], textarea[name]').forEach((e) => {
+                if (e.name === nama || e.name === 'page') return;
+                if (['checkbox', 'radio', 'submit', 'button', 'image', 'file'].includes(e.type)) return;
+                let nilai = '';
+                if (e.tagName === 'SELECT') {
+                    const opsi = Array.from(e.options);
+                    const semua = opsi.find((o) => /semua/i.test(o.textContent)) || opsi[0];
+                    nilai = semua ? semua.value : '';
+                } else if (e.type === 'hidden' && !/outlet|gudang|supplier|kategori|merek|warna|ukuran|satuan|rak/i.test(e.name)) {
+                    nilai = e.value;
+                }
+                dasar.set(e.name, nilai);
+            });
+            log('filter Lihat Stok: field "' + nama + '", ' + Array.from(dasar.keys()).length + ' filter lain dikosongkan');
             return { aksi: form.getAttribute('action') || URL_STOK, nama: nama, dasar: dasar };
         })();
         formLihatStok.catch(() => { formLihatStok = null; });   // gagal -> boleh dicoba lagi
@@ -236,20 +253,73 @@
     }
 
     // ---------- kolom di tabel ----------
-    function tampil(sel, teks, judul, warna) {
+    // alasan: kode singkat untuk ringkasan di atas tabel ('kosong' / 'beda' untuk "-", pesan galat untuk "?")
+    function tampil(sel, teks, judul, warna, alasan) {
         sel.textContent = teks;
         sel.title = judul || '';
+        sel.dataset.alasan = alasan || '';
         sel.style.color = warna || '#999';
         sel.style.cursor = warna === '#c00' ? 'pointer' : '';
+        jadwalRingkas();
+    }
+
+    // Ringkasan di atas tabel (title tidak muncul di HP): berapa terisi / tidak ketemu / gagal + alasannya.
+    // Ketuk ringkasan saat ada yang gagal = ulangi semua yang gagal.
+    let timerRingkas = 0;
+    function jadwalRingkas() {
+        clearTimeout(timerRingkas);
+        timerRingkas = setTimeout(ringkas, 300);
+    }
+
+    function ringkas() {
+        const semuaSel = Array.from(document.querySelectorAll('td[' + PENANDA + ']'));
+        const tabel = semuaSel.length ? semuaSel[0].closest('table') : null;
+        if (!tabel || !tabel.parentNode) return;
+        let bar = document.getElementById('aistim-stok-ringkas');
+        if (!bar || bar.nextElementSibling !== tabel) {
+            if (bar) bar.remove();
+            bar = document.createElement('div');
+            bar.id = 'aistim-stok-ringkas';
+            bar.style.cssText = 'font-size:12px;margin:4px 0;padding:4px 8px;background:#f5f5f5;border-radius:4px;';
+            bar.addEventListener('click', () => {
+                document.querySelectorAll('td[' + PENANDA + ']').forEach((s) => { if (s.textContent === '?') s.click(); });
+            });
+            tabel.parentNode.insertBefore(bar, tabel);
+        }
+        let ada = 0, memuat = 0, kosong = 0, beda = 0, gagal = 0;
+        const alasan = new Map();
+        semuaSel.forEach((s) => {
+            const t = s.textContent;
+            if (t === '…') memuat++;
+            else if (t === '-') { if (s.dataset.alasan === 'beda') beda++; else kosong++; }
+            else if (t === '?') {
+                gagal++;
+                const a = (s.dataset.alasan || '?').slice(0, 160);
+                alasan.set(a, (alasan.get(a) || 0) + 1);
+            } else ada++;
+        });
+        const bagian = [ada + ' terisi'];
+        if (memuat) bagian.push(memuat + ' memuat');
+        if (kosong || beda) bagian.push((kosong + beda) + ' tidak ketemu (' + kosong + ' tanpa hasil, ' + beda + ' ada hasil tapi barcode beda)');
+        if (gagal) bagian.push(gagal + ' gagal');
+        let teks = 'Stok Sistem: ' + bagian.join(' · ');
+        if (gagal) {
+            teks += ' — ' + Array.from(alasan).sort((a, b) => b[1] - a[1]).slice(0, 2).map((x) => x[0] + ' (' + x[1] + '×)').join('; ') +
+                ' — ketuk untuk ulangi yang gagal';
+        }
+        bar.textContent = teks;
+        bar.style.color = gagal ? '#c00' : '#555';
+        bar.style.cursor = gagal ? 'pointer' : '';
     }
 
     function isiSel(sel, tr, header) {
         const barcode = bacaBarcode(tr, header);
-        if (!barcode) { tampil(sel, '?', 'Barcode baris ini tidak terbaca', '#c00'); return; }
+        if (!barcode) { tampil(sel, '?', 'Barcode baris ini tidak terbaca', '#c00', 'barcode baris tidak terbaca'); return; }
         tampil(sel, '…', 'Mengambil stok ' + barcode);
         stokSistem(barcode).then(async (r) => {
             if (!r.ketemu) {
-                tampil(sel, '-', 'Barcode ' + barcode + ' tidak ketemu di Lihat Stok (' + r.jumlahHasil + ' hasil, tidak ada yang barcodenya sama)');
+                tampil(sel, '-', 'Barcode ' + barcode + ' tidak ketemu di Lihat Stok (' + r.jumlahHasil + ' hasil, tidak ada yang barcodenya sama)',
+                    '', r.jumlahHasil ? 'beda' : 'kosong');
                 return;
             }
             const so = bacaGudangSO();
@@ -267,7 +337,8 @@
                 '\nTotal semua gudang: ' + r.total.toLocaleString('id-ID') + '\nBarcode ' + barcode, '');
         }).catch((e) => {
             log('gagal ambil stok', barcode, e);
-            tampil(sel, '?', String((e && e.message) || e) + ' (klik untuk coba lagi)', '#c00');
+            const pesan = String((e && e.message) || e);
+            tampil(sel, '?', pesan + ' (klik untuk coba lagi)', '#c00', pesan);
         });
     }
 
