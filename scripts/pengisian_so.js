@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Pengisian SO
 // @namespace    http://tampermonkey.net/
-// @version      1.5.2
-// @description  Kolom "Validasi" (tombol) + "Selisih" di tabel Pengisian Hasil SO: setelah tombol Validasi diklik, stok sistem gudang SO diambil dari Total Stok di Lihat Stok (pencarian POST, filter barcode + gudang SO); isi kolom = Stok Aktual − stok sistem
+// @version      1.5.3
+// @description  Kolom "Validasi" (tombol) + "Selisih" di tabel Pengisian Hasil SO: setelah tombol Validasi diklik, stok sistem gudang SO diambil dari Total Stok di Lihat Stok (pencarian POST, filter barcode + gudang SO); isi kolom = Stok Aktual − stok sistem (merah bila minus, hijau bila plus/nol); selama Stok Aktual kosong tampil stok sistemnya (abu-abu)
 // @match        https://*.erzap.com/stok_opnams/proses_pengisian_hasil_so*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -25,7 +25,7 @@
     const NAMA_KOLOM = 'Selisih';
     const PENANDA = 'data-aistim-stok-sistem';
     const PENANDA_V = 'data-aistim-validasi';   // kolom tombol Validasi (tepat di kiri Selisih)
-    const VERSI = '1.5.2';   // samakan dengan @version (tampil di ringkasan supaya jelas versi mana yang jalan)
+    const VERSI = '1.5.3';   // samakan dengan @version (tampil di ringkasan supaya jelas versi mana yang jalan)
     const URL_STOK = '/produk_gudangs/lihat_stok/new';
     const URL_RINCIAN = '/produk_gudangs/detail_stok/new';
     const MAKS_PARALEL = 3;   // jumlah request Erzap (pencarian / rincian) yang jalan bersamaan
@@ -409,9 +409,9 @@
     }
 
     // ---------- nilai kolom: Stok Aktual − stok sistem ----------
-    // Stok Aktual = isian di baris yang sama. Kolom menampilkan selisihnya (+ lebih, - kurang, 0 sama) dan ikut
-    // berubah saat Stok Aktual diubah. Stok sistem sendiri TIDAK ditampilkan di kolom (hanya di tooltip), supaya
-    // hitungan tidak terpengaruh; selama Stok Aktual kosong kolom menampilkan "–" (menunggu).
+    // Stok Aktual = isian di baris yang sama. Selama kosong, kolom menampilkan stok sistem apa adanya (abu-abu);
+    // begitu diisi, kolom menampilkan selisihnya: minus = merah, plus = hijau (+ di depan), 0 = hijau; dan ikut
+    // berubah saat Stok Aktual diubah (dikosongkan lagi -> kembali stok sistem).
     function inputAktual(tr, header) {
         const bisa = (i) => ['hidden', 'checkbox', 'radio', 'submit', 'button', 'image', 'file'].indexOf(i.type) === -1;
         const idx = header ? Array.from(header.cells).findIndex((h) => /stok\s*aktual/i.test(h.textContent)) : -1;
@@ -443,11 +443,11 @@
             ['input', 'change', 'keyup'].forEach((ev) => input.addEventListener(ev, () => tampilStok(sel)));
         }
         const aktual = input ? angkaInput(input.value) : NaN;
-        if (isNaN(aktual)) { tampil(sel, '–', 'Stok Aktual belum diisi (stok sistem ' + fmt(stok) + ')\n' + sel._judul, '', 'menunggu'); return; }
+        if (isNaN(aktual)) { tampil(sel, fmt(stok), sel._judul + '\n(Stok Aktual belum diisi: yang tampil stok sistem)', '#666', 'menunggu'); return; }
         const selisih = Math.round((aktual - stok) * 1000) / 1000;
         tampil(sel, (selisih > 0 ? '+' : '') + fmt(selisih),
             'Stok aktual ' + fmt(aktual) + ' − stok sistem ' + fmt(stok) + ' = ' + fmt(selisih) + '\n' + sel._judul,
-            selisih === 0 ? '#080' : '#c60');
+            selisih < 0 ? '#d00' : '#080');
     }
 
     function setStok(sel, tr, header, stok, judul) {
@@ -500,17 +500,17 @@
             const t = s.textContent;
             if (t === '') belum++;
             else if (t === '…') memuat++;
-            else if (t === '–') menunggu++;
             else if (t === '-') { if (s.dataset.alasan === 'beda') beda++; else kosong++; }
             else if (t === '?') {
                 gagal++;
                 const a = (s.dataset.alasan || '?').slice(0, 160);
                 alasan.set(a, (alasan.get(a) || 0) + 1);
-            } else ada++;
+            } else if (s.dataset.alasan === 'menunggu') menunggu++;
+            else ada++;
         });
         const bagian = [ada + ' selisih'];
         if (belum) bagian.push(belum + ' belum divalidasi (ketuk Validasi di barisnya, atau judul kolom Validasi untuk semua)');
-        if (menunggu) bagian.push(menunggu + ' menunggu Stok Aktual diisi');
+        if (menunggu) bagian.push(menunggu + ' stok sistem (Stok Aktual belum diisi)');
         if (memuat) bagian.push(memuat + ' memuat');
         if (kosong || beda) bagian.push((kosong + beda) + ' tidak ketemu (' + kosong + ' tanpa hasil, ' + beda + ' ada hasil tapi barcode beda)');
         if (gagal) bagian.push(gagal + ' gagal');
