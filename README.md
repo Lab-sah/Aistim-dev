@@ -1,4 +1,4 @@
-# Aistim Tool v2.10.4
+# Aistim Tool v2.10.5
 
 **Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -74,7 +74,7 @@ window.addEventListener('message', ev => {
 - `background/background.js` — engine utama: load script bundel (`scripts/index.json`) + remote (GitHub API folder `scripts/`), gabung dedupe by `@name` (versi tertinggi menang), daftarkan via `chrome.userScripts` API
 - `content/content.js` — fallback untuk browser tanpa userScripts + badge handshake
 - `popup/` — UI (tampilan dari Aistim.sdk): kartu Engine + tombol sinkron 🔄, cari script, daftar script dengan saklar ON/OFF (storage key `disabledAuto` by nama file), kartu versi baru dari GitHub Releases
-- Storage keys: `disabledAuto`, `autoScripts` (+ nama/versi/match untuk popup), `syncStatus`, `effectiveScripts`, `repoListCache`, `releaseCheckCache`, `scripts` (legacy manual, tidak tampil di popup)
+- Storage keys: `disabledAuto`, `autoScripts` (+ nama/versi/match untuk popup), `syncStatus`, `effectiveScripts`, `repoListCache`, `releaseCheckCache`, `daftarHapus`. Storage `scripts` (manual, sisa popup lama) tidak dibaca lagi sejak v2.10.5
 - Toggle OFF script = tambah nama file ke `disabledAuto` — jangan hapus file-nya
 
 ## 📋 Checklist Sebelum Push (untuk AI)
@@ -149,6 +149,11 @@ Buka DevTools (F12) -> Console:
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.10.5
+- **Pemuat script "manual" dibuang** (`loadManualScripts` di `background.js`): fungsi itu mengambil kode dari URL sembarang yang tersimpan di storage `scripts` (sisa popup lama, tidak ada UI yang mengisinya lagi). Web Store tidak mengizinkan kode dari URL di luar yang ditentukan paket. Sumber script kini hanya bundel + folder `scripts/` repo ini di GitHub (auto-sync tetap sama)
+- ID script terdaftar tidak berubah (`aistim-auto-<file>`), jadi tidak ada script yang jalan dobel setelah update
+- Branch `main-v2.10.5` dibuat dari `main` v2.10.4 sebagai paket yang diajukan ke Web Store (v2.9.9 dari `main-old` masih menyuntik `<script>`, membawa izin `activeTab`, dan memuat kode manual)
 
 ## Changelog v2.10.4
 - ZIP Chrome Web Store tanpa `web_accessible_resources` (hanya dipakai fallback inject `<script>` yang sudah dibuang dari ZIP itu)

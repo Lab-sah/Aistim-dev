@@ -1,4 +1,4 @@
-const VERSION = '2.10.4';
+const VERSION = '2.10.5';
 const X_FETCH_ALLOW = ['partdistro.com'];   // host yang boleh diakses lewat jembatan x-fetch
 
 // ===== KONFIGURASI =====
@@ -202,23 +202,9 @@ function mergeScripts(bundled, remote) {
   return Object.values(byName);
 }
 
-// ===== MANUAL (legacy dari popup versi lama) =====
-async function loadManualScripts() {
-  const data = await chrome.storage.local.get(['scripts']);
-  const manual = (data.scripts || []).filter(s => s.enabled);
-  const out = [];
-  for (const s of manual) {
-    try {
-      const res = await fetch(s.url, { cache: 'no-store' });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const code = await res.text();
-      out.push({ file: s.id, code: code, meta: parseMetadata(code), url: s.url, source: 'manual', id: s.id });
-    } catch (e) {
-      console.error('[Aistim] ❌ Fetch manual gagal:', s.url, e);
-    }
-  }
-  return out;
-}
+// v2.10.5: pemuat script "manual" (URL sembarang dari storage `scripts`, sisa popup lama)
+// dibuang. Tidak ada UI yang mengisinya lagi, dan Web Store tidak mengizinkan kode dari
+// URL yang tidak ditentukan di dalam paket. Sumber script kini hanya: bundel + GitHub repo ini.
 
 // ===== SYNC UTAMA =====
 // v2.9.3: syncUserScripts() dipicu dari banyak sumber (onInstalled, onStartup,
@@ -258,12 +244,11 @@ async function syncUserScriptsSekarang() {
   const hapus = await getDaftarHapus();
   const remote = remoteMentah.filter(s => hapus.indexOf(s.file) === -1);   // mis. daftar file dari cache / GitHub API
   const bundled = await loadBundledScripts(hapus);
-  const manual = await loadManualScripts();
   if (hapus.length) console.log('[Aistim] Dihapus lewat index.json:', hapus.join(', '));
 
-  // Gabung: auto (bundled+remote) dedupe by @name; manual digabung apa adanya
+  // Gabung: bundled + remote, dedupe by @name (versi tertinggi menang)
   const merged = mergeScripts(bundled, remote);
-  const all = mergeScripts(merged, manual);
+  const all = merged;
 
   // Status untuk popup: hanya script auto (bundled/remote) yang dapat toggle disabledAuto
   // name/version/match ikut disimpan supaya popup tidak perlu fetch tiap file saat dibuka
@@ -282,15 +267,12 @@ async function syncUserScriptsSekarang() {
   });
 
   // Yang aktif = tidak di-disable via popup
-  const active = all.filter(s => {
-    if (s.source === 'manual') return true; // manual sudah difilter enabled di atas
-    return disabledAuto.indexOf(s.file) === -1;
-  });
+  const active = all.filter(s => disabledAuto.indexOf(s.file) === -1);
 
   // Daftar untuk content script fallback (browser tanpa userScripts)
   await chrome.storage.local.set({
     effectiveScripts: active.map(s => ({
-      id: (s.source === 'manual' ? s.id : 'auto-' + s.file),
+      id: 'auto-' + s.file,
       url: s.source === 'bundled' ? s.extUrl : s.url
     }))
   });
@@ -309,7 +291,7 @@ async function syncUserScriptsSekarang() {
       try {
         const code = s.code.replace(/<\/script/gi, '<\\/script');
         await chrome.userScripts.register([{
-          id: 'aistim-' + (s.source === 'manual' ? s.id : 'auto-' + s.file),
+          id: 'aistim-auto-' + s.file,
           matches: validMatchPatterns(s.meta.match),
           js: [{ code: LOAD_SHIM }, { code: code }],
           runAt: 'document_idle',
@@ -320,7 +302,7 @@ async function syncUserScriptsSekarang() {
         console.error('[Aistim] ❌ Gagal register:', s.file || s.id, e);
       }
     }
-    console.log('[Aistim] Sync selesai:', active.length, 'script aktif (' + merged.length + ' auto, ' + manual.length + ' manual)');
+    console.log('[Aistim] Sync selesai:', active.length, 'script aktif (' + merged.length + ' terdaftar)');
   } catch (e) {
     console.error('[Aistim] userScripts sync error:', e);
   }
@@ -347,10 +329,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_SYNC) syncUserScripts();
 });
 
-// Re-sync saat daftar manual / toggle auto berubah dari popup
+// Re-sync saat toggle ON/OFF dari popup berubah
 // (autoScripts & effectiveScripts sengaja TIDAK didengar — ditulis oleh sync sendiri)
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && (changes.scripts || changes.disabledAuto)) syncUserScripts();
+  if (area === 'local' && changes.disabledAuto) syncUserScripts();
 });
 
 // ===== MESSAGING =====
