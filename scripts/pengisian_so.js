@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pengisian SO
 // @namespace    http://tampermonkey.net/
-// @version      1.4.0
+// @version      1.4.1
 // @description  Kolom "Stok Sistem" di tabel Pengisian Hasil SO: diisi otomatis dari Total Stok di Lihat Stok, dengan filter barcode + gudang + outlet SO yang sedang dibuka
 // @match        https://*.erzap.com/stok_opnams/proses_pengisian_hasil_so*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -24,6 +24,7 @@
 
     const NAMA_KOLOM = 'Stok Sistem';
     const PENANDA = 'data-aistim-stok-sistem';
+    const VERSI = '1.4.1';   // samakan dengan @version (tampil di ringkasan supaya jelas versi mana yang jalan)
     const URL_STOK = '/produk_gudangs/lihat_stok/new';
     const URL_RINCIAN = '/produk_gudangs/detail_stok/new';
     const MAKS_PARALEL = 3;   // jumlah request Erzap (pencarian / rincian) yang jalan bersamaan
@@ -93,6 +94,7 @@
                     (i) => bisaDiisi(i) && /barcode|nama|cari|search|kode/i.test((i.name || '') + ' ' + (i.id || '')));
             }
             const nama = input && (input.name || input.id);
+            const namaDariId = !!input && !input.name;
             if (!nama) throw new Error('Kolom filter Barcode/Nama Produk di form Lihat Stok tidak ketemu');
 
             // Filter dikirim BERSIH: hanya kolom barcode yang diisi. Form yang dibaca dari server bisa
@@ -132,17 +134,21 @@
             log('filter Lihat Stok: field "' + nama + '", gudang "' + gudangNama + '" (' + opsiGudang.length + ' pilihan), outlet "' + outletNama +
                 '", ' + Array.from(dasar.keys()).length + ' filter lain dikosongkan');
             return { aksi: form.getAttribute('action') || URL_STOK, nama: nama, dasar: dasar,
-                gudangNama: gudangNama, opsiGudang: opsiGudang, outletNama: outletNama };
+                gudangNama: gudangNama, opsiGudang: opsiGudang, outletNama: outletNama,
+                namaDariId: namaDariId, daftarField: Array.from(dasar.keys()) };
         })();
         formLihatStok.catch(() => { formLihatStok = null; });   // gagal -> boleh dicoba lagi
         return formLihatStok;
     }
 
-    function barcodeBaris(tr) {
-        const sp = tr.querySelector('span.barcode_produk');
+    // semua barcode di satu baris hasil (produk bisa punya lebih dari satu span.barcode_produk)
+    function semuaBarcodeBaris(tr) {
         const sc = tr.querySelector('td.bt_dialog_aktifitas_stok');
-        return ((sp && sp.textContent) || (sc && sc.dataset.barcode) || '').trim().toLowerCase();
+        const daftar = Array.from(tr.querySelectorAll('span.barcode_produk')).map((x) => x.textContent.trim().toLowerCase());
+        if (sc && sc.dataset.barcode) daftar.push(sc.dataset.barcode.trim().toLowerCase());
+        return daftar.filter(Boolean);
     }
+    const barcodeBaris = (tr) => semuaBarcodeBaris(tr)[0] || '';
 
     // Nama gudang SO berbentuk "gudang - outlet": "TOKO SIDOARJO - P12 PARTDISTRO SIDOARJO"
     // -> gudang "TOKO SIDOARJO" (masuk filter Gudang), kode outlet "P12" (masuk filter Outlet)
@@ -181,9 +187,15 @@
     // (dan outlet-nya, kalau filter Outlet menerima kode; kalau hasil kosong, diulang tanpa filter outlet),
     // jadi Total Stok langsung = stok gudang SO ({ terfilter: true }). Kalau tidak bisa: tanpa filter,
     // stok per gudang diambil dari rincian stok (alur cadangan).
+    let infoFilter = '';   // ringkasan filter yang dipakai, ditampilkan di ringkasan untuk diagnosis
     async function cariStok(barcode, so) {
         const f = await siapkanForm();
         const opsi = f.gudangNama && so && (so.id || so.nama) ? pilihOpsiGudang(f.opsiGudang, so) : null;
+        infoFilter = 'field barcode "' + f.nama + '"' + (f.namaDariId ? ' (dari id, input tanpa name!)' : '') +
+            ' · gudang ' + (opsi ? '"' + opsi.teks + '" (nilai ' + opsi.value + ')'
+                : (f.gudangNama ? 'tidak cocok dari ' + f.opsiGudang.length + ' pilihan' : 'tidak ada filter gudang')) +
+            ' · outlet ' + (f.outletNama ? '"' + f.outletNama + '" = ' + (pecahNamaSO(so && so.nama).outlet || '-') : 'tidak ada filter outlet') +
+            ' · field form: ' + f.daftarField.join(', ');
         if (!opsi) return cari1(f, barcode, {});
 
         const kode = pecahNamaSO(so.nama).outlet;
@@ -222,9 +234,20 @@
         if (!tb) throw new Error('Tabel hasil Lihat Stok tidak ada (sesi habis?)');
 
         const baris = Array.from(tb.querySelectorAll('tr')).filter((tr) => tr.querySelector('td.bt_dialog_aktifitas_stok'));
-        const sama = baris.filter((tr) => barcodeBaris(tr) === barcode.toLowerCase());
-        const pakai = sama.length ? sama : (baris.length === 1 ? baris : []);
-        if (!pakai.length) return { ketemu: false, jumlahHasil: baris.length };
+        const sama = baris.filter((tr) => semuaBarcodeBaris(tr).indexOf(barcode.toLowerCase()) !== -1);
+        let pakai = sama;
+        if (!pakai.length && baris.length) {
+            // tidak ada barcode yang sama persis: terima kalau semua baris hasil milik SATU produk
+            // (mis. barcode yang dicari adalah barcode kedua produk itu, satu produk bisa tampil di beberapa baris)
+            const idProduk = new Set(baris.map((tr) => tr.querySelector('td.bt_dialog_aktifitas_stok').dataset.prd || ''));
+            if (baris.length === 1 || (idProduk.size === 1 && !idProduk.has(''))) pakai = baris;
+        }
+        if (!pakai.length) {
+            // contoh untuk diagnosis di ringkasan: pencarian, jumlah baris, barcode yang dikembalikan server
+            const param = Array.from(p.entries()).filter((e) => e[1] !== '').map((e) => e[0] + '=' + e[1]).join('&');
+            return { ketemu: false, jumlahHasil: baris.length,
+                contoh: { cari: barcode, jumlah: baris.length, barcode: baris.slice(0, 4).map(barcodeBaris), param: param } };
+        }
 
         // total = jumlah stok semua baris cocok (satu baris per produk/outlet/gudang, tanpa dobel);
         // produk = daftar {prd, otl} unik untuk meminta rincian per gudang
@@ -355,6 +378,21 @@
         jadwalRingkas();
     }
 
+    const contohBeda = new Map();   // barcode -> { cari, jumlah, barcode[], param } dari hasil "ada hasil tapi barcode beda"
+
+    // Dua baris diagnosis di bawah ringkasan, hanya kalau ada yang "barcode beda": contoh pencarian + hasilnya,
+    // dan apakah server tampak mengabaikan filter barcode (semua pencarian mengembalikan daftar yang sama).
+    function diagnosis() {
+        const daftar = Array.from(contohBeda.values());
+        if (!daftar.length) return '';
+        const c = daftar[0];
+        const tanda = (x) => x.jumlah + '|' + x.barcode.join(',');
+        const sama = daftar.length >= 2 && new Set(daftar.map(tanda)).size === 1;
+        return (sama ? 'Server mengembalikan DAFTAR YANG SAMA untuk ' + daftar.length + ' pencarian berbeda → filter barcode tampak diabaikan. ' : '') +
+            'Contoh: cari "' + c.cari + '" → ' + c.jumlah + ' baris, barcode hasil: ' + (c.barcode.join(', ') || '-') +
+            (c.jumlah > c.barcode.length ? ', …' : '') + '. Param: ' + c.param.slice(0, 220) + '. ' + infoFilter.slice(0, 400);
+    }
+
     // Ringkasan di atas tabel (title tidak muncul di HP): berapa terisi / tidak ketemu / gagal + alasannya.
     // Ketuk ringkasan saat ada yang gagal = ulangi semua yang gagal.
     let timerRingkas = 0;
@@ -394,12 +432,19 @@
         if (memuat) bagian.push(memuat + ' memuat');
         if (kosong || beda) bagian.push((kosong + beda) + ' tidak ketemu (' + kosong + ' tanpa hasil, ' + beda + ' ada hasil tapi barcode beda)');
         if (gagal) bagian.push(gagal + ' gagal');
-        let teks = 'Stok Sistem: ' + bagian.join(' · ');
+        let teks = 'Stok Sistem v' + VERSI + ': ' + bagian.join(' · ');
         if (gagal) {
             teks += ' — ' + Array.from(alasan).sort((a, b) => b[1] - a[1]).slice(0, 2).map((x) => x[0] + ' (' + x[1] + '×)').join('; ') +
                 ' — ketuk untuk ulangi yang gagal';
         }
         bar.textContent = teks;
+        const dx = diagnosis();
+        if (dx) {
+            const d = document.createElement('div');
+            d.style.cssText = 'font-size:10px;margin-top:3px;color:#666;word-break:break-all;';
+            d.textContent = dx;
+            bar.appendChild(d);
+        }
         bar.style.color = gagal ? '#c00' : '#555';
         bar.style.cursor = gagal ? 'pointer' : '';
     }
@@ -410,6 +455,7 @@
         tampil(sel, '…', 'Mengambil stok ' + barcode);
         stokSistem(barcode).then(async (r) => {
             if (!r.ketemu) {
+                if (r.contoh) contohBeda.set(r.contoh.cari, r.contoh);
                 tampil(sel, '-', 'Barcode ' + barcode + (r.terfilter ? ' tidak ketemu di Lihat Stok untuk gudang ' + r.gudangTeks : ' tidak ketemu di Lihat Stok') +
                     ' (' + r.jumlahHasil + ' hasil, tidak ada yang barcodenya sama)', '', r.jumlahHasil ? 'beda' : 'kosong');
                 return;
