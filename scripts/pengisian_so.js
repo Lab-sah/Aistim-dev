@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Pengisian SO
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
-// @description  Kolom "Stok Sistem" di tabel Pengisian Hasil SO: diisi otomatis dari total stok di halaman Lihat Stok (cari per barcode)
+// @version      1.2.0
+// @description  Kolom "Stok Sistem" di tabel Pengisian Hasil SO: diisi otomatis dari stok gudang SO yang sedang dibuka (cari per barcode di Lihat Stok, lalu rincian stok per gudang)
 // @match        https://*.erzap.com/stok_opnams/proses_pengisian_hasil_so*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -17,13 +17,16 @@
     //
     // Isi kolom: tiap baris -> barcode -> cari di Lihat Stok (GET /produk_gudangs/lihat_stok/new
     // dengan filter "Barcode/Nama Produk/Kode Ref", sama seperti yang dilakukan rakstok.js) ->
-    // ambil stok dari sel td.bt_dialog_aktifitas_stok. Nama field filter dibaca dari form Lihat Stok
-    // sendiri (lewat teks labelnya), jadi tidak ditulis mati di sini.
+    // ambil ID produk dari sel td.bt_dialog_aktifitas_stok -> rincian stok per outlet/gudang
+    // (GET /produk_gudangs/detail_stok/new, popup yang muncul saat angka stok diklik, dibaca seperti
+    // di rakstok.js) -> tampilkan stok di gudang SO yang sedang dibuka. Nama field filter dibaca dari
+    // form Lihat Stok sendiri (lewat teks labelnya), jadi tidak ditulis mati di sini.
 
     const NAMA_KOLOM = 'Stok Sistem';
     const PENANDA = 'data-aistim-stok-sistem';
     const URL_STOK = '/produk_gudangs/lihat_stok/new';
-    const MAKS_PARALEL = 3;   // jumlah pencarian Lihat Stok yang jalan bersamaan
+    const URL_RINCIAN = '/produk_gudangs/detail_stok/new';
+    const MAKS_PARALEL = 3;   // jumlah request Erzap (pencarian / rincian) yang jalan bersamaan
 
     function log(...a) { console.log('[Aistim] Pengisian SO:', ...a); }
 
@@ -124,8 +127,10 @@
         const pakai = sama.length ? sama : (baris.length === 1 ? baris : []);
         if (!pakai.length) return { ketemu: false, jumlahHasil: baris.length };
 
-        // total = jumlah stok semua baris cocok (satu baris per produk/outlet/gudang, tanpa dobel)
+        // total = jumlah stok semua baris cocok (satu baris per produk/outlet/gudang, tanpa dobel);
+        // produk = daftar {prd, otl} unik untuk meminta rincian per gudang
         const dilihat = new Set();
+        const produk = [];
         let total = 0;
         for (const tr of pakai) {
             const sc = tr.querySelector('td.bt_dialog_aktifitas_stok');
@@ -134,28 +139,100 @@
             dilihat.add(kunci);
             const n = angka(sc.textContent);
             if (!isNaN(n)) total += n;
+            const kp = (sc.dataset.prd || '') + '|' + (sc.dataset.otl || '');
+            if (sc.dataset.prd && !produk.some((x) => x.kunci === kp)) produk.push({ kunci: kp, prd: sc.dataset.prd, otl: sc.dataset.otl || '' });
         }
-        return { ketemu: true, total: total };
+        return { ketemu: true, total: total, produk: produk };
     }
 
-    // antrean: maks MAKS_PARALEL pencarian bersamaan, satu pencarian per barcode (hasil di-cache)
+    // Rincian stok satu produk: label tebal = outlet, label biasa = gudang, lalu
+    // <a class="bt_detail_stok_aktifitas" data-gdn> = stok gudang itu (sama dengan popup "detail stok").
+    // -> [{ id, nama, outlet, stok }]
+    async function ambilRincian(prd, otl) {
+        const qs = new URLSearchParams({ idproduk: prd, idgudang: '', idoutlet: otl });
+        const res = await fetch(URL_RINCIAN + '?' + qs.toString(), {
+            credentials: 'same-origin',
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/plain, */*; q=0.01' }
+        });
+        if (!res.ok) throw new Error('Rincian stok HTTP ' + res.status);
+        const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+        doc.querySelectorAll('script, style').forEach((x) => x.remove());
+        const list = [];
+        let outlet = '', gudang = '';
+        doc.querySelectorAll('label, a.bt_detail_stok_aktifitas').forEach((el) => {
+            if (el.tagName === 'LABEL') {
+                const teks = el.textContent.replace(/\s+/g, ' ').trim();
+                if (/bold|font-weight:\s*[6-9]00/i.test(el.getAttribute('style') || '')) outlet = teks;
+                else gudang = teks;
+                return;
+            }
+            list.push({
+                id: el.getAttribute('data-gdn') || '',
+                nama: gudang || el.getAttribute('data-gudang-nama') || '',
+                outlet: outlet,
+                stok: angka(el.textContent)
+            });
+            gudang = '';
+        });
+        return list;
+    }
+
+    // antrean: maks MAKS_PARALEL request bersamaan; hasil di-cache per kunci (barcode / produk)
     const antre = [];
     let berjalan = 0;
     function pompa() {
         while (berjalan < MAKS_PARALEL && antre.length) {
             const t = antre.shift();
             berjalan++;
-            cariStok(t.barcode).then(t.ok, t.gagal).finally(() => { berjalan--; pompa(); });
+            t.kerja().then(t.ok, t.gagal).finally(() => { berjalan--; pompa(); });
         }
     }
-    const cache = new Map();
-    function stokSistem(barcode) {
-        if (!cache.has(barcode)) {
-            const p = new Promise((ok, gagal) => { antre.push({ barcode: barcode, ok: ok, gagal: gagal }); pompa(); });
-            p.catch(() => cache.delete(barcode));   // gagal -> boleh dicoba lagi
-            cache.set(barcode, p);
+    function dariCache(peta, kunci, kerja) {
+        if (!peta.has(kunci)) {
+            const p = new Promise((ok, gagal) => { antre.push({ kerja: kerja, ok: ok, gagal: gagal }); pompa(); });
+            p.catch(() => peta.delete(kunci));   // gagal -> boleh dicoba lagi
+            peta.set(kunci, p);
         }
-        return cache.get(barcode);
+        return peta.get(kunci);
+    }
+    const cachePencarian = new Map();
+    const cacheRincian = new Map();
+    const stokSistem = (barcode) => dariCache(cachePencarian, barcode, () => cariStok(barcode));
+    const rincianProduk = (p) => dariCache(cacheRincian, p.kunci, () => ambilRincian(p.prd, p.otl));
+
+    // ---------- gudang SO yang sedang dibuka ----------
+    // ID dari input tersembunyi form SO (stok_opnam_idgudang) kalau ada; nama dari tulisan
+    // "Gudang : <nama>" di atas tabel (mis. "TOKO SIDOARJO - P12 PARTDISTRO SIDOARJO").
+    function bacaGudangSO() {
+        const wadah = document.getElementById('form_container') || document.body;
+        let id = '';
+        const el = document.getElementById('stok_opnam_idgudang') || wadah.querySelector('[name$="[idgudang]"]');
+        if (el && /^\d+$/.test(String(el.value || '').trim())) id = String(el.value).trim();
+        let terkecil = '';
+        wadah.querySelectorAll('*').forEach((e) => {
+            const t = (e.textContent || '').replace(/\s+/g, ' ').trim();
+            if (t.length < 250 && /^gudang\s*:/i.test(t) && (!terkecil || t.length < terkecil.length)) terkecil = t;
+        });
+        return { id: id, nama: terkecil.replace(/^gudang\s*:\s*/i, '').trim() };
+    }
+
+    const rapi = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+    // Pilih baris rincian milik gudang SO: ID dulu, lalu nama ("gudang", "outlet - gudang", atau
+    // gudang sebagai akhiran). -> { stok } atau null kalau tidak dikenali
+    function stokDiGudang(rincian, so) {
+        let cocok = [];
+        if (so.id) cocok = rincian.filter((e) => e.id === so.id);
+        if (!cocok.length && so.nama) {
+            const n = rapi(so.nama);
+            cocok = rincian.filter((e) => rapi(e.nama) === n || rapi(e.outlet + ' - ' + e.nama) === n);
+            // nama outlet di SO bisa beda tulisan dengan di rincian: terima kalau nama gudang menjadi
+            // bagian akhir setelah " - " (bukan sekadar termuat: "GUDANG B" tidak sama dengan "GUDANG BARU")
+            if (!cocok.length) cocok = rincian.filter((e) => rapi(e.nama).length >= 3 && n.endsWith(' - ' + rapi(e.nama)));
+        }
+        if (cocok.length) return { stok: cocok.reduce((a, e) => a + (isNaN(e.stok) ? 0 : e.stok), 0) };
+        // ID gudang pasti tapi tidak ada di rincian = produk tidak punya stok di gudang itu
+        return so.id ? { stok: 0, kosong: true } : null;
     }
 
     // ---------- kolom di tabel ----------
@@ -170,9 +247,24 @@
         const barcode = bacaBarcode(tr, header);
         if (!barcode) { tampil(sel, '?', 'Barcode baris ini tidak terbaca', '#c00'); return; }
         tampil(sel, '…', 'Mengambil stok ' + barcode);
-        stokSistem(barcode).then((r) => {
-            if (r.ketemu) tampil(sel, r.total.toLocaleString('id-ID'), 'Total stok sistem ' + barcode + ' (dari Lihat Stok)', '');
-            else tampil(sel, '-', 'Barcode ' + barcode + ' tidak ketemu di Lihat Stok (' + r.jumlahHasil + ' hasil, tidak ada yang barcodenya sama)');
+        stokSistem(barcode).then(async (r) => {
+            if (!r.ketemu) {
+                tampil(sel, '-', 'Barcode ' + barcode + ' tidak ketemu di Lihat Stok (' + r.jumlahHasil + ' hasil, tidak ada yang barcodenya sama)');
+                return;
+            }
+            const so = bacaGudangSO();
+            if (!so.id && !so.nama) throw new Error('Gudang SO tidak terbaca di halaman');
+            if (!r.produk.length) throw new Error('ID produk tidak ada di hasil Lihat Stok');
+            const rincian = [].concat(...await Promise.all(r.produk.map(rincianProduk)));
+            const g = stokDiGudang(rincian, so);
+            if (!g) {
+                const daftar = rincian.map((e) => e.outlet + ' - ' + e.nama).join('; ') || 'kosong';
+                log('gudang SO tidak cocok', so, 'rincian:', rincian);
+                throw new Error('Gudang SO "' + so.nama + '" tidak dikenali di rincian stok: ' + daftar);
+            }
+            tampil(sel, g.stok.toLocaleString('id-ID'),
+                'Stok di gudang ' + (so.nama || '#' + so.id) + (g.kosong ? ' (tidak ada di rincian, dianggap 0)' : '') +
+                '\nTotal semua gudang: ' + r.total.toLocaleString('id-ID') + '\nBarcode ' + barcode, '');
         }).catch((e) => {
             log('gagal ambil stok', barcode, e);
             tampil(sel, '?', String((e && e.message) || e) + ' (klik untuk coba lagi)', '#c00');
