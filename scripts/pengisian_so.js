@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Pengisian SO
 // @namespace    http://tampermonkey.net/
-// @version      1.3.1
-// @description  Kolom "Stok Sistem" di tabel Pengisian Hasil SO: diisi otomatis dari stok gudang SO yang sedang dibuka (cari per barcode di Lihat Stok, lalu rincian stok per gudang)
+// @version      1.4.0
+// @description  Kolom "Stok Sistem" di tabel Pengisian Hasil SO: diisi otomatis dari Total Stok di Lihat Stok, dengan filter barcode + gudang + outlet SO yang sedang dibuka
 // @match        https://*.erzap.com/stok_opnams/proses_pengisian_hasil_so*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -114,8 +114,25 @@
                 }
                 dasar.set(e.name, nilai);
             });
-            log('filter Lihat Stok: field "' + nama + '", ' + Array.from(dasar.keys()).length + ' filter lain dikosongkan');
-            return { aksi: form.getAttribute('action') || URL_STOK, nama: nama, dasar: dasar };
+            // Filter Gudang (select) dan Outlet (kolom teks pencarian), dicari lewat tulisan labelnya.
+            // Dipakai untuk membatasi hasil ke gudang & outlet SO (lihat cariStok).
+            const labelDi = (re) => Array.from(form.querySelectorAll('*'))
+                .find((e) => !e.children.length && e.tagName !== 'OPTION' && re.test(e.textContent));
+            const sesudah = (p, daftar) => Array.from(daftar).find((x) => p.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING);
+            const pGudang = labelDi(/^\s*gudang\s*:?\s*$/i);
+            const selGudang = pGudang && sesudah(pGudang, form.querySelectorAll('select'));
+            const gudangNama = selGudang && /semua/i.test(selGudang.textContent) ? (selGudang.name || selGudang.id) : '';
+            const opsiGudang = gudangNama
+                ? Array.from(selGudang.options).map((o) => ({ value: o.value, teks: o.textContent.replace(/\s+/g, ' ').trim() }))
+                : [];
+            const pOutlet = labelDi(/^\s*outlet\s*:?\s*$/i);
+            const inpOutlet = pOutlet && sesudah(pOutlet, Array.from(form.querySelectorAll('input')).filter(bisaDiisi));
+            const outletNama = inpOutlet ? (inpOutlet.name || inpOutlet.id) : '';
+
+            log('filter Lihat Stok: field "' + nama + '", gudang "' + gudangNama + '" (' + opsiGudang.length + ' pilihan), outlet "' + outletNama +
+                '", ' + Array.from(dasar.keys()).length + ' filter lain dikosongkan');
+            return { aksi: form.getAttribute('action') || URL_STOK, nama: nama, dasar: dasar,
+                gudangNama: gudangNama, opsiGudang: opsiGudang, outletNama: outletNama };
         })();
         formLihatStok.catch(() => { formLihatStok = null; });   // gagal -> boleh dicoba lagi
         return formLihatStok;
@@ -127,11 +144,76 @@
         return ((sp && sp.textContent) || (sc && sc.dataset.barcode) || '').trim().toLowerCase();
     }
 
-    // -> { ketemu: false } atau { ketemu: true, total: <angka> }
-    async function cariStok(barcode) {
+    // Nama gudang SO berbentuk "gudang - outlet": "TOKO SIDOARJO - P12 PARTDISTRO SIDOARJO"
+    // -> gudang "TOKO SIDOARJO" (masuk filter Gudang), kode outlet "P12" (masuk filter Outlet)
+    function pecahNamaSO(nama) {
+        nama = String(nama || '').trim();
+        const i = nama.lastIndexOf(' - ');
+        if (i < 0) return { gudang: nama, outlet: '' };
+        return { gudang: nama.slice(0, i).trim(), outlet: (nama.slice(i + 3).trim().match(/^\S+/) || [''])[0] };
+    }
+
+    // Pilihan filter Gudang yang sesuai gudang SO: ID dulu, lalu tulisan pilihan = nama gudang,
+    // = nama SO lengkap, atau diawali "nama gudang - ". Kalau di satu tingkat ada lebih dari satu
+    // pilihan, dipersempit dengan kode outlet; kalau tetap lebih dari satu -> null (jangan menebak).
+    function pilihOpsiGudang(opsi, so) {
+        const b = pecahNamaSO(so.nama);
+        const gud = rapi(b.gudang), penuh = rapi(so.nama), kode = rapi(b.outlet);
+        const tingkat = [
+            (o) => !!so.id && o.value === so.id,
+            (o) => !!gud && rapi(o.teks) === gud,
+            (o) => !!penuh && rapi(o.teks) === penuh,
+            (o) => !!gud && rapi(o.teks).startsWith(gud + ' - ')
+        ];
+        for (const cocokTingkat of tingkat) {
+            let c = opsi.filter((o) => o.value !== '' && cocokTingkat(o));
+            if (c.length > 1 && kode) {
+                const sempit = c.filter((o) => rapi(o.teks).split(' ').indexOf(kode) !== -1);
+                if (sempit.length === 1) c = sempit;
+            }
+            if (c.length === 1) return c[0];
+            if (c.length > 1) return null;
+        }
+        return null;
+    }
+
+    // Cari barcode di Lihat Stok. Kalau filter Gudang SO bisa dipilih: hasil dibatasi ke gudang itu
+    // (dan outlet-nya, kalau filter Outlet menerima kode; kalau hasil kosong, diulang tanpa filter outlet),
+    // jadi Total Stok langsung = stok gudang SO ({ terfilter: true }). Kalau tidak bisa: tanpa filter,
+    // stok per gudang diambil dari rincian stok (alur cadangan).
+    async function cariStok(barcode, so) {
         const f = await siapkanForm();
+        const opsi = f.gudangNama && so && (so.id || so.nama) ? pilihOpsiGudang(f.opsiGudang, so) : null;
+        if (!opsi) return cari1(f, barcode, {});
+
+        const kode = pecahNamaSO(so.nama).outlet;
+        const percobaan = [];
+        if (f.outletNama && kode) {
+            const t = {}; t[f.gudangNama] = opsi.value; t[f.outletNama] = kode;
+            percobaan.push({ tambahan: t, denganOutlet: true });
+        }
+        const g = {}; g[f.gudangNama] = opsi.value;
+        percobaan.push({ tambahan: g, denganOutlet: false });
+
+        let terakhir = null;
+        for (const c of percobaan) {
+            try {
+                terakhir = await cari1(f, barcode, c.tambahan);
+            } catch (e) {
+                // server menolak filter outlet berupa teks: ulangi hanya dengan filter gudang
+                if (c.denganOutlet) { log('filter outlet "' + kode + '" ditolak, coba gudang saja', e); continue; }
+                throw e;
+            }
+            if (terakhir.ketemu) return Object.assign(terakhir, { terfilter: true, gudangTeks: opsi.teks, denganOutlet: c.denganOutlet, kodeOutlet: kode });
+        }
+        return Object.assign(terakhir, { terfilter: true, gudangTeks: opsi.teks });
+    }
+
+    // -> { ketemu: false } atau { ketemu: true, total: <angka>, produk: [...] }
+    async function cari1(f, barcode, tambahan) {
         const p = new URLSearchParams(f.dasar);
         p.set(f.nama, barcode);
+        Object.keys(tambahan).forEach((k) => p.set(k, tambahan[k]));
         const res = await fetch(f.aksi + (f.aksi.indexOf('?') === -1 ? '?' : '&') + p.toString(),
             { credentials: 'same-origin', headers: { Accept: 'text/html' } });
         if (!res.ok) throw new Error('Lihat Stok HTTP ' + res.status);
@@ -217,7 +299,7 @@
     }
     const cachePencarian = new Map();
     const cacheRincian = new Map();
-    const stokSistem = (barcode) => dariCache(cachePencarian, barcode, () => cariStok(barcode));
+    const stokSistem = (barcode) => dariCache(cachePencarian, barcode, () => cariStok(barcode, bacaGudangSO()));
     const rincianProduk = (p) => dariCache(cacheRincian, p.kunci, () => ambilRincian(p.prd, p.otl));
 
     // ---------- gudang SO yang sedang dibuka ----------
@@ -328,10 +410,18 @@
         tampil(sel, '…', 'Mengambil stok ' + barcode);
         stokSistem(barcode).then(async (r) => {
             if (!r.ketemu) {
-                tampil(sel, '-', 'Barcode ' + barcode + ' tidak ketemu di Lihat Stok (' + r.jumlahHasil + ' hasil, tidak ada yang barcodenya sama)',
-                    '', r.jumlahHasil ? 'beda' : 'kosong');
+                tampil(sel, '-', 'Barcode ' + barcode + (r.terfilter ? ' tidak ketemu di Lihat Stok untuk gudang ' + r.gudangTeks : ' tidak ketemu di Lihat Stok') +
+                    ' (' + r.jumlahHasil + ' hasil, tidak ada yang barcodenya sama)', '', r.jumlahHasil ? 'beda' : 'kosong');
                 return;
             }
+            if (r.terfilter && r.ketemu) {
+                // hasil Lihat Stok sudah dibatasi ke gudang SO: Total Stok = stok gudang itu
+                tampil(sel, r.total.toLocaleString('id-ID'),
+                    'Stok di gudang ' + r.gudangTeks + (r.denganOutlet ? ', outlet ' + r.kodeOutlet : '') +
+                    ' (filter Lihat Stok)\nBarcode ' + barcode, '');
+                return;
+            }
+            // cadangan: filter gudang tidak bisa dipilih -> rincian stok per gudang
             const so = bacaGudangSO();
             if (!so.id && !so.nama) throw new Error('Gudang SO tidak terbaca di halaman');
             if (!r.produk.length) throw new Error('ID produk tidak ada di hasil Lihat Stok');
