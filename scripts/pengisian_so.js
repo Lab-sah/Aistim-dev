@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Pengisian SO
 // @namespace    http://tampermonkey.net/
-// @version      1.5.1
-// @description  Kolom "Validasi" (tombol) + "Stok Sistem" di tabel Pengisian Hasil SO: setelah tombol Validasi diklik, stok gudang SO diambil dari Total Stok di Lihat Stok (pencarian POST seperti tombol Filter, filter barcode + gudang SO yang dibuka)
+// @version      1.5.2
+// @description  Kolom "Validasi" (tombol) + "Selisih" di tabel Pengisian Hasil SO: setelah tombol Validasi diklik, stok sistem gudang SO diambil dari Total Stok di Lihat Stok (pencarian POST, filter barcode + gudang SO); isi kolom = Stok Aktual − stok sistem
 // @match        https://*.erzap.com/stok_opnams/proses_pengisian_hasil_so*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -22,10 +22,10 @@
     // di rakstok.js) -> tampilkan stok di gudang SO yang sedang dibuka. Nama field filter dibaca dari
     // form Lihat Stok sendiri (lewat teks labelnya), jadi tidak ditulis mati di sini.
 
-    const NAMA_KOLOM = 'Stok Sistem';
+    const NAMA_KOLOM = 'Selisih';
     const PENANDA = 'data-aistim-stok-sistem';
-    const PENANDA_V = 'data-aistim-validasi';   // kolom tombol Validasi (tepat di kiri Stok Sistem)
-    const VERSI = '1.5.1';   // samakan dengan @version (tampil di ringkasan supaya jelas versi mana yang jalan)
+    const PENANDA_V = 'data-aistim-validasi';   // kolom tombol Validasi (tepat di kiri Selisih)
+    const VERSI = '1.5.2';   // samakan dengan @version (tampil di ringkasan supaya jelas versi mana yang jalan)
     const URL_STOK = '/produk_gudangs/lihat_stok/new';
     const URL_RINCIAN = '/produk_gudangs/detail_stok/new';
     const MAKS_PARALEL = 3;   // jumlah request Erzap (pencarian / rincian) yang jalan bersamaan
@@ -408,6 +408,54 @@
         jadwalRingkas();
     }
 
+    // ---------- nilai kolom: Stok Aktual − stok sistem ----------
+    // Stok Aktual = isian di baris yang sama. Kolom menampilkan selisihnya (+ lebih, - kurang, 0 sama) dan ikut
+    // berubah saat Stok Aktual diubah. Stok sistem sendiri TIDAK ditampilkan di kolom (hanya di tooltip), supaya
+    // hitungan tidak terpengaruh; selama Stok Aktual kosong kolom menampilkan "–" (menunggu).
+    function inputAktual(tr, header) {
+        const bisa = (i) => ['hidden', 'checkbox', 'radio', 'submit', 'button', 'image', 'file'].indexOf(i.type) === -1;
+        const idx = header ? Array.from(header.cells).findIndex((h) => /stok\s*aktual/i.test(h.textContent)) : -1;
+        if (idx >= 0) {
+            for (const k of [idx, idx + 1, idx - 1]) {
+                const c = k >= 0 ? tr.cells[k] : null;
+                const i = c && Array.from(c.querySelectorAll('input')).find(bisa);
+                if (i) return i;
+            }
+        }
+        return Array.from(tr.querySelectorAll('input')).find((i) => bisa(i) && !i.closest('td[' + PENANDA + ']')) || null;
+    }
+
+    function angkaInput(v) {
+        v = String(v || '').trim();
+        if (!v) return NaN;
+        if (/^-?\d+\.\d{1,2}$/.test(v)) return parseFloat(v);   // "3.5" = desimal bergaya titik
+        return angka(v);
+    }
+
+    const fmt = (n) => n.toLocaleString('id-ID');
+
+    function tampilStok(sel) {
+        const stok = sel._stok;
+        if (typeof stok !== 'number') return;
+        const input = inputAktual(sel._tr, sel._header);
+        if (input && !input.dataset.aistimAktual) {
+            input.dataset.aistimAktual = '1';
+            ['input', 'change', 'keyup'].forEach((ev) => input.addEventListener(ev, () => tampilStok(sel)));
+        }
+        const aktual = input ? angkaInput(input.value) : NaN;
+        if (isNaN(aktual)) { tampil(sel, '–', 'Stok Aktual belum diisi (stok sistem ' + fmt(stok) + ')\n' + sel._judul, '', 'menunggu'); return; }
+        const selisih = Math.round((aktual - stok) * 1000) / 1000;
+        tampil(sel, (selisih > 0 ? '+' : '') + fmt(selisih),
+            'Stok aktual ' + fmt(aktual) + ' − stok sistem ' + fmt(stok) + ' = ' + fmt(selisih) + '\n' + sel._judul,
+            selisih === 0 ? '#080' : '#c60');
+    }
+
+    function setStok(sel, tr, header, stok, judul) {
+        sel._tr = tr; sel._header = header; sel._stok = stok; sel._judul = judul;
+        sel.dataset.stok = String(stok);   // stok sistem mentah (untuk uji / pemeriksaan di DevTools)
+        tampilStok(sel);
+    }
+
     const contohBeda = new Map();   // barcode -> { cari, jumlah, barcode[], param } dari hasil "ada hasil tapi barcode beda"
 
     // Dua baris diagnosis di bawah ringkasan, hanya kalau ada yang "barcode beda": contoh pencarian + hasilnya,
@@ -446,12 +494,13 @@
             });
             tabel.parentNode.insertBefore(bar, tabel);
         }
-        let ada = 0, belum = 0, memuat = 0, kosong = 0, beda = 0, gagal = 0;
+        let ada = 0, belum = 0, menunggu = 0, memuat = 0, kosong = 0, beda = 0, gagal = 0;
         const alasan = new Map();
         semuaSel.forEach((s) => {
             const t = s.textContent;
             if (t === '') belum++;
             else if (t === '…') memuat++;
+            else if (t === '–') menunggu++;
             else if (t === '-') { if (s.dataset.alasan === 'beda') beda++; else kosong++; }
             else if (t === '?') {
                 gagal++;
@@ -459,12 +508,13 @@
                 alasan.set(a, (alasan.get(a) || 0) + 1);
             } else ada++;
         });
-        const bagian = [ada + ' terisi'];
+        const bagian = [ada + ' selisih'];
         if (belum) bagian.push(belum + ' belum divalidasi (ketuk Validasi di barisnya, atau judul kolom Validasi untuk semua)');
+        if (menunggu) bagian.push(menunggu + ' menunggu Stok Aktual diisi');
         if (memuat) bagian.push(memuat + ' memuat');
         if (kosong || beda) bagian.push((kosong + beda) + ' tidak ketemu (' + kosong + ' tanpa hasil, ' + beda + ' ada hasil tapi barcode beda)');
         if (gagal) bagian.push(gagal + ' gagal');
-        let teks = 'Stok Sistem v' + VERSI + ': ' + bagian.join(' · ');
+        let teks = 'Selisih v' + VERSI + ': ' + bagian.join(' · ');
         if (gagal) {
             teks += ' — ' + Array.from(alasan).sort((a, b) => b[1] - a[1]).slice(0, 2).map((x) => x[0] + ' (' + x[1] + '×)').join('; ') +
                 ' — ketuk untuk ulangi yang gagal';
@@ -485,6 +535,7 @@
         const barcode = bacaBarcode(tr, header);
         if (!barcode) { tampil(sel, '?', 'Barcode baris ini tidak terbaca', '#c00', 'barcode baris tidak terbaca'); return; }
         if (paksa) { cachePencarian.delete(barcode); cacheRincian.clear(); contohBeda.delete(barcode); }   // validasi ulang = ambil lagi dari server
+        sel._stok = undefined;   // selama memuat / gagal, ketikan di Stok Aktual tidak mengubah isi sel
         tampil(sel, '…', 'Mengambil stok ' + barcode);
         stokSistem(barcode).then(async (r) => {
             if (!r.ketemu) {
@@ -495,9 +546,9 @@
             }
             if (r.terfilter && r.ketemu) {
                 // hasil Lihat Stok sudah dibatasi ke gudang SO: Total Stok = stok gudang itu
-                tampil(sel, r.total.toLocaleString('id-ID'),
-                    'Stok di gudang ' + r.gudangTeks + (r.kodeOutlet ? ' (outlet ' + r.kodeOutlet + ')' : '') +
-                    ' (filter Lihat Stok)\nBarcode ' + barcode, '');
+                setStok(sel, tr, header, r.total,
+                    'Stok sistem di gudang ' + r.gudangTeks + (r.kodeOutlet ? ' (outlet ' + r.kodeOutlet + ')' : '') +
+                    ' (filter Lihat Stok)\nBarcode ' + barcode);
                 return;
             }
             // cadangan: filter gudang tidak bisa dipilih -> rincian stok per gudang
@@ -511,9 +562,9 @@
                 log('gudang SO tidak cocok', so, 'rincian:', rincian);
                 throw new Error('Gudang SO "' + so.nama + '" tidak dikenali di rincian stok: ' + daftar);
             }
-            tampil(sel, g.stok.toLocaleString('id-ID'),
-                'Stok di gudang ' + (so.nama || '#' + so.id) + (g.kosong ? ' (tidak ada di rincian, dianggap 0)' : '') +
-                '\nTotal semua gudang: ' + r.total.toLocaleString('id-ID') + '\nBarcode ' + barcode, '');
+            setStok(sel, tr, header, g.stok,
+                'Stok sistem di gudang ' + (so.nama || '#' + so.id) + (g.kosong ? ' (tidak ada di rincian, dianggap 0)' : '') +
+                '\nTotal semua gudang: ' + r.total.toLocaleString('id-ID') + '\nBarcode ' + barcode);
         }).catch((e) => {
             log('gagal ambil stok', barcode, e);
             const pesan = String((e && e.message) || e);
@@ -521,7 +572,7 @@
         });
     }
 
-    // Dua sel per baris: tombol Validasi (kiri) dan Stok Sistem (kanan). Stok BARU diambil setelah
+    // Dua sel per baris: tombol Validasi (kiri) dan Selisih (kanan). Stok BARU diambil setelah
     // tombol diklik, supaya tiap halaman tidak langsung menembakkan puluhan pencarian ke Lihat Stok.
     function buatSel(tr, header, tagContoh) {
         const sel = document.createElement('td');
@@ -578,7 +629,7 @@
             header.appendChild(thKita);
         }
 
-        // Dua kolom kita ada di paling kanan (Validasi, lalu Stok Sistem): baris data yang belum punya sel
+        // Dua kolom kita ada di paling kanan (Validasi, lalu Selisih): baris data yang belum punya sel
         // kita dan jumlah selnya sama dengan posisi kolom Validasi adalah baris biasa. Baris dengan colspan
         // (subjudul, total) dilewati. Ini juga menangkap baris yang ditambahkan belakangan.
         const posisi = thKita.cellIndex - 1;
