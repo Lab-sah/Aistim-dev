@@ -6,6 +6,7 @@
     "aistim_tool.js",
     "olzap.js",
     "kelolaservis.js",
+    "erzap_servis_index.js",
     "servisindex.js",
     "pemindahan.js",
     "barcode.js",
@@ -28,6 +29,7 @@
     "grafik.js"
   ],
   "hapus": [
+    "servisindex.js",
     "pesananbaru.js",
     "rak_barang.js",
     "analisastok.js",
