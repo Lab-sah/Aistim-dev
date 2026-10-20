@@ -1,0 +1,22 @@
+name: Cek PR
+
+# Tiap Pull Request ke main: cek sintaks, index.json, header script, dan kenaikan versi.
+# Ringkasan (versi script/ekstensi, perlu update ekstensi atau tidak) tampil di tab Checks PR.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  cek:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cek script & versi
+        run: python3 tools/cek_pr.py "origin/${{ github.base_ref }}"

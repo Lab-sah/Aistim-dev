@@ -85,6 +85,9 @@ window.addEventListener('message', ev => {
 - [ ] Permission `userScripts` masih ada di manifest
 - [ ] Versi dinaikkan sesuai tabel di atas
 - [ ] TIDAK force push
+- [ ] Lewat **Pull Request**, bukan push langsung ke `main`: branch → PR (isi template `.github/pull_request_template.md`) → tunggu cek **Cek PR** lulus → *Squash and merge*. Branch terhapus otomatis.
+
+Cek **Cek PR** (`tools/cek_pr.py`) jalan di tiap PR: sintaks JS, `index.json`, header script, stub, kenaikan `@version` / versi ekstensi, dan `@name` yang diganti. Ringkasannya (versi tiap script, perlu update ekstensi atau tidak) tampil di tab *Checks* PR. Bisa juga dijalankan lokal: `python3 tools/cek_pr.py origin/main`.
 
 ---
 
