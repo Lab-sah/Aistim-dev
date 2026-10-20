@@ -27,7 +27,8 @@
     "rakstok_lama.js",
     "home.js",
     "penjualan.js",
-    "grafik.js"
+    "grafik.js",
+    "pengisian_so.js"
   ],
   "hapus": [
     "pemindahan.js",
