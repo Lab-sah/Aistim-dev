@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Pengisian SO
 // @namespace    http://tampermonkey.net/
-// @version      1.5.0
-// @description  Kolom "Stok Sistem" di tabel Pengisian Hasil SO: diisi otomatis dari Total Stok di Lihat Stok (pencarian POST seperti tombol Filter), dengan filter barcode + gudang SO yang sedang dibuka
+// @version      1.5.1
+// @description  Kolom "Validasi" (tombol) + "Stok Sistem" di tabel Pengisian Hasil SO: setelah tombol Validasi diklik, stok gudang SO diambil dari Total Stok di Lihat Stok (pencarian POST seperti tombol Filter, filter barcode + gudang SO yang dibuka)
 // @match        https://*.erzap.com/stok_opnams/proses_pengisian_hasil_so*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -24,7 +24,8 @@
 
     const NAMA_KOLOM = 'Stok Sistem';
     const PENANDA = 'data-aistim-stok-sistem';
-    const VERSI = '1.5.0';   // samakan dengan @version (tampil di ringkasan supaya jelas versi mana yang jalan)
+    const PENANDA_V = 'data-aistim-validasi';   // kolom tombol Validasi (tepat di kiri Stok Sistem)
+    const VERSI = '1.5.1';   // samakan dengan @version (tampil di ringkasan supaya jelas versi mana yang jalan)
     const URL_STOK = '/produk_gudangs/lihat_stok/new';
     const URL_RINCIAN = '/produk_gudangs/detail_stok/new';
     const MAKS_PARALEL = 3;   // jumlah request Erzap (pencarian / rincian) yang jalan bersamaan
@@ -400,6 +401,10 @@
         sel.dataset.alasan = alasan || '';
         sel.style.color = warna || '#999';
         sel.style.cursor = warna === '#c00' ? 'pointer' : '';
+        if (sel._tombol) {
+            sel._tombol.disabled = teks === '…';
+            sel._tombol.textContent = teks === '' ? 'Validasi' : teks === '…' ? '…' : teks === '?' ? 'Ulangi' : 'Ulang';
+        }
         jadwalRingkas();
     }
 
@@ -441,11 +446,12 @@
             });
             tabel.parentNode.insertBefore(bar, tabel);
         }
-        let ada = 0, memuat = 0, kosong = 0, beda = 0, gagal = 0;
+        let ada = 0, belum = 0, memuat = 0, kosong = 0, beda = 0, gagal = 0;
         const alasan = new Map();
         semuaSel.forEach((s) => {
             const t = s.textContent;
-            if (t === '…') memuat++;
+            if (t === '') belum++;
+            else if (t === '…') memuat++;
             else if (t === '-') { if (s.dataset.alasan === 'beda') beda++; else kosong++; }
             else if (t === '?') {
                 gagal++;
@@ -454,6 +460,7 @@
             } else ada++;
         });
         const bagian = [ada + ' terisi'];
+        if (belum) bagian.push(belum + ' belum divalidasi (ketuk Validasi di barisnya, atau judul kolom Validasi untuk semua)');
         if (memuat) bagian.push(memuat + ' memuat');
         if (kosong || beda) bagian.push((kosong + beda) + ' tidak ketemu (' + kosong + ' tanpa hasil, ' + beda + ' ada hasil tapi barcode beda)');
         if (gagal) bagian.push(gagal + ' gagal');
@@ -474,9 +481,10 @@
         bar.style.cursor = gagal ? 'pointer' : '';
     }
 
-    function isiSel(sel, tr, header) {
+    function isiSel(sel, tr, header, paksa) {
         const barcode = bacaBarcode(tr, header);
         if (!barcode) { tampil(sel, '?', 'Barcode baris ini tidak terbaca', '#c00', 'barcode baris tidak terbaca'); return; }
+        if (paksa) { cachePencarian.delete(barcode); cacheRincian.clear(); contohBeda.delete(barcode); }   // validasi ulang = ambil lagi dari server
         tampil(sel, '…', 'Mengambil stok ' + barcode);
         stokSistem(barcode).then(async (r) => {
             if (!r.ketemu) {
@@ -513,14 +521,28 @@
         });
     }
 
+    // Dua sel per baris: tombol Validasi (kiri) dan Stok Sistem (kanan). Stok BARU diambil setelah
+    // tombol diklik, supaya tiap halaman tidak langsung menembakkan puluhan pencarian ke Lihat Stok.
     function buatSel(tr, header, tagContoh) {
         const sel = document.createElement('td');
         sel.setAttribute(PENANDA, '1');
-        if (tagContoh && tagContoh.className) sel.className = tagContoh.className;
+        const tdV = document.createElement('td');
+        tdV.setAttribute(PENANDA_V, '1');
+        if (tagContoh && tagContoh.className) { sel.className = tagContoh.className; tdV.className = tagContoh.className; }
         sel.style.textAlign = 'center';
+        tdV.style.textAlign = 'center';
+
+        const tombol = document.createElement('button');
+        tombol.type = 'button';
+        tombol.textContent = 'Validasi';
+        tombol.style.cssText = 'padding:2px 8px;font-size:12px;cursor:pointer;';
+        tombol.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); isiSel(sel, tr, header, !!sel.textContent); });
+        tdV.appendChild(tombol);
+        sel._tombol = tombol;
+
         sel.addEventListener('click', () => { if (sel.textContent === '?') isiSel(sel, tr, header); });
-        isiSel(sel, tr, header);
-        return sel;
+        jadwalRingkas();
+        return [tdV, sel];
     }
 
     function barisHeader(table) {
@@ -537,22 +559,36 @@
             const jumlah = header.cells.length;
             if (jumlah < 2) return;   // bukan tabel data
             const thContoh = header.cells[jumlah - 1];
-            thKita = document.createElement(thContoh.tagName === 'TD' ? 'td' : 'th');
+            const tag = thContoh.tagName === 'TD' ? 'td' : 'th';
+            const thV = document.createElement(tag);
+            thV.setAttribute(PENANDA_V, '1');
+            if (thContoh.className) thV.className = thContoh.className;
+            thV.textContent = 'Validasi';
+            thV.title = 'Ketuk untuk validasi semua baris di halaman ini';
+            thV.style.cursor = 'pointer';
+            thV.style.textDecoration = 'underline';
+            thV.addEventListener('click', () => {
+                table.querySelectorAll('td[' + PENANDA + ']').forEach((s) => { if (s._tombol && (s.textContent === '' || s.textContent === '?')) s._tombol.click(); });
+            });
+            header.appendChild(thV);
+            thKita = document.createElement(tag);
             thKita.setAttribute(PENANDA, '1');
             if (thContoh.className) thKita.className = thContoh.className;
             thKita.textContent = NAMA_KOLOM;
             header.appendChild(thKita);
         }
 
-        // Kolom kita ada di paling kanan: baris data yang belum punya sel kita dan jumlah selnya
-        // sama dengan posisi kolom kita adalah baris biasa. Baris dengan colspan (subjudul, total)
-        // dilewati. Ini juga menangkap baris yang ditambahkan belakangan.
-        const posisi = thKita.cellIndex;
+        // Dua kolom kita ada di paling kanan (Validasi, lalu Stok Sistem): baris data yang belum punya sel
+        // kita dan jumlah selnya sama dengan posisi kolom Validasi adalah baris biasa. Baris dengan colspan
+        // (subjudul, total) dilewati. Ini juga menangkap baris yang ditambahkan belakangan.
+        const posisi = thKita.cellIndex - 1;
         Array.from(table.rows).forEach((tr) => {
             if (tr === header || tr.querySelector('th')) return;
             if (tr.querySelector('td[' + PENANDA + ']')) return;
             if (tr.cells.length !== posisi) return;
-            tr.appendChild(buatSel(tr, header, tr.cells[tr.cells.length - 1]));
+            const dua = buatSel(tr, header, tr.cells[tr.cells.length - 1]);
+            tr.appendChild(dua[0]);
+            tr.appendChild(dua[1]);
         });
     }
 
