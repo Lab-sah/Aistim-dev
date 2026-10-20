@@ -8,6 +8,7 @@
     "kelolaservis.js",
     "erzap_servis_index.js",
     "servisindex.js",
+    "erzap_pemindahan_barang.js",
     "pemindahan.js",
     "barcode.js",
     "tombol_so_list.js",
@@ -29,6 +30,7 @@
     "grafik.js"
   ],
   "hapus": [
+    "pemindahan.js",
     "servisindex.js",
     "pesananbaru.js",
     "rak_barang.js",
