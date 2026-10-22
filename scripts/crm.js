@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         CRM Isi Rak — Backup / Restore / Hapus
 // @namespace    http://tampermonkey.net/
-// @version      1.4.2
+// @version      1.4.3
 // @description  Tombol Backup, Restore (termasuk dari Excel), Hapus semua, dan Simpan Excel untuk "Isi Rak" di halaman Penentuan Rak (Stock Opname).
-// @match        https://crm.aistim.icu/penentuan-rak/*
+// @match        *://*.aistim.icu/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=aistim.icu
 // @world        main
 // @grant        none
@@ -21,6 +21,7 @@
     // Bisa terpasang dua kali (Tampermonkey + ekstensi Aistim): yang duluan jalan saja yang dipakai.
     if (document.documentElement.dataset.cirIsiRak) return;
     document.documentElement.dataset.cirIsiRak = '1';
+    console.log('[CRM Isi Rak] script aktif — tombol muncul di bawah judul "Isi Rak · …"');
 
     const STORE_KEY = 'crmIsiRak.backups.v1'; // localStorage: daftar backup
     const JOB_KEY = 'crmIsiRak.job.v1';       // sessionStorage: proses hapus/restore yang sedang jalan
