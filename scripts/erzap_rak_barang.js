@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - crud rak barangs
 // @namespace    http://tampermonkey.net/
-// @version      1.2.2
-// @description  [v1.2.2] Tambah Rak Massal dari halaman daftar: pilihan Gudang diambil langsung dari form Tambah Rak di Erzap (dulu daftar tetap OTOTECH, salah di toko lain); daftar tetap hanya cadangan di ototech. Tambah tombol hapus (per-baris & massal) & tambah rak massal (by range) di halaman Rak Barang
+// @version      1.2.3
+// @description  [v1.2.3] Tambah Rak Massal melewati rak yang sudah ada (dicek dari semua halaman daftar Rak Barang; kalau tabel punya kolom Gudang, hanya rak di gudang terpilih). [v1.2.2] Tambah Rak Massal dari halaman daftar: pilihan Gudang diambil langsung dari form Tambah Rak di Erzap (dulu daftar tetap OTOTECH, salah di toko lain); daftar tetap hanya cadangan di ototech. Tambah tombol hapus (per-baris & massal) & tambah rak massal (by range) di halaman Rak Barang
 // @match        https://*.erzap.com/rak_barangs*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -172,6 +172,45 @@
             names.push(s.prefix + String(n).padStart(pad, '0'));
         }
         return names;
+    }
+
+    // ===== Rak yang sudah ada: dibaca dari semua halaman daftar Rak Barang =====
+    function norm(s) {
+        return String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    }
+
+    // Hasil: Set nama rak (huruf kecil) yang sudah ada. Kalau tabel punya kolom Gudang, hanya rak di
+    // gudang terpilih yang dihitung (nama sama di gudang lain tetap dibuat); tanpa kolom Gudang, semua rak.
+    async function muatRakAda(namaGudang) {
+        const gudang = norm(namaGudang);
+        const ada = new Set();
+        const idTerlihat = new Set();
+        for (let page = 1; page <= 200; page++) {
+            const res = await fetch(`/rak_barangs/index/new?page=${page}`, { credentials: 'same-origin' });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+            const tabel = doc.querySelector('#data_table');
+            if (!tabel) throw new Error('tabel daftar rak tidak ditemukan');
+            const judul = Array.from(tabel.querySelectorAll('thead tr:last-child th')).map((th) => norm(th.textContent));
+            const iNama = judul.findIndex((t) => /^nama/.test(t));
+            const iGudang = judul.findIndex((t) => /gudang/.test(t));
+            let baru = 0;
+            for (const tr of tabel.querySelectorAll('tbody tr')) {
+                const id = getIdFromRow(tr);
+                if (!id || idTerlihat.has(id)) continue;
+                idTerlihat.add(id);
+                baru++;
+                const sel = Array.from(tr.children).map((td) => norm(td.textContent));
+                if (iGudang >= 0 && gudang && !(sel[iGudang] || '').includes(gudang)) continue;
+                if (iNama >= 0) {
+                    if (sel[iNama]) ada.add(sel[iNama]);
+                } else {
+                    sel.forEach((t) => t && ada.add(t)); // kolom Nama tidak dikenali: cocokkan dengan isi sel mana pun
+                }
+            }
+            if (!baru) break; // halaman kosong, atau server mengulang halaman yang sama
+        }
+        return ada;
     }
 
     function getAuthToken() {
@@ -360,21 +399,44 @@
                 return;
             }
 
-            const preview = names.length <= 8
-                ? names.join(', ')
-                : `${names.slice(0, 3).join(', ')}, ..., ${names.slice(-3).join(', ')}`;
-            if (!confirm(`Akan membuat ${names.length} rak: ${preview}\nLanjutkan?`)) return;
+            // Rak yang sudah ada dilewati
+            const selGudang = backdrop.querySelector('#bulk_rak_gudang');
+            const namaGudang = (selGudang.options[selGudang.selectedIndex] || {}).textContent || '';
+            showLoading('Mengecek rak yang sudah ada...');
+            let ada = null;
+            try {
+                ada = await muatRakAda(namaGudang);
+            } catch (err) {
+                console.error('[TambahRak] gagal membaca daftar rak yang sudah ada', err);
+            }
+            hideLoading();
+            if (!ada && !confirm('Daftar rak yang sudah ada tidak bisa dibaca, jadi rak yang sudah ada tidak bisa dilewati (bisa dobel).\nTetap lanjutkan?')) return;
+            const dilewati = ada ? names.filter((n) => ada.has(norm(n))) : [];
+            const dibuat = names.filter((n) => !dilewati.includes(n));
+            if (!dibuat.length) {
+                alert(`Semua ${names.length} rak sudah ada, tidak ada yang dibuat.`);
+                return;
+            }
+
+            const ringkas = (arr) => arr.length <= 8
+                ? arr.join(', ')
+                : `${arr.slice(0, 3).join(', ')}, ..., ${arr.slice(-3).join(', ')}`;
+            if (!confirm(`Akan membuat ${dibuat.length} rak: ${ringkas(dibuat)}`
+                + (dilewati.length ? `\nDilewati karena sudah ada (${dilewati.length}): ${ringkas(dilewati)}` : '')
+                + '\nLanjutkan?')) return;
 
             let success = 0;
-            showLoading(`Membuat 0/${names.length}...`);
-            for (const [i, nama] of names.entries()) {
+            showLoading(`Membuat 0/${dibuat.length}...`);
+            for (const [i, nama] of dibuat.entries()) {
                 const ok = await createRakBarang({ nama, idgudang, keterangan, isActive });
                 if (ok) success++;
-                showLoading(`Membuat ${i + 1}/${names.length}...`);
+                showLoading(`Membuat ${i + 1}/${dibuat.length}...`);
             }
             hideLoading();
             closeBulkRakModal();
-            alert(`${success} dari ${names.length} rak berhasil dibuat.` + (success < names.length ? '\nCek console (F12) untuk detail yang gagal.' : ''));
+            alert(`${success} dari ${dibuat.length} rak berhasil dibuat.`
+                + (dilewati.length ? `\n${dilewati.length} rak dilewati karena sudah ada.` : '')
+                + (success < dibuat.length ? '\nCek console (F12) untuk detail yang gagal.' : ''));
             location.href = '/rak_barangs/index/new?page=1';
         });
     }
