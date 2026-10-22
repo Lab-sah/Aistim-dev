@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - crud rak barangs
 // @namespace    http://tampermonkey.net/
-// @version      1.2.1
-// @description  Tambah tombol hapus (per-baris & massal) & tambah rak massal (by range) di halaman Rak Barang
+// @version      1.2.2
+// @description  [v1.2.2] Tambah Rak Massal dari halaman daftar: pilihan Gudang diambil langsung dari form Tambah Rak di Erzap (dulu daftar tetap OTOTECH, salah di toko lain); daftar tetap hanya cadangan di ototech. Tambah tombol hapus (per-baris & massal) & tambah rak massal (by range) di halaman Rak Barang
 // @match        https://*.erzap.com/rak_barangs*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -11,9 +11,10 @@
 (function () {
     'use strict';
 
-    // Fallback daftar Gudang (dipakai saat modal dibuka dari halaman list, yang tidak
-    // punya <select> Gudang asli untuk dibaca). Diambil dari form tambah rak asli.
-    // Kalau daftar outlet berubah, sesuaikan juga di sini.
+    // Cadangan daftar Gudang KHUSUS ototech.erzap.com, dipakai hanya kalau form Tambah Rak
+    // tidak bisa dibaca. Toko lain punya ID gudang sendiri, jadi daftar ini tidak boleh
+    // dipakai di sana (rak bisa terbuat di gudang yang salah).
+    const OTOTECH = /(^|[.-])ototech([.-]|$)/i.test(location.hostname.replace(/\.erzap\.com$/i, ''));
     const GUDANG_OPTIONS_FALLBACK = `
         <option value="">-- Pilih Gudang --</option>
         <option value="2">RETUR OTOTECH</option>
@@ -21,6 +22,8 @@
         <option value="9">TOKO PANDERMAN</option>
         <option value="10">REST UP CAFE</option>
     `;
+    const GUDANG_SELECT = '#rak_barang_idgudang, select[name="rak_barang[idgudang]"]';
+    let gudangTermuat = false;
 
     let overlayEl = null;
 
@@ -207,17 +210,71 @@
         if (backdrop) backdrop.style.display = 'none';
     }
 
-    function openBulkRakModal() {
+    // Salin pilihan Gudang dari <select> asli Erzap (dibuat ulang sebagai Option, bukan innerHTML)
+    function salinGudang(target, sumber) {
+        target.innerHTML = '';
+        for (const o of sumber.options) target.appendChild(new Option(o.textContent.trim(), o.value));
+        target.value = '';
+    }
+
+    function pesanGudang(target, teks) {
+        target.innerHTML = '';
+        target.appendChild(new Option(teks, ''));
+    }
+
+    // Alamat form Tambah Rak: dari link di halaman (kalau ada), lalu alamat bawaan /rak_barangs/new
+    function alamatFormTambah() {
+        const dariLink = Array.from(document.querySelectorAll('a[href]'))
+            .map((a) => a.getAttribute('href'))
+            .filter((h) => /\/rak_barangs\/new(?:[?#]|$)/.test(h));
+        return Array.from(new Set(dariLink.concat('/rak_barangs/new')));
+    }
+
+    async function muatGudangDariErzap(target) {
+        pesanGudang(target, '-- Memuat daftar Gudang... --');
+        for (const url of alamatFormTambah()) {
+            try {
+                const res = await fetch(url, { credentials: 'same-origin' });
+                if (!res.ok) continue;
+                const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+                const sel = doc.querySelector(GUDANG_SELECT);
+                if (sel && Array.from(sel.options).some((o) => o.value)) {
+                    salinGudang(target, sel);
+                    return true;
+                }
+            } catch (e) {
+                console.error('[TambahRak] gagal membaca form Tambah Rak', url, e);
+            }
+        }
+        return false;
+    }
+
+    async function openBulkRakModal() {
         const backdrop = document.getElementById('bulk_rak_modal_backdrop');
         if (!backdrop) return;
-
-        // Kalau lagi ada di halaman form tambah rak, ambil daftar Gudang yang live
-        // dari select aslinya; kalau tidak (misal dibuka dari halaman list), pakai fallback.
-        const liveGudangSelect = document.querySelector('#new_rak_barang #rak_barang_idgudang');
-        if (liveGudangSelect) {
-            backdrop.querySelector('#bulk_rak_gudang').innerHTML = liveGudangSelect.innerHTML;
-        }
+        const target = backdrop.querySelector('#bulk_rak_gudang');
         backdrop.style.display = 'flex';
+
+        // Di halaman form tambah rak: ambil dari select aslinya
+        const form = document.querySelector('#new_rak_barang');
+        const liveGudangSelect = form && form.querySelector(GUDANG_SELECT);
+        if (liveGudangSelect) {
+            salinGudang(target, liveGudangSelect);
+            gudangTermuat = true;
+            return;
+        }
+        if (gudangTermuat) return;
+
+        // Di halaman daftar: baca form Tambah Rak dari Erzap
+        if (await muatGudangDariErzap(target)) {
+            gudangTermuat = true;
+        } else if (OTOTECH) {
+            target.innerHTML = GUDANG_OPTIONS_FALLBACK;
+            gudangTermuat = true;
+        } else {
+            pesanGudang(target, '-- Daftar Gudang tidak terbaca --');
+            alert('Daftar Gudang tidak bisa dibaca dari Erzap.\nBuka halaman Tambah Rak, lalu klik "+ Tambah Rak Massal" di sana.');
+        }
     }
 
     function injectBulkCreateButtonOnFormPage() {
@@ -247,7 +304,7 @@
                 </div>
                 <div class="field" style="margin-top:14px;">
                     <label>Gudang</label><br>
-                    <select id="bulk_rak_gudang" style="width:100%;">${GUDANG_OPTIONS_FALLBACK}</select>
+                    <select id="bulk_rak_gudang" style="width:100%;"><option value="">-- Pilih Gudang --</option></select>
                 </div>
                 <div class="field" style="margin-top:10px;">
                     <label>Nama Rak Mulai</label><br>
