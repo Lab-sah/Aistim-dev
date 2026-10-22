@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CRM Isi Rak — Backup / Restore / Hapus
 // @namespace    http://tampermonkey.net/
-// @version      1.4.3
+// @version      1.4.4
 // @description  Tombol Backup, Restore (termasuk dari Excel), Hapus semua, dan Simpan Excel untuk "Isi Rak" di halaman Penentuan Rak (Stock Opname).
 // @match        *://*.aistim.icu/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=aistim.icu
@@ -21,8 +21,8 @@
     // Bisa terpasang dua kali (Tampermonkey + ekstensi Aistim): yang duluan jalan saja yang dipakai.
     if (document.documentElement.dataset.cirIsiRak) return;
     document.documentElement.dataset.cirIsiRak = '1';
-    console.log('[CRM Isi Rak] script aktif — tombol muncul di bawah judul "Isi Rak · …"');
 
+    const VERSION = '1.4.4';
     const STORE_KEY = 'crmIsiRak.backups.v1'; // localStorage: daftar backup
     const JOB_KEY = 'crmIsiRak.job.v1';       // sessionStorage: proses hapus/restore yang sedang jalan
     const MAX_PER_RAK = 10;                   // simpan 10 backup terakhir per rak
@@ -986,8 +986,121 @@
             .cir-toast { max-width:420px; padding:10px 14px; border-radius:10px; background:#101828; color:#fff; font-size:13px; font-weight:500; line-height:1.45; box-shadow:0 10px 24px -8px rgba(16,24,40,.35); }
             .cir-toast.cir-ok { background:#067647; }
             .cir-toast.cir-err { background:#D92D20; }
+            .cir-hint { position:fixed; left:20px; bottom:20px; z-index:2147483000; width:min(460px,calc(100vw - 40px)); padding:10px 12px; border:1px solid #FEC84B; border-radius:10px; background:#FFFAEB; color:#7A2E0E; font:500 13px/1.45 Inter,system-ui,sans-serif; box-shadow:0 10px 24px -8px rgba(16,24,40,.25); }
+            .cir-hint-row { display:flex; align-items:center; gap:8px; }
+            .cir-hint-text { flex:1; }
+            .cir-hint textarea { width:100%; height:160px; margin-top:8px; font:11px/1.4 ui-monospace,Menlo,monospace; }
         `;
         document.head.appendChild(s);
+    }
+
+    // ---------------------------------------------------------------
+    // Diagnosa: di halaman Penentuan Rak, kalau tombol tidak bisa dipasang (judul "Isi Rak" tidak ketemu
+    // atau bar tidak terlihat), tampil tanda kecil di pojok kanan bawah dengan tombol "Salin diagnosa".
+    // ---------------------------------------------------------------
+
+    const startedAt = Date.now();
+    const HINT_DELAY = 3000;
+    let hint = null;
+    let hintClosed = false;
+
+    // tag#id.kelas > ... (4 tingkat ke atas)
+    function pathOf(e) {
+        const out = [];
+        for (let i = 0; e && e.nodeType === 1 && i < 4; i++, e = e.parentElement) {
+            const cls = typeof e.className === 'string' && e.className.trim() ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : '';
+            out.unshift(e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + cls);
+        }
+        return out.join(' > ') || '-';
+    }
+
+    function checkHint() {
+        const barOk = !!(bar && bar.isConnected && isVisible(bar) && getCtx());
+        const want = !barOk && !hintClosed && /penentuan-rak/i.test(location.pathname) && Date.now() - startedAt >= HINT_DELAY;
+        if (!want) {
+            if (hint) hint.remove();
+            hint = null;
+            return;
+        }
+        if (!hint) {
+            hint = document.createElement('div');
+            hint.className = 'cir-ui cir-hint';
+            hint.innerHTML = `
+                <div class="cir-hint-row">
+                    <span class="cir-hint-text"></span>
+                    <button type="button" class="cir-btn" data-h="diag">Salin diagnosa</button>
+                    <button type="button" class="cir-btn cir-icon" data-h="close" title="Tutup">×</button>
+                </div>
+                <textarea readonly hidden></textarea>`;
+            hint.addEventListener('click', (e) => {
+                const b = e.target.closest('[data-h]');
+                if (!b) return;
+                if (b.dataset.h === 'close') {
+                    hintClosed = true;
+                    return checkHint();
+                }
+                const ta = hint.querySelector('textarea');
+                ta.value = diagText();
+                ta.hidden = false;
+                copyText(ta.value, 'Diagnosa disalin. Tempel (Ctrl+V / Cmd+V) ke chat.');
+                ta.focus();
+                ta.select();
+            });
+            document.body.appendChild(hint);
+        }
+        const text = getCtx()
+            ? `CRM Isi Rak v${VERSION}: tombol sudah dipasang tapi tidak terlihat. Klik "Salin diagnosa" lalu kirim ke chat.`
+            : `CRM Isi Rak v${VERSION} aktif, tapi judul "Isi Rak · …" belum ketemu. Pilih rak dulu. Kalau rak sudah dipilih dan tombol tetap tidak muncul, klik "Salin diagnosa" lalu kirim ke chat.`;
+        const span = hint.querySelector('.cir-hint-text');
+        if (span.textContent !== text) span.textContent = text;
+    }
+
+    function diagText() {
+        const notUi = (e) => !inOurUi(e);
+        const title = findTitleEl();
+        const ctx = getCtx();
+        const out = [
+            `CRM Isi Rak v${VERSION} | ${new Date().toLocaleString('id-ID')}`,
+            `URL: ${location.href}`,
+            `judul Isi Rak: ${title ? `${pathOf(title)} "${clean(title.textContent).slice(0, 80)}"` : 'tidak ketemu'}`,
+        ];
+        if (ctx) out.push(`rak: ${ctx.rak} | baris: ${ctx.rows.length} | header: ${pathOf(ctx.headerRow)} | tabel: ${ctx.table ? pathOf(ctx.table) : 'tidak ketemu'}`);
+        if (bar) {
+            const r = bar.getBoundingClientRect();
+            out.push(`bar: ${bar.isConnected ? 'di dalam ' + pathOf(bar.parentElement) : 'tidak terpasang'} | ${Math.round(r.width)}x${Math.round(r.height)} @ ${Math.round(r.left)},${Math.round(r.top)}`);
+        }
+        const scan = findScanInput();
+        out.push(`kolom scan: ${scan ? pathOf(scan) : 'tidak ketemu'}`);
+        const raks = rakOptions();
+        out.push(`daftar rak: ${raks.length}${raks.length ? ' (' + raks.slice(0, 5).map((o) => o.name).join(', ') + ')' : ''}`);
+        out.push('teks yang mengandung "rak":');
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let n, count = 0;
+        while ((n = walker.nextNode()) && count < 25) {
+            const t = clean(n.nodeValue);
+            const el = n.parentElement;
+            if (!t || !/rak/i.test(t) || !el || inOurUi(el) || el.closest('script,style,noscript')) continue;
+            out.push(`  ${isVisible(el) ? '' : '(tersembunyi) '}${pathOf(el)} "${t.slice(0, 80)}"`);
+            count++;
+        }
+        [...document.querySelectorAll('table')].filter(notUi).slice(0, 5).forEach((t) => {
+            const head = t.tHead || t.rows[0];
+            out.push(`tabel: ${pathOf(t)} | ${t.rows.length} baris | ${isVisible(t) ? 'terlihat' : 'tersembunyi'} | judul: ${clean(head ? head.textContent : '').slice(0, 100)}`);
+        });
+        [...document.querySelectorAll('select')].filter(notUi).slice(0, 5).forEach((x) => {
+            out.push(`select: ${pathOf(x)} | ${x.options.length} opsi | ${[...x.options].slice(0, 5).map((o) => clean(o.textContent)).join(' ; ')}`);
+        });
+        [...document.querySelectorAll('input:not([type=hidden]), textarea')].filter(notUi).slice(0, 10).forEach((x) => {
+            out.push(`input: ${pathOf(x)} | type=${x.type} name=${x.name || '-'} placeholder="${x.placeholder || ''}"`);
+        });
+        const words = [];
+        const w2 = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        while ((n = w2.nextNode()) && words.join(' ').length < 1500) {
+            const el = n.parentElement;
+            if (el && !inOurUi(el) && !el.closest('script,style,noscript') && isVisible(el) && clean(n.nodeValue)) words.push(clean(n.nodeValue));
+        }
+        out.push(`teks halaman: ${words.join(' ¦ ').slice(0, 1500)}`);
+        return out.join('\n');
     }
 
     // ---------------------------------------------------------------
@@ -997,7 +1110,10 @@
     let refreshTimer = null;
     function scheduleRefresh() {
         clearTimeout(refreshTimer);
-        refreshTimer = setTimeout(refreshBar, 200);
+        refreshTimer = setTimeout(() => {
+            refreshBar();
+            checkHint();
+        }, 200);
     }
 
     injectStyle();
@@ -1006,6 +1122,8 @@
         scheduleRefresh();
     }).observe(document.body, { childList: true, subtree: true, characterData: true });
     refreshBar();
+    setTimeout(checkHint, HINT_DELAY + 100);
+    console.log(`[CRM Isi Rak] v${VERSION} aktif — tombol muncul di bawah judul "Isi Rak · …"`);
     if (loadJob()) runJob(); // lanjutkan proses yang terputus karena halaman reload
 })((function () {
     // Variabel ini sengaja dikosongkan supaya SheetJS mengisi XLSX lokal, bukan modul/AMD milik halaman.
