@@ -28,7 +28,8 @@
     "home.js",
     "penjualan.js",
     "grafik.js",
-    "pengisian_so.js"
+    "pengisian_so.js",
+    "crm.js"
   ],
   "hapus": [
     "pemindahan.js",
