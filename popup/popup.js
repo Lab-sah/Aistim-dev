@@ -9,7 +9,7 @@ const CURRENT_VERSION = chrome.runtime.getManifest().version;
 let daftar = [];          // [{ file, nama, versi, matches, nyala }]
 let engineSiap = false;
 let statusSync = null;    // { waktu, ok, sumber } ditulis background.js
-let halamanUrl = '';      // URL tab erzap yang sedang dibuka, atau ''
+let halamanUrl = '';      // URL tab erzap / aistim.icu (CRM) yang sedang dibuka, atau ''
 
 function el(tag, props = {}, ...children) {
   const n = document.createElement(tag);
@@ -88,7 +88,7 @@ async function cekHalaman() {
   halamanUrl = '';
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab && /^https:\/\/([^/]+\.)?erzap\.com\//.test(tab.url || '')) halamanUrl = tab.url;
+    if (tab && /^https:\/\/([^/]+\.)?(erzap\.com|aistim\.icu)\//.test(tab.url || '')) halamanUrl = tab.url;
   } catch { halamanUrl = ''; }
 }
 

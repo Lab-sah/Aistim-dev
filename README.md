@@ -1,4 +1,4 @@
-# Aistim Tool v2.10.5
+# Aistim Tool v2.10.6
 
 **Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -152,6 +152,9 @@ Buka DevTools (F12) -> Console:
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.10.6
+- **Popup: kartu script ikut hijau ("Aktif") di halaman CRM `*.aistim.icu`**, bukan hanya di `erzap.com`. Sebelumnya popup hanya membaca URL tab Erzap, jadi script CRM (mis. `crm.js` — CRM Isi Rak) tidak pernah tampil "Aktif" walaupun berjalan
 
 ## Changelog v2.10.5
 - **Pemuat script "manual" dibuang** (`loadManualScripts` di `background.js`): fungsi itu mengambil kode dari URL sembarang yang tersimpan di storage `scripts` (sisa popup lama, tidak ada UI yang mengisinya lagi). Web Store tidak mengizinkan kode dari URL di luar yang ditentukan paket. Sumber script kini hanya bundel + folder `scripts/` repo ini di GitHub (auto-sync tetap sama)
