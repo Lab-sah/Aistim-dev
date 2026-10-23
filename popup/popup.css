@@ -373,4 +373,9 @@ header { padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(-
 #update { gap: 8px; padding: 6px 10px; margin-bottom: 6px; border-radius: 8px; }
 #update strong { display: block; font-size: 12px; }
 #update small { display: block; color: var(--muted); font-size: 11px; }
+#izin { gap: 8px; padding: 6px 10px; margin-bottom: 6px; border-radius: 8px; border-color: rgba(217,119,6,.5); }
+#izin div { flex: 1; min-width: 0; }
+#izin strong { display: block; font-size: 12px; color: #b45309; }
+#izin small { display: block; color: var(--muted); font-size: 11px; }
+#izin-tombol { flex: none; padding: 4px 10px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 #update-link { flex: none; padding: 4px 10px; border-radius: 6px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; text-decoration: none; }

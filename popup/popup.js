@@ -10,6 +10,9 @@ let daftar = [];          // [{ file, nama, versi, matches, nyala }]
 let engineSiap = false;
 let statusSync = null;    // { waktu, ok, sumber } ditulis background.js
 let halamanUrl = '';      // URL tab erzap / aistim.icu (CRM) yang sedang dibuka, atau ''
+// Paket Web Store: izin situs CRM (*.aistim.icu) opsional, diminta lewat tombol Izinkan. Paket CRX/unpacked: kosong (<all_urls>).
+const IZIN_OPSIONAL = chrome.runtime.getManifest().optional_host_permissions || [];
+let izinKurang = false;
 
 function el(tag, props = {}, ...children) {
   const n = document.createElement(tag);
@@ -92,6 +95,12 @@ async function cekHalaman() {
   } catch { halamanUrl = ''; }
 }
 
+async function cekIzin() {
+  izinKurang = false;
+  if (!IZIN_OPSIONAL.length) return;
+  try { izinKurang = !(await chrome.permissions.contains({ origins: IZIN_OPSIONAL })); } catch { izinKurang = false; }
+}
+
 async function cekEngine() {
   const res = await kirim({ action: 'us-status' });
   engineSiap = !!(res && (res.userScripts || res.tersedia));
@@ -106,6 +115,8 @@ function renderEngine() {
     : (statusSync ? `Sinkron ${jam(statusSync.waktu)} · ` : '') + `${jalan} script berjalan` +
       (statusSync ? (statusSync.sumber === 'github' ? ' · GitHub ✓' : ' · bawaan') : '');
   $('engine-help').hidden = engineSiap;
+  $('izin').hidden = !izinKurang;
+  $('izin-situs').textContent = IZIN_OPSIONAL.map(ringkasMatch).map((h) => h.replace(/\/\*$/, '')).join(', ');
   $('buka-detail').hidden = engineSiap;
   const h = $('engine-halaman');
   h.hidden = !(engineSiap && halamanUrl);
@@ -146,7 +157,7 @@ function renderManager() {
 }
 
 async function segarkan() {
-  await Promise.all([muatDaftar(), cekEngine(), cekHalaman()]);
+  await Promise.all([muatDaftar(), cekEngine(), cekHalaman(), cekIzin()]);
   renderEngine(); renderManager();
 }
 
@@ -219,6 +230,15 @@ async function cekUpdate(paksa = false) {
 }
 
 $('sync').addEventListener('click', jalankanSync);
+// permissions.request harus langsung dari klik (user gesture). Kalau popup tertutup saat dialog izin muncul,
+// background tetap sinkron ulang lewat permissions.onAdded.
+$('izin-tombol').addEventListener('click', () => {
+  chrome.permissions.request({ origins: IZIN_OPSIONAL }).then(async (ok) => {
+    if (ok) await kirim({ action: 'resync' });
+    await segarkan();
+    imsg(ok ? 'Diizinkan. Refresh halaman CRM (F5).' : 'Izin tidak diberikan.', ok ? 'ok' : 'err');
+  });
+});
 $('cari-script').addEventListener('input', renderManager);
 // Pintasan ke halaman Detail extension (tempat tombol "Izinkan skrip pengguna")
 $('buka-detail').addEventListener('click', () => { chrome.tabs.create({ url: 'chrome://extensions/?id=' + chrome.runtime.id }); });

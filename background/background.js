@@ -1,4 +1,4 @@
-const VERSION = '2.10.6';
+const VERSION = '2.10.7';
 const X_FETCH_ALLOW = ['partdistro.com'];   // host yang boleh diakses lewat jembatan x-fetch
 
 // ===== KONFIGURASI =====
@@ -357,6 +357,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.disabledAuto) syncUserScripts();
 });
+
+// v2.10.7: izin situs opsional (paket Web Store: CRM *.aistim.icu) baru diberikan lewat popup -> daftar ulang script
+chrome.permissions.onAdded.addListener(() => syncUserScripts());
 
 // ===== MESSAGING =====
 chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
