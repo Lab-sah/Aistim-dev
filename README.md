@@ -1,4 +1,4 @@
-# Aistim Tool v2.10.6
+# Aistim Tool v2.10.7
 
 **Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -152,6 +152,11 @@ Buka DevTools (F12) -> Console:
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.10.7
+- **Paket Web Store bisa menjalankan script CRM (`*.aistim.icu`)**: sebelumnya ZIP store hanya punya izin Erzap/partdistro/GitHub, jadi `crm.js` (CRM Isi Rak) tidak pernah disuntikkan di CRM. Sekarang `https://*.aistim.icu/*` menjadi `optional_host_permissions` di ZIP store
+- Izin opsional, bukan wajib: izin situs baru yang wajib membuat Chrome menonaktifkan ekstensi saat update sampai pengguna menyetujuinya (script Erzap ikut mati). Popup menampilkan kartu "Script CRM belum diizinkan" dengan tombol **Izinkan**; setelah diizinkan, refresh halaman CRM (F5)
+- Background sinkron ulang saat izin ditambahkan (`permissions.onAdded`). Paket CRX/unpacked tidak berubah (`<all_urls>`, kartu izin tidak tampil)
 
 ## Changelog v2.10.6
 - **Popup: kartu script ikut hijau ("Aktif") di halaman CRM `*.aistim.icu`**, bukan hanya di `erzap.com`. Sebelumnya popup hanya membaca URL tab Erzap, jadi script CRM (mis. `crm.js` — CRM Isi Rak) tidak pernah tampil "Aktif" walaupun berjalan

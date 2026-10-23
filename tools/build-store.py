@@ -4,6 +4,8 @@
 Beda dengan ZIP biasa (jalur "Load unpacked"/CRX):
   - buang "key" dan "update_url" (Web Store memakai kunci & mekanisme update sendiri -> update otomatis)
   - host/izin dipersempit: hanya Erzap (+ partdistro untuk jembatan fetch, + GitHub untuk sinkronisasi script)
+  - CRM *.aistim.icu sebagai izin OPSIONAL (optional_host_permissions): diminta lewat tombol "Izinkan" di popup.
+    Kalau dijadikan izin wajib, Chrome menonaktifkan ekstensi saat update sampai pengguna menyetujui izin baru.
   - izin yang tidak dipakai (activeTab) dibuang
   - tanpa web_accessible_resources: hanya dipakai fallback inject <script> yang ikut dibuang
   - content.js tanpa fallback inject <script> (blok FALLBACK-SCRIPT-TAG): Web Store tidak mengizinkan
@@ -18,11 +20,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = sys.argv[1] if len(sys.argv) > 1 else ROOT
 ERZAP = 'https://*.erzap.com/*'
 HOSTS = [ERZAP, 'https://partdistro.com/*', 'https://raw.githubusercontent.com/*', 'https://api.github.com/*']
+OPSIONAL = ['https://*.aistim.icu/*']  # CRM (crm.js)
 
 m = json.load(open(os.path.join(ROOT, 'manifest.json'), encoding='utf-8'))
 for k in ('key', 'update_url'):
     m.pop(k, None)
 m['host_permissions'] = HOSTS
+m['optional_host_permissions'] = OPSIONAL
 m['permissions'] = [p for p in m.get('permissions', []) if p != 'activeTab']
 for cs in m.get('content_scripts', []):
     cs['matches'] = [ERZAP]
