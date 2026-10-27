@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.6.1
-// @description  [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
+// @version      1.7.0
+// @description  [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -32,7 +32,9 @@
     const rapih = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
     const sensor = (s) => String(s || '')
         .replace(/(authenticity_token=)[^&\s"']*/gi, '$1***')
-        .replace(/(csrf[-_]?token["']?\s*[:=]\s*["']?)[^&\s"']*/gi, '$1***');
+        .replace(/(csrf[-_]?token["']?\s*[:=]\s*["']?)[^&\s"']*/gi, '$1***')
+        .replace(/(<meta[^>]*name=["']csrf-token["'][^>]*content=["'])[^"']*/gi, '$1***')
+        .replace(/(<meta[^>]*content=["'])[^"']*(["'][^>]*name=["']csrf-token["'])/gi, '$1***$2');
 
     function snippet(teks) {
         const t = rapih(teks);
@@ -182,7 +184,7 @@
         bd.id = 'rk_testurl_pop';
         bd.style.cssText = 'position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;';
         const kotak = document.createElement('div');
-        kotak.style.cssText = 'background:#fff;color:#111;width:94%;max-width:900px;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;max-height:90vh;font:13px sans-serif;';
+        kotak.style.cssText = 'background:#fff;color:#111;width:94%;max-width:900px;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;max-height:90vh;overflow:auto;font:13px sans-serif;';
         const judul = document.createElement('div');
         judul.style.cssText = 'font-weight:bold;';
         judul.textContent = 'testurl';
@@ -207,7 +209,9 @@
         const out = document.createElement('textarea');
         out.readOnly = true;
         out.style.cssText = 'flex:1;min-height:320px;width:100%;box-sizing:border-box;padding:6px;border:1px solid #cbd5e1;border-radius:4px;font:12px monospace;white-space:pre;';
-        kotak.appendChild(judul); kotak.appendChild(baris); kotak.appendChild(info); kotak.appendChild(out);
+        const panelForm = document.createElement('div');   // form tiruan hasil Analisa (di bawah laporan)
+        let urutan = 0;                                     // penanda analisa terakhir (hasil telusur skrip yang telat dibuang)
+        kotak.appendChild(judul); kotak.appendChild(baris); kotak.appendChild(info); kotak.appendChild(out); kotak.appendChild(panelForm);
         bd.appendChild(kotak);
         document.body.appendChild(bd);
         inp.focus();
@@ -220,6 +224,8 @@
             try { url = new URL(v, location.origin).href; } catch (e) { info.textContent = 'Link tidak valid.'; return; }
             info.textContent = 'Mengambil ' + url + ' ...';
             out.value = '';
+            panelForm.textContent = '';
+            const no = ++urutan;
             const mulai = Date.now();
             try {
                 const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
@@ -227,7 +233,11 @@
                 info.textContent = 'HTTP ' + res.status + ' ' + res.statusText + ' | ' + (res.headers.get('content-type') || '-') + ' | ' + teks.length + ' karakter | ' + (Date.now() - mulai) + ' ms' + (res.redirected ? ' | dialihkan ke ' + res.url : '');
                 if (!analisa) { out.value = teks; return; }
                 try {
-                    out.value = analisaDoc(new DOMParser().parseFromString(teks, 'text/html'), res.url || url, teks.length);
+                    const doc = new DOMParser().parseFromString(teks, 'text/html');
+                    const urlAkhir = res.url || url;
+                    out.value = analisaDoc(doc, urlAkhir, teks.length);
+                    buatPanelForm(doc, urlAkhir, panelForm);
+                    telusuriSkrip(doc, urlAkhir).then((t) => { if (no === urutan && t) out.value += '\n\n' + t; }).catch(() => {});
                 } catch (err) {
                     out.value = 'Analisa gagal: ' + err.message + '\n\nHTML mentah:\n' + teks;
                 }
@@ -429,6 +439,25 @@
         const hal = doc.querySelectorAll('.pagination a, [class*=paginat] a').length;
         if (hal) out.push('Paginasi: ' + hal + ' link');
 
+        // Proses submit/AJAX di skrip inline: baris yang memanggil ajax/fetch/submit/serialize atau menyebut id/nama form
+        const kunciForm = kunciPencarian(doc);
+        const POLA_PROSES = /\$\.(ajax|get|post|getJSON)\b|\.ajax\(|\bfetch\(|XMLHttpRequest|\.submit\(|\.serialize\(|FormData|\bon\(\s*['"](submit|change)|addEventListener\(\s*['"](submit|change)|\burl\s*:|\.load\(/;
+        const prosesBaris = [];
+        Array.from(doc.querySelectorAll('script:not([src])')).forEach((s, i) => {
+            (s.textContent || '').split('\n').forEach((ln) => {
+                const t = rapih(ln);
+                if (!t) return;
+                const idxKunci = kunciForm.map((k) => t.indexOf(k)).filter((x) => x >= 0);
+                const m = t.search(POLA_PROSES);
+                if (m < 0 && !idxKunci.length) return;
+                const pos = m >= 0 ? m : idxKunci[0];
+                prosesBaris.push('#' + (i + 1) + ': ' + sensor(t.length > 200 ? '...' + t.slice(Math.max(0, pos - 60), pos + 120) + '...' : t));
+            });
+        });
+        out.push('', '== PROSES SUBMIT / AJAX DI SKRIP INLINE (' + prosesBaris.length + ' baris cocok, 40 pertama) ==');
+        prosesBaris.slice(0, 40).forEach((b) => out.push('  ' + b));
+        if (!prosesBaris.length) out.push('  (tidak ada; logikanya mungkin di skrip eksternal, lihat pencarian skrip eksternal di bawah)');
+
         const PUSTAKA = [['jQuery', /jquery/i], ['DataTables', /datatables/i], ['Bootstrap', /bootstrap/i], ['Select2', /select2/i], ['Chosen', /chosen/i],
             ['Datepicker', /date(time)?picker|flatpickr|pikaday/i], ['Moment', /moment/i], ['SweetAlert', /sweetalert/i], ['Chart.js', /chart/i], ['Vue', /vue/i], ['React', /react/i]];
         const pustaka = PUSTAKA.filter((p) => skripSrc.some((s) => p[1].test(s))).map((p) => p[0]);
@@ -438,6 +467,209 @@
         out.push('Skrip eksternal: ' + skripSrc.length + ' | skrip inline: ' + doc.querySelectorAll('script:not([src])').length + ' | stylesheet: ' + doc.querySelectorAll('link[rel=stylesheet]').length);
         skripSrc.slice(0, 15).forEach((s) => out.push('  ' + sensor(s).slice(0, 110)));
         return out.join('\n');
+    }
+
+    // Kata kunci pencarian di skrip: id form, bagian terakhir alamat aksi, dan id kolom form (mis. idoutlet_own)
+    function kunciPencarian(doc) {
+        const k = new Set();
+        doc.querySelectorAll('form').forEach((f) => {
+            if (f.id) k.add(f.id);
+            const a = (f.getAttribute('action') || '').split('?')[0].split('/').filter(Boolean).pop();
+            if (a && !/^\d+$/.test(a)) k.add(a);
+        });
+        doc.querySelectorAll('form select, form input:not([type=hidden]), form textarea, form button').forEach((e) => { if (e.id) k.add(e.id); });
+        return Array.from(k).filter((s) => s.length >= 4).slice(0, 12);
+    }
+
+    // Cari kata kunci di skrip eksternal satu domain (sudah ada di cache browser karena halaman memuatnya juga)
+    async function telusuriSkrip(doc, url) {
+        const kunci = kunciPencarian(doc);
+        if (!kunci.length) return '';
+        const seen = {};
+        const daftar = [];
+        doc.querySelectorAll('script[src]').forEach((s) => {
+            try {
+                const u = new URL(s.getAttribute('src'), url);
+                if (u.origin === location.origin && !seen[u.href]) { seen[u.href] = 1; daftar.push(u); }
+            } catch (e) { /* abaikan */ }
+        });
+        const out = ['== PENCARIAN DI SKRIP EKSTERNAL (kunci: ' + kunci.join(', ') + ') =='];
+        let hit = 0;
+        for (const u of daftar.slice(0, 8)) {
+            const nama = u.pathname.split('/').pop() || u.pathname;
+            let teks = '';
+            try {
+                const r = await fetch(u.href, { credentials: 'same-origin' });
+                if (!r.ok) continue;
+                teks = await r.text();
+            } catch (e) { continue; }
+            if (teks.length > 4000000) { out.push('  ' + nama + ': terlalu besar, dilewati'); continue; }
+            for (const k of kunci) {
+                let i = teks.indexOf(k), n = 0;
+                while (i >= 0 && n < 3 && hit < 30) {
+                    out.push('  ' + nama + ' [' + k + ']: ...' + sensor(rapih(teks.slice(Math.max(0, i - 100), i + 160))) + '...');
+                    n++; hit++;
+                    i = teks.indexOf(k, i + k.length + 160);
+                }
+            }
+        }
+        if (!hit) out.push('  (kunci tidak ditemukan di ' + Math.min(daftar.length, 8) + ' skrip eksternal satu domain)');
+        return out.join('\n');
+    }
+
+    // ----- Form tiruan: replika form hasil fetch (tampilan mengikuti CSS halaman), bisa diisi & dikirim dengan konfirmasi -----
+    const SENSITIF_NAMA = /token|csrf|authenticity|passw|secret/i;
+
+    // Salinan form dibuat "mati": tanpa skrip, atribut on*/data-* (Rails UJS, Bootstrap), link javascript:, id diberi awalan rkc_
+    function bersihkanSalinan(root) {
+        root.querySelectorAll('script, iframe, object, embed, link, base, meta, style').forEach((e) => e.remove());
+        [root].concat(Array.from(root.querySelectorAll('*'))).forEach((el) => {
+            Array.from(el.attributes).forEach((a) => {
+                if (/^(on|data-)/i.test(a.name) || /^form(action|target|method|enctype)$/i.test(a.name) ||
+                    (/^(href|src|action)$/i.test(a.name) && /^\s*javascript:/i.test(a.value))) el.removeAttribute(a.name);
+            });
+            if (el.id) el.id = 'rkc_' + el.id;
+            if (el.tagName === 'LABEL' && el.getAttribute('for')) el.setAttribute('for', 'rkc_' + el.getAttribute('for'));
+            if (el.tagName === 'A') { el.removeAttribute('href'); el.removeAttribute('target'); }
+        });
+    }
+
+    function tampilPayload(p) {
+        return p.map((x) => x[0] + '=' + (SENSITIF_NAMA.test(x[0]) ? '***' : String(x[1]).slice(0, 200))).join('\n');
+    }
+
+    function ringkasRespons(res, teks, ms, ringkasReq) {
+        const l = ['== REQUEST ==', ringkasReq, '', '== RESPONS =='];
+        const tipe = res.headers.get('content-type') || '';
+        l.push('HTTP ' + res.status + ' ' + res.statusText + ' | ' + ms + ' ms | ' + teks.length + ' karakter');
+        l.push('Content-Type: ' + (tipe || '-'));
+        l.push('URL akhir: ' + sensor(res.url) + (res.redirected ? '  (DIALIHKAN setelah kirim)' : ''));
+        if (/html/i.test(tipe)) {
+            const d = new DOMParser().parseFromString(teks, 'text/html');
+            l.push('Judul: ' + (rapih(d.title) || '-'));
+            l.push('Heading: ' + (Array.from(d.querySelectorAll('h1,h2')).map((h) => rapih(h.textContent)).filter(Boolean).slice(0, 5).join(' | ') || '-'));
+            const pesan = [];
+            d.querySelectorAll('.alert, .notice, .flash, #notice, #alert, #error_explanation, .error, .help-block, .field_with_errors, [class*=error], [class*=success]').forEach((e) => {
+                const t = rapih(e.textContent).slice(0, 160);
+                if (t && pesan.indexOf(t) < 0 && pesan.length < 10) pesan.push(t);
+            });
+            l.push('Pesan di halaman respons: ' + (pesan.length ? '' : '-'));
+            pesan.forEach((p) => l.push('  ' + p));
+            l.push('Form di halaman respons: ' + d.querySelectorAll('form').length);
+        }
+        l.push('Awal respons: ' + sensor(rapih(teks)).slice(0, 1200));
+        return l.join('\n');
+    }
+
+    function buatPanelForm(doc, url, panel) {
+        panel.textContent = '';
+        const forms = Array.from(doc.querySelectorAll('form'));
+        const el = (tag, css, teks) => {
+            const e = document.createElement(tag);
+            if (css) e.style.cssText = css;
+            if (teks != null) e.textContent = teks;
+            return e;
+        };
+        const gaya = (b) => 'padding:6px 14px;border:0;border-radius:4px;background:' + b + ';color:#fff;cursor:pointer;';
+        panel.appendChild(el('div', 'font-weight:bold;margin-top:6px;', 'Form tiruan' + (forms.length ? ' (' + forms.length + ' form di halaman)' : '')));
+        if (!forms.length) {
+            panel.appendChild(el('div', 'color:#475569;', 'Tidak ada <form> di HTML mentah, jadi tidak ada yang bisa ditiru (form yang dibuat lewat JavaScript tidak terbaca).'));
+            return;
+        }
+        const tokenMeta = (doc.querySelector('meta[name=csrf-token]') || el('i')).getAttribute('content') || '';
+        const isi = el('div');
+        let awal = forms.findIndex((f) => /^post$/i.test(f.getAttribute('method') || ''));
+        if (awal < 0) awal = 0;
+        if (forms.length > 1) {
+            const pilih = el('select', 'padding:4px;margin:4px 0;max-width:100%;');
+            forms.forEach((f, i) => pilih.appendChild(new Option((i + 1) + '. ' + (f.id || '-') + '  ' + (f.getAttribute('method') || 'get').toUpperCase() + '  ' + sensor(f.getAttribute('action') || '').slice(0, 60), String(i))));
+            pilih.value = String(awal);
+            pilih.addEventListener('change', () => tampil(forms[Number(pilih.value)]));
+            panel.appendChild(pilih);
+        }
+        panel.appendChild(isi);
+
+        function tampil(f) {
+            isi.textContent = '';
+            const salinan = document.importNode(f, true);
+            bersihkanSalinan(salinan);
+            const method = /^post$/i.test(f.getAttribute('method') || '') ? 'POST' : 'GET';
+            let aksi = '';
+            try { aksi = new URL(f.getAttribute('action') || '', url).href; } catch (e) { aksi = ''; }
+            isi.appendChild(el('div', 'color:#475569;margin:4px 0;', 'Dikirim ke: ' + method + ' ' + sensor(aksi || url) +
+                (f.getAttribute('enctype') ? '  (' + f.getAttribute('enctype') + ': file tidak ikut dikirim)' : '')));
+            const wadah = el('div', 'border:1px dashed #94a3b8;border-radius:6px;padding:10px;background:#fff;color:#111;overflow:auto;');
+            wadah.appendChild(salinan);
+            isi.appendChild(wadah);
+
+            const ekstra = el('textarea', 'width:100%;box-sizing:border-box;min-height:48px;margin-top:6px;font:12px monospace;');
+            ekstra.id = 'rkf_ekstra';
+            ekstra.placeholder = 'Field tambahan (tidak ada di HTML, mis. baris saldo dari AJAX), satu per baris: nama=nilai';
+            const cbWrap = el('label', 'display:block;margin-top:4px;');
+            const cbToken = el('input');
+            cbToken.type = 'checkbox'; cbToken.checked = true; cbToken.id = 'rkf_token';
+            cbWrap.appendChild(cbToken);
+            cbWrap.appendChild(document.createTextNode(' Sertakan token CSRF otomatis' + (tokenMeta ? '' : ' (halaman ini tidak punya meta csrf-token)')));
+            const pay = el('textarea', 'width:100%;box-sizing:border-box;min-height:90px;margin-top:4px;font:12px monospace;');
+            pay.id = 'rkf_payload'; pay.readOnly = true;
+            const barisKirim = el('div', 'display:flex;gap:8px;align-items:center;margin-top:6px;');
+            const bKirim = el('button', gaya('#dc2626'), 'Kirim ' + method);
+            bKirim.type = 'button'; bKirim.id = 'rkf_kirim';
+            barisKirim.appendChild(bKirim);
+            barisKirim.appendChild(el('span', 'color:#475569;', 'Selalu minta konfirmasi; hanya ke domain ini. Menekan tombol di dalam form tiruan sama dengan tombol ini.'));
+            const hasil = el('textarea', 'width:100%;box-sizing:border-box;min-height:200px;margin-top:6px;font:12px monospace;white-space:pre;display:none;');
+            hasil.id = 'rkf_hasil'; hasil.readOnly = true;
+            isi.append(ekstra, cbWrap, el('div', 'margin-top:4px;color:#475569;', 'Payload yang akan dikirim (token & password disamarkan di tampilan, tetap terkirim apa adanya):'), pay, barisKirim, hasil);
+
+            function kumpul() {
+                const p = [];
+                new FormData(salinan).forEach((v, k) => { if (typeof v === 'string') p.push([k, v]); });
+                ekstra.value.split('\n').forEach((l) => {
+                    const i = l.indexOf('=');
+                    if (i > 0) p.push([l.slice(0, i).trim(), l.slice(i + 1)]);
+                });
+                if (cbToken.checked && tokenMeta && !p.some((x) => x[0] === 'authenticity_token')) p.push(['authenticity_token', tokenMeta]);
+                return p;
+            }
+            const perbarui = () => { const p = kumpul(); pay.value = p.length + ' field:\n' + tampilPayload(p); };
+            wadah.addEventListener('input', perbarui);
+            wadah.addEventListener('change', perbarui);
+            ekstra.addEventListener('input', perbarui);
+            cbToken.addEventListener('change', perbarui);
+            perbarui();
+
+            async function kirim() {
+                const p = kumpul();
+                let u;
+                try { u = new URL(aksi || url); } catch (e) { alert('Alamat form tidak valid.'); return; }
+                if (u.origin !== location.origin) { alert('Alamat form di luar domain ini, tidak dikirim: ' + u.origin); return; }
+                const ringkasReq = method + ' ' + u.pathname + u.search + '\n' + (method === 'POST' ? 'Content-Type: application/x-www-form-urlencoded\n' : '') +
+                    (cbToken.checked && tokenMeta ? 'X-CSRF-Token: ***\n' : '') + tampilPayload(p).slice(0, 3000);
+                hasil.style.display = '';
+                if (!confirm('KIRIM ' + ringkasReq.slice(0, 1500) + '\n\nIni MENGIRIM data sungguhan ke Erzap. Lanjutkan?')) {
+                    hasil.value = '(dibatalkan, tidak ada yang dikirim)';
+                    return;
+                }
+                const opsi = { method: method, credentials: 'same-origin', headers: {} };
+                if (cbToken.checked && tokenMeta) opsi.headers['X-CSRF-Token'] = tokenMeta;
+                if (method === 'GET') p.forEach((x) => u.searchParams.append(x[0], x[1]));
+                else opsi.body = new URLSearchParams(p);
+                bKirim.disabled = true;
+                hasil.value = 'Mengirim ...';
+                const mulai = Date.now();
+                try {
+                    const res = await fetch(u.href, opsi);
+                    hasil.value = ringkasRespons(res, await res.text(), Date.now() - mulai, ringkasReq);
+                } catch (err) {
+                    hasil.value = 'Gagal mengirim: ' + err.message;
+                } finally {
+                    bKirim.disabled = false;
+                }
+            }
+            bKirim.addEventListener('click', kirim);
+            salinan.addEventListener('submit', (e) => { e.preventDefault(); e.stopPropagation(); kirim(); }, true);
+        }
+        tampil(forms[awal]);
     }
 
     function tampilkanHasil() {
