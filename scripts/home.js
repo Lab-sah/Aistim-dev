@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.21.2
-// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerimaan Piutang" (Laporan Rekap Piutang, Tipe Rekap Penerimaan Piutang) dan "Pembayaran Hutang" (Laporan Rekap Hutang, Tipe Rekap Pembayaran Hutang): total dari blok Rekapitulasi, semua untuk hari ini, klik baris nota = popup daftar; lalu kartu "Pendapatan Lain-Lain" (Daftar Data Jurnal, gabungan Akun Pendapatan Lain + Bunga + Sewa, Dasar Filter Tanggal Transaksi, kolom Total dijumlah semua halaman). Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk user SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari label nama+jabatan user login); kartu-kartu ini hanya di Home. Tidak jalan di halaman Login.
+// @version      1.21.3
+// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerimaan Piutang" (Laporan Rekap Piutang, Tipe Rekap Penerimaan Piutang) dan "Pembayaran Hutang" (Laporan Rekap Hutang, Tipe Rekap Pembayaran Hutang): total dari blok Rekapitulasi, semua untuk hari ini, klik baris nota = popup daftar; lalu kartu "Pendapatan Lain-Lain" (Daftar Data Jurnal, gabungan Akun Pendapatan Lain + Bunga + Sewa, Dasar Filter Tanggal Transaksi, kolom Total dijumlah semua halaman). Saldo Rp 5 juta ke bawah: popup peringatan muncul di SEMUA halaman Erzap (saat halaman dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk admin SURYO/SENTOT/MANAJEMEN PUSAT (dibaca dari #info_kasir seperti saldokas.js); kartu-kartu ini hanya di Home. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -20,7 +20,7 @@
     const DI_HOME = location.pathname === '/';   // kartu PPOB hanya di Home; popup peringatan saldo di semua halaman
     if (window.__aistimHome) return;
     window.__aistimHome = true;
-    console.log('[home.js] v1.21.2 aktif di ' + location.pathname);
+    console.log('[home.js] v1.21.3 aktif di ' + location.pathname);
 
     const SALDO_URL = '/main/check_balance_ppob/new';
     const PPOB_URL = '/penjualans/aktifitas_ppob/new';
@@ -813,23 +813,25 @@
 
     // ---------- popup peringatan: saldo PPOB Rp 5 juta ke bawah ----------
     // Muncul saat Home pertama dibuka, lalu diulang tiap 5 menit selama saldo masih di bawah batas; berhenti (dan popup ditutup) setelah saldo diisi.
-    // Hanya untuk user tertentu: nama/jabatan user yang login (label "NAMA (JABATAN)" di header) memuat salah satu kata ini.
-    const NAMA_IZIN_NOTIF = ['SURYO', 'SENTOT', 'MANAJEMEN PUSAT'];
-    // Label user login: elemen daun (tanpa anak) berpola "NAMA (JABATAN)", mis. "SENTOT ARI HANDOKO (STAF IT)"
+    // Hanya untuk ADMIN (daftar di bawah): nama/jabatan user yang login memuat salah satu kata ini.
+    // Sistem pencarian admin sama dengan saldokas.js: teks "NAMA (JABATAN)" dibaca dari #info_kasir, tidak peduli huruf besar/kecil.
+    const ADMIN = ['SURYO', 'SENTOT', 'MANAJEMEN PUSAT'];
+    // Cadangan bila #info_kasir tidak ada: elemen daun (tanpa anak) berpola "NAMA (JABATAN)", mis. "SENTOT ARI HANDOKO (STAF IT)"
     const RE_LABEL_USER = /^[A-Z][A-Z.' -]{2,60}\([^()]{2,40}\)$/;
-    function labelUserAktif() {
+    function namaUser() {
+        const kasir = document.getElementById('info_kasir');
+        if (kasir) return rapih(kasir.textContent).toLowerCase();
         const semua = document.querySelectorAll('label, a, span, div, button');
         for (const e of semua) {
             if (e.children.length) continue;
             const t = rapih(e.textContent);
-            if (RE_LABEL_USER.test(t)) return t;
+            if (RE_LABEL_USER.test(t)) return t.toLowerCase();
         }
         return '';
     }
-    function bolehNotifSaldo() {
-        const label = labelUserAktif().toUpperCase();
-        return !!label && NAMA_IZIN_NOTIF.some((n) => label.indexOf(n) !== -1);
-    }
+    const cocokNama = (daftar) => { const n = namaUser(); return !!n && daftar.some((u) => n.indexOf(u.toLowerCase()) !== -1); };
+    const isAdmin = () => cocokNama(ADMIN);
+    function bolehNotifSaldo() { return isAdmin(); }
     const NOTIF_BATAS = 5000000;   // peringatan bila saldo sama dengan atau di bawah batas ini (5 juta ke bawah)
     const NOTIF_ULANG_MS = 5 * 60 * 1000;
     let notifTerakhir = 0;      // waktu popup terakhir ditampilkan (0 = belum pernah di halaman ini)
@@ -851,7 +853,7 @@
             el('div', { teks: '⚠ Saldo PPOB Hampir Habis', gaya: 'font-size:17px;font-weight:700;color:#dc3545;margin-bottom:8px' }),
             el('div', { teks: 'Saldo PPOB saat ini:' }),
             nilai,
-            el('div', { teks: 'Rp ' + NOTIF_BATAS.toLocaleString('en-US') + ' atau kurang. Segera isi saldo PPOB.', gaya: 'color:#555' }),
+            el('div', { teks: 'Saldo kurang dari Rp ' + NOTIF_BATAS.toLocaleString('en-US'), gaya: 'color:#555' }),
             el('div', { teks: 'Peringatan ini muncul lagi tiap 5 menit sampai saldo diisi.', gaya: 'color:#888;font-size:12px;margin-top:8px' })
         ]));
         kotak.appendChild(el('div', { gaya: 'display:flex;justify-content:flex-end;padding:10px 18px 16px' }, [bTutup]));
