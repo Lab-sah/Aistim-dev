@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.5.0
-// @description  [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
+// @version      1.6.0
+// @description  [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -194,11 +194,14 @@
         inp.style.cssText = 'flex:1;padding:6px;border:1px solid #94a3b8;border-radius:4px;';
         const bGo = document.createElement('button');
         bGo.type = 'button'; bGo.textContent = 'Ambil'; bGo.style.cssText = gaya('#2563eb');
+        const bAnalisa = document.createElement('button');
+        bAnalisa.type = 'button'; bAnalisa.textContent = 'Analisa'; bAnalisa.style.cssText = gaya('#7c3aed');
+        bAnalisa.title = 'Ambil link, parse HTML-nya, tampilkan komponen & input';
         const bSalin = document.createElement('button');
         bSalin.type = 'button'; bSalin.textContent = 'Salin'; bSalin.style.cssText = gaya('#28a745');
         const bTutup = document.createElement('button');
         bTutup.type = 'button'; bTutup.textContent = 'Tutup'; bTutup.style.cssText = gaya('#64748b');
-        baris.appendChild(inp); baris.appendChild(bGo); baris.appendChild(bSalin); baris.appendChild(bTutup);
+        baris.appendChild(inp); baris.appendChild(bGo); baris.appendChild(bAnalisa); baris.appendChild(bSalin); baris.appendChild(bTutup);
         const info = document.createElement('div');
         info.style.cssText = 'color:#475569;';
         const out = document.createElement('textarea');
@@ -210,7 +213,7 @@
         inp.focus();
 
         const tutup = () => bd.remove();
-        async function ambil() {
+        async function ambil(analisa) {
             const v = inp.value.trim();
             if (!v) { info.textContent = 'Isi link dulu.'; return; }
             let url;
@@ -222,19 +225,204 @@
                 const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
                 const teks = await res.text();
                 info.textContent = 'HTTP ' + res.status + ' ' + res.statusText + ' | ' + (res.headers.get('content-type') || '-') + ' | ' + teks.length + ' karakter | ' + (Date.now() - mulai) + ' ms' + (res.redirected ? ' | dialihkan ke ' + res.url : '');
-                out.value = teks;
+                if (!analisa) { out.value = teks; return; }
+                try {
+                    out.value = analisaDoc(new DOMParser().parseFromString(teks, 'text/html'), res.url || url, teks.length);
+                } catch (err) {
+                    out.value = 'Analisa gagal: ' + err.message + '\n\nHTML mentah:\n' + teks;
+                }
             } catch (err) {
                 info.textContent = 'Gagal: ' + err.message + ' (link luar domain biasanya diblokir CORS)';
             }
         }
-        bGo.onclick = ambil;
+        bGo.onclick = () => ambil(false);
+        bAnalisa.onclick = () => ambil(true);
         bTutup.onclick = tutup;
         bSalin.onclick = async () => {
             try { await navigator.clipboard.writeText(out.value); } catch (e) { out.select(); document.execCommand('copy'); }
             info.textContent = 'Output disalin.';
         };
-        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') ambil(); if (e.key === 'Escape') tutup(); });
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') ambil(e.shiftKey); if (e.key === 'Escape') tutup(); });
         bd.addEventListener('mousedown', (e) => { if (e.target === bd) tutup(); });
+        info.textContent = 'Ambil = HTML mentah (Enter). Analisa = komponen & input hasil parse (Shift+Enter).';
+    }
+
+    // ----- Analisa: komponen & input halaman dari HTML hasil fetch (HTML mentah dari server) -----
+    function analisaDoc(doc, url, panjang) {
+        const out = [];
+        const ptg = (s, n) => rapih(s).slice(0, n);
+        const SENSITIF = /token|csrf|authenticity|passw|secret/i;
+        const forms = Array.from(doc.querySelectorAll('form'));
+        const tersembunyi = (el) => !!el.closest('[hidden], [style*="display:none"], [style*="display: none"]');
+
+        const labelDari = (el) => {
+            let teks = '';
+            if (el.id) {
+                const l = Array.from(doc.querySelectorAll('label[for]')).find((x) => x.getAttribute('for') === el.id);
+                if (l) teks = l.textContent;
+            }
+            if (!teks && el.closest('label')) teks = el.closest('label').textContent;
+            for (let p = el.previousElementSibling; !teks && p; p = p.previousElementSibling) {
+                if (/^(label|b|strong|span)$/i.test(p.tagName) && !p.querySelector('input,select,textarea')) teks = p.textContent;
+            }
+            if (!teks && el.parentElement) {
+                const l = Array.from(el.parentElement.children).find((c) => c.tagName === 'LABEL' && !c.contains(el));
+                if (l) teks = l.textContent;
+            }
+            return ptg(teks, 40).replace(/\s*:$/, '');
+        };
+
+        const BOOL = ['required', 'readonly', 'disabled', 'multiple', 'checked', 'autofocus'];
+        const NILAI = ['maxlength', 'min', 'max', 'step', 'pattern', 'accept', 'autocomplete'];
+        const sifat = (el) => BOOL.filter((a) => el.hasAttribute(a))
+            .concat(NILAI.filter((a) => el.hasAttribute(a)).map((a) => a + '=' + ptg(el.getAttribute(a), 30)));
+
+        const medan = (el) => {
+            const tag = el.tagName.toLowerCase();
+            const tipe = tag === 'input' ? (el.getAttribute('type') || 'text').toLowerCase() : tag;
+            const nama = el.getAttribute('name') || '';
+            const p = ['[' + tipe + ']'];
+            if (nama) p.push('name=' + nama);
+            if (el.id) p.push('id=' + el.id);
+            const lbl = labelDari(el);
+            if (lbl) p.push('label="' + lbl + '"');
+            if (el.getAttribute('placeholder')) p.push('placeholder="' + ptg(el.getAttribute('placeholder'), 30) + '"');
+            if (tag === 'select') {
+                const opsi = Array.from(el.options);
+                p.push('opsi=' + opsi.length + ': ' + opsi.slice(0, 8)
+                    .map((o) => (o.hasAttribute('selected') ? '*' : '') + ptg(o.textContent, 22) + '=' + String(o.value).slice(0, 18)).join(' ; ')
+                    + (opsi.length > 8 ? ' ; ...' : ''));
+            } else {
+                const v = tag === 'textarea' ? el.textContent : el.getAttribute('value');
+                if (v) p.push('value="' + (tipe === 'password' || SENSITIF.test(nama + ' ' + el.id) ? '***' : ptg(v, 40)) + '"');
+            }
+            Array.prototype.push.apply(p, sifat(el));
+            if (el.className) p.push('class="' + ptg(el.className, 40) + '"');
+            if (tipe === 'hidden' || tersembunyi(el)) p.push('(tersembunyi)');
+            return p.join(' ');
+        };
+
+        const tombol = (el) => {
+            const tag = el.tagName.toLowerCase();
+            const teks = ptg(tag === 'input' ? el.getAttribute('value') : el.textContent, 40)
+                || ptg(el.getAttribute('title') || el.getAttribute('aria-label') || '', 40);
+            const p = ['"' + teks + '"', '<' + tag + (tag === 'a' ? '' : ' type=' + (el.getAttribute('type') || (tag === 'button' ? 'submit' : 'button'))) + '>'];
+            if (el.id) p.push('id=' + el.id);
+            if (el.className) p.push('class="' + ptg(el.className, 40) + '"');
+            if (tag === 'a' && el.getAttribute('href')) p.push('href=' + sensor(el.getAttribute('href')).slice(0, 80));
+            Array.from(el.attributes).filter((a) => /^(data-|on[a-z]+$)/.test(a.name)).slice(0, 4)
+                .forEach((a) => p.push(a.name + '=' + ptg(a.value, 40)));
+            if (el.hasAttribute('disabled')) p.push('disabled');
+            if (tersembunyi(el)) p.push('(tersembunyi)');
+            return p.join(' ');
+        };
+
+        const semuaMedan = Array.from(doc.querySelectorAll('input, select, textarea'))
+            .filter((el) => !(el.tagName === 'INPUT' && /^(submit|button|reset|image)$/i.test(el.getAttribute('type') || '')));
+        const semuaTombol = Array.from(doc.querySelectorAll('button, input[type=submit], input[type=button], input[type=reset], input[type=image], a.btn, a[role=button], [role=button]'));
+        const tabel = Array.from(doc.querySelectorAll('table'));
+        const modal = Array.from(doc.querySelectorAll('.modal, [role=dialog], dialog'));
+        const iframe = Array.from(doc.querySelectorAll('iframe'));
+        const skripSrc = Array.from(doc.querySelectorAll('script[src]')).map((s) => s.getAttribute('src') || '');
+        const tabelJenis = {};
+        semuaMedan.forEach((el) => {
+            const k = el.tagName === 'INPUT' ? (el.getAttribute('type') || 'text').toLowerCase() : el.tagName.toLowerCase();
+            tabelJenis[k] = (tabelJenis[k] || 0) + 1;
+        });
+
+        out.push('== ANALISA HALAMAN ==');
+        out.push('URL: ' + sensor(url));
+        out.push('Judul: ' + (rapih(doc.title) || '-'));
+        out.push('Ukuran HTML: ' + panjang + ' karakter | elemen: ' + doc.querySelectorAll('*').length);
+        const hs = Array.from(doc.querySelectorAll('h1,h2,h3,h4')).map((h) => rapih(h.textContent)).filter(Boolean).slice(0, 12);
+        out.push('Heading: ' + (hs.join(' | ') || '-'));
+        if (doc.querySelector('input[type=password]')) {
+            out.push(tabel.length || forms.length > 2
+                ? 'Catatan: ada kolom password (nilainya disamarkan).'
+                : '!! Tampaknya HALAMAN LOGIN (ada kolom password) - sesi mungkin habis.');
+        }
+        if (!forms.length && !semuaMedan.length && doc.querySelectorAll('script').length) {
+            out.push('!! Tidak ada form/input di HTML mentah. Komponen yang dibuat lewat JavaScript/AJAX tidak ikut terbaca (analisa memakai HTML dari server).');
+        }
+
+        out.push('', '== RINGKASAN KOMPONEN ==');
+        out.push('form: ' + forms.length + ' | input/select/textarea: ' + semuaMedan.length + ' | tombol: ' + semuaTombol.length +
+            ' | tabel: ' + tabel.length + ' | modal/dialog: ' + modal.length + ' | iframe: ' + iframe.length + ' | link: ' + doc.querySelectorAll('a[href]').length);
+        out.push('jenis input: ' + (Object.keys(tabelJenis).map((k) => k + ' ' + tabelJenis[k]).join(', ') || '-'));
+
+        const MAKS = 80;
+        const tulisMedan = (daftar, indent) => {
+            daftar.slice(0, MAKS).forEach((el) => out.push(indent + medan(el)));
+            if (daftar.length > MAKS) out.push(indent + '... (' + (daftar.length - MAKS) + ' lagi)');
+        };
+        const tulisTombol = (daftar, indent) => {
+            daftar.slice(0, 30).forEach((el) => out.push(indent + 'tombol ' + tombol(el)));
+            if (daftar.length > 30) out.push(indent + '... (' + (daftar.length - 30) + ' tombol lagi)');
+        };
+
+        forms.slice(0, 12).forEach((f, i) => {
+            out.push('', '== FORM ' + (i + 1) + ' ==');
+            out.push('id=' + (f.id || '-') + ' method=' + (f.getAttribute('method') || 'get') + ' action=' + (sensor(f.getAttribute('action') || '').slice(0, 100) || '-') +
+                (f.getAttribute('enctype') ? ' enctype=' + f.getAttribute('enctype') : '') + (f.className ? ' class="' + ptg(f.className, 40) + '"' : ''));
+            const m = semuaMedan.filter((el) => el.closest('form') === f);
+            out.push('Input (' + m.length + '):');
+            tulisMedan(m, '  ');
+            const t = semuaTombol.filter((el) => el.closest('form') === f);
+            if (t.length) { out.push('Tombol (' + t.length + '):'); tulisTombol(t, '  '); }
+        });
+        if (forms.length > 12) out.push('', '... (' + (forms.length - 12) + ' form lagi tidak ditampilkan)');
+
+        const luarMedan = semuaMedan.filter((el) => !el.closest('form'));
+        if (luarMedan.length) { out.push('', '== INPUT DI LUAR FORM (' + luarMedan.length + ') =='); tulisMedan(luarMedan, '  '); }
+        const luarTombol = semuaTombol.filter((el) => !el.closest('form'));
+        if (luarTombol.length) { out.push('', '== TOMBOL / AKSI DI LUAR FORM (' + luarTombol.length + ') =='); tulisTombol(luarTombol, '  '); }
+
+        out.push('', '== TABEL (' + tabel.length + ') ==');
+        tabel.slice(0, 6).forEach((t, i) => {
+            const th = Array.from(t.querySelectorAll('th')).map((x) => ptg(x.textContent, 25));
+            out.push('TABEL ' + (i + 1) + ' id=' + (t.id || '-') + ' class="' + ptg(t.className, 50) + '" baris=' + t.querySelectorAll('tbody tr').length +
+                ' kotak-centang=' + t.querySelectorAll('input[type=checkbox]').length);
+            out.push('  kolom: ' + (th.join(' | ') || '-'));
+        });
+
+        if (modal.length) {
+            out.push('', '== MODAL / DIALOG (' + modal.length + ') ==');
+            modal.slice(0, 10).forEach((m) => {
+                const jd = m.querySelector('.modal-title, h1, h2, h3, h4, h5');
+                out.push('<' + m.tagName.toLowerCase() + (m.id ? ' id=' + m.id : '') + (m.className ? ' class="' + ptg(m.className, 40) + '"' : '') + '> judul="' +
+                    (jd ? ptg(jd.textContent, 40) : '-') + '" input=' + m.querySelectorAll('input,select,textarea').length + ' tombol=' + m.querySelectorAll('button').length);
+            });
+        }
+        if (iframe.length) {
+            out.push('', '== IFRAME (' + iframe.length + ') ==');
+            iframe.slice(0, 5).forEach((f) => out.push('src=' + (sensor(f.getAttribute('src') || '').slice(0, 100) || '-') + (f.id ? ' id=' + f.id : '')));
+        }
+
+        const seen = {};
+        const links = [];
+        doc.querySelectorAll('a[href]').forEach((a) => {
+            const t = ptg(a.textContent, 40);
+            const h = a.getAttribute('href') || '';
+            if (!t || !h || h.charAt(0) === '#' || /^javascript/i.test(h)) return;
+            const k = t + '>' + h;
+            if (seen[k]) return;
+            seen[k] = 1;
+            links.push(t + ' -> ' + sensor(h).slice(0, 100));
+        });
+        out.push('', '== LINK (' + links.length + ' unik, 25 pertama) ==');
+        links.slice(0, 25).forEach((l) => out.push('  ' + l));
+        const hal = doc.querySelectorAll('.pagination a, [class*=paginat] a').length;
+        if (hal) out.push('Paginasi: ' + hal + ' link');
+
+        const PUSTAKA = [['jQuery', /jquery/i], ['DataTables', /datatables/i], ['Bootstrap', /bootstrap/i], ['Select2', /select2/i], ['Chosen', /chosen/i],
+            ['Datepicker', /date(time)?picker|flatpickr|pikaday/i], ['Moment', /moment/i], ['SweetAlert', /sweetalert/i], ['Chart.js', /chart/i], ['Vue', /vue/i], ['React', /react/i]];
+        const pustaka = PUSTAKA.filter((p) => skripSrc.some((s) => p[1].test(s))).map((p) => p[0]);
+        if (doc.querySelector('meta[name=csrf-param]')) pustaka.push('Rails (token CSRF)');
+        out.push('', '== SKRIP & LIBRARY ==');
+        out.push('Library terdeteksi: ' + (pustaka.join(', ') || '-'));
+        out.push('Skrip eksternal: ' + skripSrc.length + ' | skrip inline: ' + doc.querySelectorAll('script:not([src])').length + ' | stylesheet: ' + doc.querySelectorAll('link[rel=stylesheet]').length);
+        skripSrc.slice(0, 15).forEach((s) => out.push('  ' + sensor(s).slice(0, 110)));
+        return out.join('\n');
     }
 
     function tampilkanHasil() {
