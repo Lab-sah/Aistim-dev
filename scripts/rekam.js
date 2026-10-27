@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.7.0
-// @description  [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
+// @version      1.8.0
+// @description  [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -534,6 +534,20 @@
         });
     }
 
+    // Alamat (path) di string skrip inline, mis. '/perkiraans/saldo_tabel?outlet=' - jadi pilihan alamat Cari
+    function alamatDariSkrip(doc, url) {
+        const hasil = [];
+        const tambah = (a) => { if (a && hasil.indexOf(a) < 0 && hasil.length < 16) hasil.push(a); };
+        try { tambah(new URL(url).pathname); } catch (e) { /* abaikan */ }
+        doc.querySelectorAll('script:not([src])').forEach((s) => {
+            (s.textContent || '').replace(/['"`](\/[A-Za-z0-9_\-\/.]*[A-Za-z0-9_](?:\?[^'"`\s]*)?)['"`]/g, (m, a) => {
+                if (!/^\/(assets|packs|images|fonts)\b|\.(js|css|png|jpe?g|gif|svg|ico|woff2?)(\?|$)/i.test(a)) tambah(a);
+                return m;
+            });
+        });
+        return hasil;
+    }
+
     function tampilPayload(p) {
         return p.map((x) => x[0] + '=' + (SENSITIF_NAMA.test(x[0]) ? '***' : String(x[1]).slice(0, 200))).join('\n');
     }
@@ -612,14 +626,35 @@
             cbWrap.appendChild(document.createTextNode(' Sertakan token CSRF otomatis' + (tokenMeta ? '' : ' (halaman ini tidak punya meta csrf-token)')));
             const pay = el('textarea', 'width:100%;box-sizing:border-box;min-height:90px;margin-top:4px;font:12px monospace;');
             pay.id = 'rkf_payload'; pay.readOnly = true;
+            // Cari = GET (hanya membaca, tanpa konfirmasi, tanpa token): isian form jadi query string ke alamat yang bisa diubah
+            const barisCari = el('div', 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;');
+            const alamat = el('input', 'flex:1;min-width:220px;padding:6px;border:1px solid #94a3b8;border-radius:4px;');
+            alamat.type = 'text'; alamat.id = 'rkf_alamat';
+            alamat.value = new URL(url).pathname;
+            alamat.setAttribute('list', 'rkf_alamat_daftar');
+            alamat.title = 'Alamat untuk Cari (GET). Pilihan di daftar diambil dari skrip halaman.';
+            const daftarAlamat = el('datalist');
+            daftarAlamat.id = 'rkf_alamat_daftar';
+            alamatDariSkrip(doc, url).forEach((a) => daftarAlamat.appendChild(new Option(a, a)));
+            const cbAjax = el('input');
+            cbAjax.type = 'checkbox'; cbAjax.id = 'rkf_ajax';
+            const lblAjax = el('label', 'white-space:nowrap;');
+            lblAjax.appendChild(cbAjax);
+            lblAjax.appendChild(document.createTextNode(' sebagai AJAX'));
+            lblAjax.title = 'Tambah header X-Requested-With: XMLHttpRequest (Rails membalas potongan halaman)';
+            const bCari = el('button', gaya('#2563eb'), 'Cari (GET)');
+            bCari.type = 'button'; bCari.id = 'rkf_cari';
+            const bPakai = el('button', gaya('#7c3aed') + 'display:none;', 'Pakai input hasil');
+            bPakai.type = 'button'; bPakai.id = 'rkf_pakai';
+            barisCari.append(alamat, daftarAlamat, lblAjax, bCari, bPakai);
             const barisKirim = el('div', 'display:flex;gap:8px;align-items:center;margin-top:6px;');
             const bKirim = el('button', gaya('#dc2626'), 'Kirim ' + method);
             bKirim.type = 'button'; bKirim.id = 'rkf_kirim';
             barisKirim.appendChild(bKirim);
-            barisKirim.appendChild(el('span', 'color:#475569;', 'Selalu minta konfirmasi; hanya ke domain ini. Menekan tombol di dalam form tiruan sama dengan tombol ini.'));
+            barisKirim.appendChild(el('span', 'color:#475569;', 'Kirim ' + method + ' selalu minta konfirmasi dan hanya ke domain ini. Simpan/Enter di dalam form tiruan menjalankan Cari, bukan kirim.'));
             const hasil = el('textarea', 'width:100%;box-sizing:border-box;min-height:200px;margin-top:6px;font:12px monospace;white-space:pre;display:none;');
             hasil.id = 'rkf_hasil'; hasil.readOnly = true;
-            isi.append(ekstra, cbWrap, el('div', 'margin-top:4px;color:#475569;', 'Payload yang akan dikirim (token & password disamarkan di tampilan, tetap terkirim apa adanya):'), pay, barisKirim, hasil);
+            isi.append(ekstra, cbWrap, el('div', 'margin-top:4px;color:#475569;', 'Payload (token & password disamarkan di tampilan; Cari tidak menyertakan token/password):'), pay, barisCari, barisKirim, hasil);
 
             function kumpul() {
                 const p = [];
@@ -666,8 +701,56 @@
                     bKirim.disabled = false;
                 }
             }
+            let inputHasil = [];
+            async function cari() {
+                let u;
+                try { u = new URL(alamat.value.trim() || url, url); } catch (e) { alert('Alamat cari tidak valid.'); return; }
+                if (u.origin !== location.origin) { alert('Alamat di luar domain ini, tidak dikirim: ' + u.origin); return; }
+                // GET hanya membaca: token CSRF, password, dan utf8 tidak dimasukkan ke URL
+                kumpul().filter((x) => x[0] !== 'utf8' && !SENSITIF_NAMA.test(x[0])).forEach((x) => u.searchParams.append(x[0], x[1]));
+                const ringkasReq = 'GET ' + sensor(u.pathname + u.search) + (cbAjax.checked ? '\nX-Requested-With: XMLHttpRequest' : '');
+                hasil.style.display = '';
+                hasil.value = 'Mencari ...';
+                bPakai.style.display = 'none';
+                bCari.disabled = true;
+                const mulai = Date.now();
+                try {
+                    const res = await fetch(u.href, { method: 'GET', credentials: 'same-origin', headers: cbAjax.checked ? { 'X-Requested-With': 'XMLHttpRequest' } : {} });
+                    const teks = await res.text();
+                    let laporan = ringkasRespons(res, teks, Date.now() - mulai, ringkasReq);
+                    inputHasil = [];
+                    if (/html/i.test(res.headers.get('content-type') || '')) {
+                        const d = new DOMParser().parseFromString(teks, 'text/html');
+                        laporan += '\n\n' + analisaDoc(d, res.url || u.href, teks.length);
+                        const sudah = new Set(Array.from(salinan.elements).map((e) => e.name).filter(Boolean));
+                        d.querySelectorAll('input[name], select[name], textarea[name]').forEach((e) => {
+                            const t = (e.getAttribute('type') || '').toLowerCase();
+                            const n = e.getAttribute('name');
+                            if (/^(submit|button|reset|image|file|password)$/.test(t) || n === 'utf8' || SENSITIF_NAMA.test(n) || sudah.has(n)) return;
+                            if (/^(checkbox|radio)$/.test(t) && !e.hasAttribute('checked')) return;
+                            let v = e.tagName === 'SELECT' ? ((e.querySelector('option[selected]') || {}).value || '') : (e.tagName === 'TEXTAREA' ? e.textContent : (e.getAttribute('value') || ''));
+                            inputHasil.push(n + '=' + v);
+                        });
+                    }
+                    hasil.value = laporan;
+                    if (inputHasil.length) {
+                        bPakai.textContent = 'Pakai ' + inputHasil.length + ' input hasil sebagai field tambahan';
+                        bPakai.style.display = '';
+                    }
+                } catch (err) {
+                    hasil.value = 'Gagal mencari: ' + err.message;
+                } finally {
+                    bCari.disabled = false;
+                }
+            }
+            bPakai.addEventListener('click', () => {
+                ekstra.value = (ekstra.value.trim() ? ekstra.value.replace(/\s+$/, '') + '\n' : '') + inputHasil.join('\n');
+                perbarui();
+                bPakai.style.display = 'none';
+            });
+            bCari.addEventListener('click', cari);
             bKirim.addEventListener('click', kirim);
-            salinan.addEventListener('submit', (e) => { e.preventDefault(); e.stopPropagation(); kirim(); }, true);
+            salinan.addEventListener('submit', (e) => { e.preventDefault(); e.stopPropagation(); cari(); }, true);
         }
         tampil(forms[awal]);
     }
