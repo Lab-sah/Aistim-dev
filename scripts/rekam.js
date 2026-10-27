@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.6.0
-// @description  [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
+// @version      1.6.1
+// @description  [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -398,8 +398,21 @@
             iframe.slice(0, 5).forEach((f) => out.push('src=' + (sensor(f.getAttribute('src') || '').slice(0, 100) || '-') + (f.id ? ' id=' + f.id : '')));
         }
 
+        // Link: hanya yang sesuai path halaman yang diambil (segmen pertama, mis. /rak_barangs/...),
+        // supaya menu & link halaman lain tidak ikut. Path "/" (tanpa segmen) = semua link ditampilkan.
+        let dasar = null;
+        try { dasar = new URL(url); } catch (e) { /* url tidak valid: tampilkan semua */ }
+        const segmen = dasar ? dasar.pathname.split('/').filter(Boolean)[0] : '';
+        const sesuai = (h) => {
+            if (!segmen) return true;
+            try {
+                const u = new URL(h, dasar);
+                return u.origin === dasar.origin && (u.pathname.split('/').filter(Boolean)[0] || '') === segmen;
+            } catch (e) { return false; }
+        };
         const seen = {};
         const links = [];
+        let lain = 0;
         doc.querySelectorAll('a[href]').forEach((a) => {
             const t = ptg(a.textContent, 40);
             const h = a.getAttribute('href') || '';
@@ -407,10 +420,12 @@
             const k = t + '>' + h;
             if (seen[k]) return;
             seen[k] = 1;
+            if (!sesuai(h)) { lain++; return; }
             links.push(t + ' -> ' + sensor(h).slice(0, 100));
         });
-        out.push('', '== LINK (' + links.length + ' unik, 25 pertama) ==');
-        links.slice(0, 25).forEach((l) => out.push('  ' + l));
+        out.push('', '== LINK ' + (segmen ? 'DI PATH /' + segmen + ' ' : '') + '(' + links.length + ' unik, 40 pertama) ==');
+        links.slice(0, 40).forEach((l) => out.push('  ' + l));
+        if (lain) out.push('(' + lain + ' link ke path lain tidak ditampilkan)');
         const hal = doc.querySelectorAll('.pagination a, [class*=paginat] a').length;
         if (hal) out.push('Paginasi: ' + hal + ' link');
 
