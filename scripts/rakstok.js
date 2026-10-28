@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.22.1
-// @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Ikon barcode di depan nomor barcode membuka popup gambar barcode (Code 128). Menambah "Map rak" di bawah barcode (popup rak per toko/gudang) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
+// @version      1.22.10
+// @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) (popup rak per toko/gudang) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -66,7 +66,8 @@
     const style = document.createElement('style');
     style.textContent = `
         .rk_bc_baris { margin-top: 3px; }
-        .rk_bc_ikon { display: inline-block; width: 18px; margin-right: 5px; text-align: center; color: #444; cursor: pointer; }
+        td.rk_nama_td { min-width: 300px; white-space: normal !important; overflow: visible !important; text-overflow: clip !important; overflow-wrap: anywhere; }
+        .rk_bc_ikon { display: inline-block; width: 18px; margin-right: 6px; text-align: center; color: #444; cursor: pointer; }
         .rk_bc_ikon:hover { color: #0d6efd; }
         #gs_rak_pop.rk_barcode { width: min(320px, 94vw); max-width: min(320px, 94vw); }
         #gs_rak_pop .rk_bcbox { text-align: center; background: #fff; padding: 6px 2px 2px; }
@@ -74,6 +75,8 @@
         #gs_rak_pop .rk_bcteks { margin-top: 2px; font: 600 15px/1.3 ui-monospace, Consolas, monospace; letter-spacing: .12em; color: #111; word-break: break-all; }
         .rk_bc_rak { display: inline-flex; align-items: center; gap: 3px; color: #0d6efd; cursor: pointer; text-decoration: underline; white-space: nowrap; font-size: inherit; }
         .rk_bc_rak:hover { color: #0a58ca; }
+        /* ikon peta dalam kotak (satu keluarga dengan ikon QR di sebelah kirinya) */
+        .rk_bc_rak .fa-map-marker { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; box-sizing: border-box; border: 1.5px solid currentColor; border-radius: 4px; font-size: 12px; line-height: 1; text-decoration: none; }
         @keyframes rk_kedip { 0%, 100% { opacity: 1; } 50% { opacity: .15; } }
         .rk_bc_rak .fa { animation: rk_kedip 2.4s ease-in-out infinite; }
         .rk_bc_rak:hover .fa { animation-play-state: paused; opacity: 1; }
@@ -658,7 +661,7 @@
                         const batal = doc.createElement('button');
                         batal.type = 'button';
                         batal.id = 'rk_batal';
-                        batal.textContent = 'Batal';
+                        batal.textContent = 'Tutup';
                         batal.title = 'Tutup popup (Esc)';
                         batal.addEventListener('click', tutupEditGambar);
                         // Simpan langsung tampil (nonaktif) walau plugin unggah halaman edit belum siap; Pilih Gambar dikunci sampai siap
@@ -1062,6 +1065,7 @@
     // ---------- tambahan di tabel bawaan: ikon barcode + "Map rak" di sel Barcode, ikon gambar di sel Nama, panah Harga Jual ----------
     function pasangBarcode(bcTd, namaTd, prd) {
         if (!bcTd || !prd) return;
+        if (namaTd) namaTd.classList.add('rk_nama_td'); // nama produk turun ke baris berikutnya (tidak dipotong "...")
         if (namaTd && !namaTd.querySelector('.gs_ikon')) {
             const ikon = document.createElement('span');
             ikon.className = 'gs_ikon gs_logo'; // logo PartDistro sebagai ikon gambar produk
@@ -1069,13 +1073,9 @@
             ikon.dataset.prd = prd;
             namaTd.insertBefore(ikon, namaTd.firstChild);
         }
-        if (!bcTd.querySelector('.rk_bc_ikon')) {
-            const ib = document.createElement('i');
-            ib.className = 'fa fa-barcode rk_bc_ikon';
-            ib.title = 'Lihat barcode';
-            ib.setAttribute('aria-hidden', 'true');
-            bcTd.insertBefore(ib, bcTd.firstChild);
-        }
+        // versi lama menaruh ikon di depan nomor barcode (melebarkan kolom): pindahkan ke baris "Map rak"
+        const lama = bcTd.querySelector('.rk_bc_ikon');
+        if (lama && !lama.closest('.rk_bc_baris')) lama.remove();
         if (!bcTd.querySelector('.rk_bc_rak')) {
             const baris = document.createElement('div');
             baris.className = 'rk_bc_baris';
@@ -1090,6 +1090,18 @@
             lihat.appendChild(document.createTextNode(' Map rak'));
             baris.appendChild(lihat);
             bcTd.appendChild(baris);
+        }
+        // ikon QR di baris kedua, di KIRI "Map rak": tidak menambah lebar kolom Barcode, jadi tabel tidak berubah ukuran
+        const baris2 = bcTd.querySelector('.rk_bc_baris');
+        if (baris2) {
+            let ib = baris2.querySelector('.rk_bc_ikon');
+            if (!ib) {
+                ib = document.createElement('i');
+                ib.className = 'fa fa-qrcode rk_bc_ikon';
+                ib.title = 'Lihat barcode';
+                ib.setAttribute('aria-hidden', 'true');
+            }
+            if (baris2.firstChild !== ib) baris2.insertBefore(ib, baris2.firstChild); // juga memindahkan ikon dari versi sebelumnya
         }
     }
 
@@ -1120,6 +1132,32 @@
             hd.appendChild(b);
         });
         terapkanFilter();
+        sesuaikanKolom(table);
+    }
+
+    // DataTables (scrollX) menghitung lebar kolom header sebelum ikon/"Map rak" kita ditambahkan, sehingga header
+    // jadi lebih sempit dan bergeser dari isi tabel. Hitung ulang hanya bila memang tidak sejajar
+    // (supaya tidak memicu MutationObserver berulang-ulang).
+    function sesuaikanKolom(table) {
+        try {
+            const wrap = table.closest('.dataTables_scroll');
+            const headTbl = wrap && wrap.querySelector('.dataTables_scrollHead table');
+            const row = Array.from(table.querySelectorAll('tbody tr')).find((tr) => tr.children.length > 1);
+            if (!headTbl || !row) return;
+            const ths = headTbl.querySelectorAll('thead tr:first-child th');
+            const tds = row.children;
+            let geser = ths.length !== tds.length;
+            for (let i = 0; !geser && i < ths.length; i++) {
+                if (Math.abs(ths[i].getBoundingClientRect().width - tds[i].getBoundingClientRect().width) > 1.5) geser = true;
+            }
+            if (!geser) return;
+            const jq = window.jQuery;
+            if (!jq || !jq.fn || !jq.fn.dataTable || !jq.fn.dataTable.isDataTable(table)) return;
+            const api = jq(table).DataTable();
+            if (api && api.columns && api.columns.adjust) api.columns.adjust();
+        } catch (err) {
+            console.warn('[Rak] gagal menyejajarkan kolom header', err);
+        }
     }
 
     // ---------- filter "Status Rak / Gambar": hanya menyembunyikan baris di tabel bawaan halaman yang sedang dibuka ----------
@@ -1391,7 +1429,16 @@
         }, 150);
     }
 
-    new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+    // Jalur cepat: ikon + penyejajaran header dikerjakan langsung di callback observer (sebelum browser menggambar),
+    // supaya kolom tidak terlihat "melompat"/berubah ukuran setelah tabel muncul.
+    function cepat() {
+        const table = document.querySelector(TABLE_SEL);
+        if (!table) return;
+        const baru = Array.from(table.querySelectorAll('tbody tr')).some((tr) => tr.querySelector(STOK_SEL) && !tr.querySelector('.rk_bc_ikon'));
+        if (baru) enhance(table);
+    }
+    new MutationObserver(() => { cepat(); schedule(); }).observe(document.body, { childList: true, subtree: true });
+    cepat();
     schedule();
 })();
 
@@ -1430,7 +1477,20 @@
   ].join('');
 
   var mode = 'other';          // 'rak' kalau popup dibuka lewat link "Map rak"
+  var lastLihat = null;        // link "Map rak" terakhir yang diklik (dimuat ulang setelah Simpan)
   var timers = [];
+  // pesan singkat di pojok bawah halaman utama (pengganti alert bawaan halaman Penentuan Rak)
+  function toast(msg, jenis) {
+    if (!msg) return;
+    var t = document.createElement('div');
+    t.className = 'rk_toast';
+    t.textContent = String(msg);
+    var warna = jenis === 'ok' ? '#2e7d32' : (jenis === 'err' ? '#c62828' : '#37474f');
+    t.style.cssText = 'position:fixed;left:50%;bottom:48px;transform:translateX(-50%);z-index:2147483600;background:' + warna +
+      ';color:#fff;padding:10px 18px;border-radius:8px;font:600 14px Arial,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.3);max-width:90vw';
+    document.body.appendChild(t);
+    setTimeout(function () { if (t.parentNode) t.remove(); }, jenis === 'err' ? 5000 : 2500);
+  }
   var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
   var waitFor = async function (fn, t) {
     t = t || 10000; var s = Date.now();
@@ -1556,6 +1616,28 @@
       });
     }
 
+    // setelah Simpan berhasil: popup langsung menutup (alert bawaan halaman diganti toast kecil, lalu Map rak dimuat ulang)
+    if (!d.__rkSaveHook && w.jQuery) {
+      d.__rkSaveHook = 1;
+      w.alert = function (m) { state.msg = m; if (!state.saving) toast(m, 'info'); };
+      var cocokUrl = function (o) { return !!(o && String(o.url || '').indexOf('/produks/update_rak_barangs') > -1); };
+      w.jQuery(d).ajaxSend(function (ev, xhr, o) { if (cocokUrl(o)) { state.saving = true; state.msg = ''; } });
+      w.jQuery(d).ajaxComplete(function (ev, xhr, o) {
+        if (!cocokUrl(o)) return;
+        state.saving = false;
+        var r = xhr && xhr.responseJSON;
+        if (!r) { try { r = JSON.parse(xhr.responseText); } catch (e) { r = null; } }
+        var msg = state.msg || (r && r.message) || '';
+        if (r && String(r.status) === '1') {
+          closeOverlay();
+          toast(msg || 'Rak tersimpan', 'ok');
+          if (lastLihat && document.body.contains(lastLihat)) setTimeout(function () { lastLihat.click(); }, 50); // muat ulang popup Map rak
+        } else {
+          toast(msg || 'Gagal menyimpan rak', 'err');
+        }
+      });
+    }
+
     buildCombo(d);
     var ready = !!d.getElementById('rk_combo');
 
@@ -1575,7 +1657,7 @@
     var btn = d.getElementById('btn_update_rak');
     if (ready && btn && !d.getElementById('rk_batal_rak')) {
       var row = d.createElement('div'); row.id = 'rk_aksi_rak'; row.style.cssText = 'display:flex;gap:8px;align-items:stretch';
-      var bt = d.createElement('button'); bt.type = 'button'; bt.id = 'rk_batal_rak'; bt.textContent = 'Batal'; bt.title = 'Tutup tanpa menyimpan (Esc)';
+      var bt = d.createElement('button'); bt.type = 'button'; bt.id = 'rk_batal_rak'; bt.textContent = 'Tutup'; bt.title = 'Tutup tanpa menyimpan (Esc)';
       bt.style.cssText = 'flex:0 0 auto';
       bt.onclick = closeOverlay;
       btn.parentNode.insertBefore(row, btn);
@@ -1680,7 +1762,7 @@
     var t = e.target; if (!t || !t.closest) return;
     var btn = t.closest('.rk_btn_rak');
     if (btn) { e.preventDefault(); e.stopPropagation(); openPenentuan(btn); return; }
-    if (t.closest('.rk_bc_rak')) mode = 'rak';
+    if (t.closest('.rk_bc_rak')) { mode = 'rak'; lastLihat = t.closest('.rk_bc_rak'); }
     else if (!t.closest('#gs_rak_pop') && !t.closest('#rk_overlay')) mode = 'other';
   }
   document.addEventListener('click', onClick, true);
