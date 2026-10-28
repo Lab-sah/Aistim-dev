@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.22.10
+// @version      1.22.11
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) (popup rak per toko/gudang) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -704,6 +704,13 @@
                     msg.remove();
                     // terus mencoba memasang Simpan sampai berhasil (halaman edit yang berat bisa menyiapkan plugin unggah lebih dari 10 detik)
                     if (!ov._rkSimpanOK && lama > 15000 && !ov._rkLapor) { ov._rkLapor = true; console.warn('[Edit gambar] Simpan belum bisa dipasang: ' + (ov._rkAlasan || 'belum diketahui') + ' (masih dicoba)'); }
+                    // gagal-buka: kalau persiapan unggahan tak kunjung siap, lepas kunci tombol Pilih Gambar supaya tidak mati selamanya.
+                    // Selama belum siap, pakai perilaku bawaan Erzap (gambar langsung terkirim saat dipilih); pemasangan Simpan tetap dicoba.
+                    if (!ov._rkSimpanOK && lama > 15000 && doc.body.classList.contains('rk_belum_siap')) {
+                        doc.body.classList.remove('rk_belum_siap');
+                        const sb = doc.getElementById('rk_simpan');
+                        if (sb) sb.title = 'Mode bawaan Erzap: gambar langsung terkirim saat dipilih (tahap Simpan belum siap)';
+                    }
                     if (ov._rkSimpanOK ? Date.now() - siapSejak > 3000 : lama > 180000) clearInterval(ov._rkTimer); // sudah stabil / menyerah
                     return;
                 }
