@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.22.0
+// @version      1.22.1
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Ikon barcode di depan nomor barcode membuka popup gambar barcode (Code 128). Menambah "Map rak" di bawah barcode (popup rak per toko/gudang) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -370,6 +370,7 @@
         'padding:9px 18px!important;font-size:13px!important;font-weight:600;line-height:1.2;color:#fff!important;background:#0d6efd!important;border:0!important;' +
         'border-radius:6px;box-shadow:0 3px 10px rgba(0,0,0,.35);cursor:pointer}' +
         'label.btn[for="fileupload"]:hover{background:#0b5ed7!important}' +
+        'body.rk_belum_siap label.btn[for="fileupload"]{pointer-events:none!important;opacity:.5}' +
         'label.btn[for="fileupload"] .fa-image{display:none!important}' +
         '#rk_batal{padding:9px 18px;font-size:13px;font-weight:600;line-height:1.2;color:#444;background:#fff;border:1px solid #bbb;border-radius:6px;box-shadow:0 3px 10px rgba(0,0,0,.25);cursor:pointer}' +
         '#rk_batal:hover{background:#f0f0f0}' +
@@ -421,14 +422,19 @@
     function pasangSimpanGambar(ov, w, doc, aksi) {
         const $ = w.jQuery;
         const inp = doc.getElementById('fileupload');
-        if (!$ || !$.fn || !$.fn.fileupload || !inp) return false;
+        // alasan terakhir kenapa belum bisa dipasang (dicatat ke konsol bila terlalu lama): membantu bila plugin unggah di halaman edit lambat siap
+        if (!$) { ov._rkAlasan = 'jQuery di halaman edit belum ada'; return false; }
+        if (!$.fn || !$.fn.fileupload) { ov._rkAlasan = 'plugin fileupload belum dimuat'; return false; }
+        if (!inp) { ov._rkAlasan = 'input #fileupload belum ada'; return false; }
         const fu = $(inp);
-        if (!(fu.data('blueimp-fileupload') || fu.data('fileupload'))) return false;
+        if (!(fu.data('blueimp-fileupload') || fu.data('fileupload'))) { ov._rkAlasan = 'plugin fileupload belum diinisialisasi pada #fileupload'; return false; }
         if (ov._rkSimpanOK) return true;
+        const pane = doc.getElementById('tab_produk_gambar');
         const daftar = doc.querySelector('#tab_produk_gambar .row.row-gap-3');
-        if (!daftar) return false;
+        if (!daftar && !pane) { ov._rkAlasan = 'tab gambar tidak ditemukan'; return false; }
         ov._rkSimpanOK = true;
-        try { fu.fileupload('option', 'autoUpload', false); } catch (e) { ov._rkSimpanOK = false; return false; }
+        try { fu.fileupload('option', 'autoUpload', false); } catch (e) { ov._rkSimpanOK = false; ov._rkAlasan = 'gagal mematikan autoUpload: ' + e.message; return false; }
+        doc.body.classList.remove('rk_belum_siap');
         // pilih lebih dari satu gambar sekaligus (Ctrl/Shift/tarik di dialog file); pilihan berikutnya menambah ke daftar
         inp.multiple = true;
         inp.accept = 'image/jpeg,image/png';
@@ -437,14 +443,18 @@
         ov._rkAdaPending = () => pending.length;
         const wadah = doc.createElement('div');
         wadah.id = 'rk_pending';
-        daftar.insertAdjacentElement('beforebegin', wadah);
-        const simpan = doc.createElement('button');
-        simpan.type = 'button';
-        simpan.id = 'rk_simpan';
+        if (daftar) daftar.insertAdjacentElement('beforebegin', wadah); else pane.insertBefore(wadah, pane.firstChild);
+        // tombol Simpan sudah dibuat (nonaktif) saat bilah tombol dibuat; di sini hanya diaktifkan
+        let simpan = doc.getElementById('rk_simpan');
+        if (!simpan) {
+            simpan = doc.createElement('button');
+            simpan.type = 'button';
+            simpan.id = 'rk_simpan';
+            // urutan tombol: Batal, Simpan, Pilih Gambar (Simpan di kiri Pilih Gambar)
+            const lblGambar = aksi.querySelector('label[for="fileupload"]');
+            if (lblGambar) aksi.insertBefore(simpan, lblGambar); else aksi.appendChild(simpan);
+        }
         simpan.title = 'Simpan gambar yang dipilih';
-        // urutan tombol: Batal, Simpan, Pilih Gambar (Simpan di kiri Pilih Gambar)
-        const lblGambar = aksi.querySelector('label[for="fileupload"]');
-        if (lblGambar) aksi.insertBefore(simpan, lblGambar); else aksi.appendChild(simpan);
         const hapusItem = (item) => {
             const i = pending.indexOf(item);
             if (i >= 0) pending.splice(i, 1);
@@ -651,9 +661,19 @@
                         batal.textContent = 'Batal';
                         batal.title = 'Tutup popup (Esc)';
                         batal.addEventListener('click', tutupEditGambar);
+                        // Simpan langsung tampil (nonaktif) walau plugin unggah halaman edit belum siap; Pilih Gambar dikunci sampai siap
+                        // supaya file yang dipilih tidak terkirim otomatis sebelum autoUpload dimatikan
+                        const simpanBtn = doc.createElement('button');
+                        simpanBtn.type = 'button';
+                        simpanBtn.id = 'rk_simpan';
+                        simpanBtn.textContent = 'Simpan';
+                        simpanBtn.disabled = true;
+                        simpanBtn.title = 'Menyiapkan unggahan...';
                         aksi.appendChild(batal);
+                        aksi.appendChild(simpanBtn);
                         aksi.appendChild(lbl);
                         doc.body.appendChild(aksi);
+                        if (!ov._rkSimpanOK) doc.body.classList.add('rk_belum_siap');
                     }
                     if (!ajaxPasang && w.jQuery) {
                         ajaxPasang = true;
@@ -679,7 +699,9 @@
                     if (!siapSejak) siapSejak = Date.now();
                     f.style.visibility = 'visible';
                     msg.remove();
-                    if (Date.now() - siapSejak > 3000) clearInterval(ov._rkTimer); // sudah stabil
+                    // terus mencoba memasang Simpan sampai berhasil (halaman edit yang berat bisa menyiapkan plugin unggah lebih dari 10 detik)
+                    if (!ov._rkSimpanOK && lama > 15000 && !ov._rkLapor) { ov._rkLapor = true; console.warn('[Edit gambar] Simpan belum bisa dipasang: ' + (ov._rkAlasan || 'belum diketahui') + ' (masih dicoba)'); }
+                    if (ov._rkSimpanOK ? Date.now() - siapSejak > 3000 : lama > 180000) clearInterval(ov._rkTimer); // sudah stabil / menyerah
                     return;
                 }
             } catch (e) { /* halaman belum siap / pindah: coba lagi */ }
