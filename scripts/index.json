@@ -28,6 +28,7 @@
     "home.js",
     "penjualan.js",
     "saldokas.js",
+    "pelanggan.js",
     "grafik.js",
     "pengisian_so.js",
     "crm.js"
