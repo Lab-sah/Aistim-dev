@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.21.6
-// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerimaan Piutang" (Laporan Rekap Piutang, Tipe Rekap Penerimaan Piutang) dan "Pembayaran Hutang" (Laporan Rekap Hutang, Tipe Rekap Pembayaran Hutang): total dari blok Rekapitulasi, semua untuk hari ini, klik baris nota = popup daftar; lalu kartu "Pendapatan Lain-Lain" (Daftar Data Jurnal, gabungan Akun Pendapatan Lain + Bunga + Sewa, Dasar Filter Tanggal Transaksi, kolom Total dijumlah semua halaman). Popup peringatan saldo PPOB Rp 5 juta ke bawah sudah dipindah ke ppob.js; script ini hanya jalan di halaman Home. Tidak jalan di halaman Login.
+// @version      1.21.7
+// @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerimaan Piutang" (Laporan Rekap Piutang, Tipe Rekap Penerimaan Piutang) dan "Pembayaran Hutang" (Laporan Rekap Hutang, Tipe Rekap Pembayaran Hutang): total dari blok Rekapitulasi, semua untuk hari ini, klik baris nota = popup daftar; lalu kartu "Pendapatan Lain-Lain" (Daftar Data Jurnal, gabungan Akun Pendapatan Lain + Bunga + Sewa, Dasar Filter Tanggal Transaksi, kolom Total dijumlah semua halaman). Saldo Rp 5 juta ke bawah: popup peringatan muncul HANYA di halaman Home (saat Home dibuka, lalu diulang tiap 5 menit sampai saldo diisi) dan HANYA untuk admin SURYO/SENTOT/PUGUH/DIMAS/MANAJEMEN PUSAT (dibaca dari #info_kasir seperti saldokas.js); script tidak jalan di halaman lain. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -20,12 +20,11 @@
     if (location.pathname !== '/') return;   // kartu PPOB dan popup peringatan saldo hanya di Home, tidak di halaman lain
     if (window.__aistimHome) return;
     window.__aistimHome = true;
-    console.log('[home.js] v1.21.6 aktif di ' + location.pathname);
+    console.log('[home.js] v1.21.7 aktif di ' + location.pathname);
 
     const SALDO_URL = '/main/check_balance_ppob/new';
     const PPOB_URL = '/penjualans/aktifitas_ppob/new';
     const SALDO_TIAP_MS = 60 * 1000;
-    const BATAS_MERAH = 5000000;          // saldo sama dengan atau di bawah ini: nominal di kartu merah (popup peringatannya ada di ppob.js)
     const PENGELUARAN_TIAP_MS = 5 * 60 * 1000;
     const MAKS_HALAMAN = 20;              // batas halaman Aktifitas PPOB yang dibaca (50 baris per halaman)
     const MAKS_TUNGGU_MS = 20 * 1000;     // kartu stats bisa baru muncul setelah ajax selesai
@@ -79,11 +78,12 @@
         try {
             const saldo = await ambilSaldo();
             saldoTerbaca = true;
+            periksaNotif(saldo);
             if (kartu && document.body.contains(kartu)) {
                 saldoEl.textContent = 'Saldo (' + fmtRp(saldo) + ')';
-                const rendah = saldo <= BATAS_MERAH;
+                const rendah = saldo <= NOTIF_BATAS;
                 saldoEl.style.color = rendah ? '#dc3545' : '';
-                kartu.title = rendah ? 'Saldo PPOB Rp ' + (BATAS_MERAH / 1000000) + ' juta ke bawah' : 'Saldo PPOB';
+                kartu.title = rendah ? 'Saldo PPOB Rp ' + (NOTIF_BATAS / 1000000) + ' juta ke bawah' : 'Saldo PPOB';
             }
         } catch (err) {
             if (kartu && document.body.contains(kartu)) {
@@ -809,6 +809,77 @@
         isiPopupRekap(s);
         if (!s.data && !s.jalan) muatRekap(s);
         perbaruiSegarRekap(s);
+    }
+
+    // ---------- popup peringatan: saldo PPOB Rp 5 juta ke bawah ----------
+    // Muncul saat Home pertama dibuka, lalu diulang tiap 5 menit selama saldo masih di bawah batas; berhenti (dan popup ditutup) setelah saldo diisi.
+    // Hanya untuk ADMIN (daftar di bawah): nama/jabatan user yang login memuat salah satu kata ini.
+    // Sistem pencarian admin sama dengan saldokas.js: teks "NAMA (JABATAN)" dibaca dari #info_kasir, tidak peduli huruf besar/kecil.
+    const ADMIN = ['SURYO', 'SENTOT', 'PUGUH', 'DIMAS', 'MANAJEMEN PUSAT'];
+    // Cadangan bila #info_kasir tidak ada: elemen daun (tanpa anak) berpola "NAMA (JABATAN)", mis. "SENTOT ARI HANDOKO (STAF IT)"
+    const RE_LABEL_USER = /^[A-Z][A-Z.' -]{2,60}\([^()]{2,40}\)$/;
+    function namaUser() {
+        const kasir = document.getElementById('info_kasir');
+        if (kasir) return rapih(kasir.textContent).toLowerCase();
+        const semua = document.querySelectorAll('label, a, span, div, button');
+        for (const e of semua) {
+            if (e.children.length) continue;
+            const t = rapih(e.textContent);
+            if (RE_LABEL_USER.test(t)) return t.toLowerCase();
+        }
+        return '';
+    }
+    const cocokNama = (daftar) => { const n = namaUser(); return !!n && daftar.some((u) => n.indexOf(u.toLowerCase()) !== -1); };
+    const isAdmin = () => cocokNama(ADMIN);
+    function bolehNotifSaldo() { return isAdmin(); }
+    const NOTIF_BATAS = 5000000;   // peringatan bila saldo sama dengan atau di bawah batas ini (5 juta ke bawah)
+    const NOTIF_ULANG_MS = 5 * 60 * 1000;
+    let notifTerakhir = 0;      // waktu popup terakhir ditampilkan (0 = belum pernah di halaman ini)
+    let notifBuka = null;       // {lapisan, nilai}
+
+    function tutupNotif() {
+        if (notifBuka) { notifBuka.lapisan.remove(); notifBuka = null; }
+        document.removeEventListener('keydown', tekanTombolNotif, true);
+    }
+    function tekanTombolNotif(e) { if (e.key === 'Escape') tutupNotif(); }
+
+    function tampilNotif(saldo) {
+        if (notifBuka) { notifBuka.nilai.textContent = fmtRp(saldo); return; }   // sudah terbuka: cukup perbarui angkanya
+        const lapisan = el('div', { gaya: 'position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px' });
+        const kotak = el('div', { gaya: 'background:#fff;color:#222;width:min(440px,100%);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.45);font:14px sans-serif;overflow:hidden;border-top:6px solid #dc3545' });
+        const nilai = el('div', { teks: fmtRp(saldo), gaya: 'font-size:26px;font-weight:700;color:#dc3545;margin:6px 0' });
+        const bTutup = el('button', { type: 'button', teks: 'Tutup', gaya: 'padding:7px 22px;border:0;border-radius:4px;background:#dc3545;color:#fff;font-size:14px;cursor:pointer' });
+        kotak.appendChild(el('div', { gaya: 'padding:16px 18px 6px' }, [
+            el('div', { teks: '⚠ Saldo PPOB Hampir Habis', gaya: 'font-size:17px;font-weight:700;color:#dc3545;margin-bottom:8px' }),
+            el('div', { teks: 'Saldo PPOB saat ini:' }),
+            nilai,
+            el('div', { teks: 'Saldo kurang dari Rp ' + NOTIF_BATAS.toLocaleString('en-US'), gaya: 'color:#555' }),
+            el('div', { teks: 'Peringatan ini muncul lagi tiap 5 menit sampai saldo diisi.', gaya: 'color:#888;font-size:12px;margin-top:8px' })
+        ]));
+        kotak.appendChild(el('div', { gaya: 'display:flex;justify-content:flex-end;padding:10px 18px 16px' }, [bTutup]));
+        lapisan.appendChild(kotak);
+        document.body.appendChild(lapisan);
+        notifBuka = { lapisan: lapisan, nilai: nilai };
+        bTutup.addEventListener('click', tutupNotif);
+        lapisan.addEventListener('mousedown', (e) => { if (e.target === lapisan) tutupNotif(); });
+        document.addEventListener('keydown', tekanTombolNotif, true);
+        bTutup.focus();
+    }
+
+    // dipanggil setiap saldo terbaca
+    function periksaNotif(saldo) {
+        if (saldo > NOTIF_BATAS) {        // saldo sudah diisi: berhenti mengingatkan
+            notifTerakhir = 0;
+            tutupNotif();
+            return;
+        }
+        if (!bolehNotifSaldo()) return;   // bukan user yang diizinkan lihat popup peringatan saldo
+        if (Date.now() - notifTerakhir >= NOTIF_ULANG_MS) {   // pertama terbaca (notifTerakhir = 0) langsung tampil
+            notifTerakhir = Date.now();
+            tampilNotif(saldo);
+        } else if (notifBuka) {
+            notifBuka.nilai.textContent = fmtRp(saldo);
+        }
     }
 
     // ---------- cari kartu stats yang sudah ada (label_transaksi) ----------
