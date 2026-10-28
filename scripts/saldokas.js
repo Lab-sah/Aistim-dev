@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Lihat Saldo Sistem (Hitung Saldo Kas)
 // @namespace    https://trial.erzap.com/
-// @version      1.14.5
+// @version      1.14.6
 // @description  Menambahkan tombol "Lihat saldo sistem" di sebelah kolom saldo (default: Kas Brankas) pada halaman Hitung Saldo Kas. Saldo diambil dari halaman Lihat Saldo untuk outlet yang dipilih dan hanya ditampilkan di samping tombol (TIDAK dimasukkan ke input). Script TIDAK menekan tombol Simpan.
 // @match        https://trial.erzap.com/perkiraans/hitung_saldo_kas/*
 // @match        https://*.erzap.com/perkiraans/hitung_saldo_kas/*
@@ -31,7 +31,8 @@
   // "fitur"           -> true/false untuk menyalakan/mematikan tiap fitur.
   // "khusus"          -> membatasi SATU fitur hanya untuk nama tertentu (di luar "admin"). Fitur yang tidak
   //                      ada di "khusus" tetap bisa dipakai semua user yang lolos "role". Nama fitur: lihatSaldo,
-  //                      edit, sembunyi, formatRp. Contoh sekarang: tombol "Lihat saldo sistem" untuk SENTOT dan SURYO.
+  //                      edit, sembunyi, formatRp. Contoh sekarang: tombol "Lihat saldo sistem" untuk SENTOT, SURYO,
+  //                      CEO TIMORITEL, SILVI, WIWIT, ISA, dan ANIK.
   // Nama dibaca dari tulisan "NAMA (JABATAN)" di pojok kanan bawah ERZAP. Cukup sebagian nama
   // (tidak peduli huruf besar/kecil); isi nama lengkap persis seperti di ERZAP agar tidak
   // salah cocok dengan user lain (mis. ganti "SURYO" dengan nama lengkapnya).
@@ -42,11 +43,11 @@
   const AKSES_JSON = `{
     "role": "private",
     "private": {
-      "users": ["SENTOT ARI HANDOKO", "SURYO"]
+      "users": ["SENTOT ARI HANDOKO", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"]
     },
     "admin": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT"],
     "khusus": {
-      "lihatSaldo": ["SENTOT ARI HANDOKO", "SURYO"]
+      "lihatSaldo": ["SENTOT ARI HANDOKO", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"]
     },
     "fitur": {
       "lihatSaldo": true,
