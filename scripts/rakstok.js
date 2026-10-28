@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.22.11
+// @version      1.22.12
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) (popup rak per toko/gudang) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -373,7 +373,6 @@
         'padding:9px 18px!important;font-size:13px!important;font-weight:600;line-height:1.2;color:#fff!important;background:#0d6efd!important;border:0!important;' +
         'border-radius:6px;box-shadow:0 3px 10px rgba(0,0,0,.35);cursor:pointer}' +
         'label.btn[for="fileupload"]:hover{background:#0b5ed7!important}' +
-        'body.rk_belum_siap label.btn[for="fileupload"]{pointer-events:none!important;opacity:.5}' +
         'label.btn[for="fileupload"] .fa-image{display:none!important}' +
         '#rk_batal{padding:9px 18px;font-size:13px;font-weight:600;line-height:1.2;color:#444;background:#fff;border:1px solid #bbb;border-radius:6px;box-shadow:0 3px 10px rgba(0,0,0,.25);cursor:pointer}' +
         '#rk_batal:hover{background:#f0f0f0}' +
@@ -437,7 +436,6 @@
         if (!daftar && !pane) { ov._rkAlasan = 'tab gambar tidak ditemukan'; return false; }
         ov._rkSimpanOK = true;
         try { fu.fileupload('option', 'autoUpload', false); } catch (e) { ov._rkSimpanOK = false; ov._rkAlasan = 'gagal mematikan autoUpload: ' + e.message; return false; }
-        doc.body.classList.remove('rk_belum_siap');
         // pilih lebih dari satu gambar sekaligus (Ctrl/Shift/tarik di dialog file); pilihan berikutnya menambah ke daftar
         inp.multiple = true;
         inp.accept = 'image/jpeg,image/png';
@@ -664,8 +662,8 @@
                         batal.textContent = 'Tutup';
                         batal.title = 'Tutup popup (Esc)';
                         batal.addEventListener('click', tutupEditGambar);
-                        // Simpan langsung tampil (nonaktif) walau plugin unggah halaman edit belum siap; Pilih Gambar dikunci sampai siap
-                        // supaya file yang dipilih tidak terkirim otomatis sebelum autoUpload dimatikan
+                        // Simpan langsung tampil (nonaktif) walau plugin unggah halaman edit belum siap; Pilih Gambar langsung bisa diklik.
+                        // File yang dipilih sebelum autoUpload dimatikan ditahan oleh penjaga di bawah (tidak terkirim otomatis)
                         const simpanBtn = doc.createElement('button');
                         simpanBtn.type = 'button';
                         simpanBtn.id = 'rk_simpan';
@@ -676,7 +674,24 @@
                         aksi.appendChild(simpanBtn);
                         aksi.appendChild(lbl);
                         doc.body.appendChild(aksi);
-                        if (!ov._rkSimpanOK) doc.body.classList.add('rk_belum_siap');
+                        // penjaga: sebelum tahap Simpan siap, 'change' dari #fileupload dihentikan di fase capture (sebelum sampai ke plugin yang
+                        // masih auto-upload) dan filenya ditampung di ov._rkTahan; begitu siap, file dimasukkan ke daftar (lihat bawah).
+                        // Lewat 15 detik tanpa siap, penjaga membiarkan (perilaku bawaan Erzap).
+                        if (!ov._rkTahan) {
+                            ov._rkTahan = [];
+                            doc.addEventListener('change', (ev) => {
+                                try {
+                                    const t = ev.target;
+                                    if (!t || t.id !== 'fileupload' || ov._rkSimpanOK || Date.now() - mulai > 15000) return;
+                                    if (!t.files || !t.files.length) return;
+                                    ev.stopImmediatePropagation();
+                                    Array.prototype.push.apply(ov._rkTahan, Array.from(t.files));
+                                    try { t.value = ''; } catch (e2) { /* abaikan */ }
+                                    const sb = doc.getElementById('rk_simpan');
+                                    if (sb) sb.textContent = 'Menyiapkan ' + ov._rkTahan.length + ' gambar...';
+                                } catch (e3) { /* biarkan bawaan */ }
+                            }, true);
+                        }
                     }
                     if (!ajaxPasang && w.jQuery) {
                         ajaxPasang = true;
@@ -697,20 +712,32 @@
                     }
                     const aksiEl = doc.getElementById('rk_aksi');
                     if (aksiEl && !ov._rkSimpanOK) pasangSimpanGambar(ov, w, doc, aksiEl);
-                    // jangan tampilkan sebelum autoUpload dimatikan (supaya file yang dipilih tidak sempat terkirim otomatis)
-                    if (!ov._rkSimpanOK && lama < 10000) return;
+                    // popup langsung ditampilkan dengan tombol Pilih Gambar yang bisa diklik; file yang sempat dipilih sebelum tahap Simpan siap
+                    // (ditahan penjaga) diproses di sini
+                    try {
+                        if (ov._rkTahan && ov._rkTahan.length) {
+                            const inpEl = doc.getElementById('fileupload');
+                            if (ov._rkSimpanOK) {
+                                // tahap Simpan sudah siap: masukkan ke daftar gambar yang belum disimpan
+                                const fl = ov._rkTahan.splice(0);
+                                w.jQuery(inpEl).fileupload('add', { files: fl });
+                            } else if (lama > 15000) {
+                                // tahap Simpan tak kunjung siap: kembalikan file ke input supaya diproses bawaan Erzap (langsung terkirim)
+                                const fl = ov._rkTahan.splice(0);
+                                const dt = new w.DataTransfer();
+                                fl.forEach((x) => dt.items.add(x));
+                                inpEl.files = dt.files;
+                                inpEl.dispatchEvent(new w.Event('change', { bubbles: true }));
+                                const sb = doc.getElementById('rk_simpan');
+                                if (sb) { sb.textContent = 'Simpan'; sb.title = 'Mode bawaan Erzap: gambar langsung terkirim saat dipilih (tahap Simpan belum siap)'; }
+                            }
+                        }
+                    } catch (err) { console.warn('[Edit gambar] gagal memproses gambar yang ditahan', err); }
                     if (!siapSejak) siapSejak = Date.now();
                     f.style.visibility = 'visible';
                     msg.remove();
                     // terus mencoba memasang Simpan sampai berhasil (halaman edit yang berat bisa menyiapkan plugin unggah lebih dari 10 detik)
                     if (!ov._rkSimpanOK && lama > 15000 && !ov._rkLapor) { ov._rkLapor = true; console.warn('[Edit gambar] Simpan belum bisa dipasang: ' + (ov._rkAlasan || 'belum diketahui') + ' (masih dicoba)'); }
-                    // gagal-buka: kalau persiapan unggahan tak kunjung siap, lepas kunci tombol Pilih Gambar supaya tidak mati selamanya.
-                    // Selama belum siap, pakai perilaku bawaan Erzap (gambar langsung terkirim saat dipilih); pemasangan Simpan tetap dicoba.
-                    if (!ov._rkSimpanOK && lama > 15000 && doc.body.classList.contains('rk_belum_siap')) {
-                        doc.body.classList.remove('rk_belum_siap');
-                        const sb = doc.getElementById('rk_simpan');
-                        if (sb) sb.title = 'Mode bawaan Erzap: gambar langsung terkirim saat dipilih (tahap Simpan belum siap)';
-                    }
                     if (ov._rkSimpanOK ? Date.now() - siapSejak > 3000 : lama > 180000) clearInterval(ov._rkTimer); // sudah stabil / menyerah
                     return;
                 }
