@@ -1,12 +1,10 @@
 // ==UserScript==
 // @name         Erzap - PPOB (No Faktur + Outlet)
 // @namespace    http://tampermonkey.net/
-// @version      1.20.0
-// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Filter Toko (outlet) ditambahkan di bagian paling atas form pencarian: tombol Toko membuka daftar outlet (diambil dari /outlets/list_nama_outlet/new hanya setelah diklik) dan menyaring baris tabel yang sedang tampil berdasarkan outlet notanya. Transaksi berstatus Error diberi keterangan "Sudah dibatalkan" / "Belum dibatalkan" di kolom Status (dicek dari status nota di /penjualans; bila belum dibatalkan, halaman nota dicek: peringatan "telah dibatalkan" lalu akun "Retur Penjualan" di rincian transaksi => "Sudah diretur"). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan. Di halaman Home (/): popup peringatan saldo PPOB Rp 5 juta ke bawah (saat Home dibuka, lalu diulang tiap 5 menit sampai saldo diisi) HANYA untuk admin SURYO/SENTOT/PUGUH/DIMAS/MANAJEMEN PUSAT (dibaca dari #info_kasir seperti saldokas.js); tidak jalan di halaman Login.
+// @version      1.20.1
+// @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Filter Toko (outlet) ditambahkan di bagian paling atas form pencarian: tombol Toko membuka daftar outlet (diambil dari /outlets/list_nama_outlet/new hanya setelah diklik) dan menyaring baris tabel yang sedang tampil berdasarkan outlet notanya. Transaksi berstatus Error diberi keterangan "Sudah dibatalkan" / "Belum dibatalkan" di kolom Status (dicek dari status nota di /penjualans; bila belum dibatalkan, halaman nota dicek: peringatan "telah dibatalkan" lalu akun "Retur Penjualan" di rincian transaksi => "Sudah diretur"). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan.
 // @author       You
 // @match        https://trial.erzap.com/penjualans*
-// @match        https://*.erzap.com/
-// @match        https://*.erzap.com/?*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
 // ==/UserScript==
@@ -16,124 +14,14 @@
 
     // Hanya di jendela utama, dan hanya sekali per halaman
     if (window.top !== window) return;
-    // Home (/): hanya popup peringatan saldo PPOB; fitur Aktifitas PPOB di bawah tidak dipakai di sini
-    if (location.pathname === '/') { popupSaldoHome(); return; }
     // Satu @match lebar (/penjualans*); halaman yang bukan PPOB / daftar penjualan (mis. nota /penjualans/<id>) dilewati diam-diam
     if (!/^\/penjualans(\/aktifitas_ppob\/new|\/index\/new)?\/?$/.test(location.pathname)) return;
     if (window.__aistimPpob) return;
     window.__aistimPpob = true;
-    console.log('[ppob.js] v1.20.0 aktif di ' + location.pathname);
-
-    // ---------- Home: popup peringatan saldo PPOB Rp 5 juta ke bawah (dulu di home.js) ----------
-    // Muncul saat Home dibuka, lalu diulang tiap 5 menit selama saldo masih di bawah batas; berhenti (dan popup ditutup) setelah saldo diisi.
-    // Hanya untuk ADMIN (daftar di bawah): nama/jabatan user yang login memuat salah satu kata ini.
-    // Sistem pencarian admin sama dengan saldokas.js: teks "NAMA (JABATAN)" dibaca dari #info_kasir, tidak peduli huruf besar/kecil.
-    // Fungsi ini berdiri sendiri (dipanggil sebelum konstanta di bawahnya dibuat).
-    function popupSaldoHome() {
-        // Jendela cetak / nota (layout=simple) dilewati. Halaman Login (ada kolom password) dilewati: fetch ke endpoint yang butuh login
-        // dibalas 401 dan memicu modal "Login" bawaan Erzap muncul sendiri di atas halaman login.
-        if (/[?&]layout=/.test(location.search) || document.querySelector('input[type="password"]')) return;
-        if (window.__aistimPopupSaldo) return;
-        window.__aistimPopupSaldo = true;
-        console.log('[ppob.js] v1.20.0 popup saldo aktif di Home');
-
-        const ADMIN = ['SURYO', 'SENTOT', 'PUGUH', 'DIMAS', 'MANAJEMEN PUSAT'];
-        const BATAS = 5000000;                 // peringatan bila saldo sama dengan atau di bawah batas ini (5 juta ke bawah)
-        const ULANG_MS = 5 * 60 * 1000;
-        const CEK_TIAP_MS = 60 * 1000;
-        const SALDO = '/main/check_balance_ppob/new';
-        const rapihTeks = (t) => (t || '').replace(/\s+/g, ' ').trim();
-        const rp = (n) => 'Rp ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        // Cadangan bila #info_kasir tidak ada: elemen daun (tanpa anak) berpola "NAMA (JABATAN)", mis. "SENTOT ARI HANDOKO (STAF IT)"
-        const POLA_USER = /^[A-Z][A-Z.' -]{2,60}\([^()]{2,40}\)$/;
-        function namaUser() {
-            const kasir = document.getElementById('info_kasir');
-            if (kasir) return rapihTeks(kasir.textContent).toLowerCase();
-            for (const e of document.querySelectorAll('label, a, span, div, button')) {
-                if (e.children.length) continue;
-                const t = rapihTeks(e.textContent);
-                if (POLA_USER.test(t)) return t.toLowerCase();
-            }
-            return '';
-        }
-        const admin = () => { const n = namaUser(); return !!n && ADMIN.some((u) => n.indexOf(u.toLowerCase()) !== -1); };
-
-        let terakhir = 0;       // waktu popup terakhir ditampilkan (0 = belum pernah di halaman ini)
-        let buka = null;        // {lapisan, nilai}
-        let jalan = false, tungguNama = 0;
-
-        function tekanTombol(e) { if (e.key === 'Escape') tutup(); }
-        function tutup() {
-            if (buka) { buka.lapisan.remove(); buka = null; }
-            document.removeEventListener('keydown', tekanTombol, true);
-        }
-
-        function tampil(saldo) {
-            if (buka) { buka.nilai.textContent = rp(saldo); return; }   // sudah terbuka: cukup perbarui angkanya
-            const lapisan = buat('div', { gaya: 'position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px' });
-            const kotak = buat('div', { gaya: 'background:#fff;color:#222;width:min(440px,100%);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.45);font:14px sans-serif;overflow:hidden;border-top:6px solid #dc3545' });
-            const nilai = buat('div', { teks: rp(saldo), gaya: 'font-size:26px;font-weight:700;color:#dc3545;margin:6px 0' });
-            const bTutup = buat('button', { type: 'button', teks: 'Tutup', gaya: 'padding:7px 22px;border:0;border-radius:4px;background:#dc3545;color:#fff;font-size:14px;cursor:pointer' });
-            kotak.appendChild(buat('div', { gaya: 'padding:16px 18px 6px' }, [
-                buat('div', { teks: '⚠ Saldo PPOB Hampir Habis', gaya: 'font-size:17px;font-weight:700;color:#dc3545;margin-bottom:8px' }),
-                buat('div', { teks: 'Saldo PPOB saat ini:' }),
-                nilai,
-                buat('div', { teks: 'Saldo kurang dari Rp ' + BATAS.toLocaleString('en-US'), gaya: 'color:#555' }),
-                buat('div', { teks: 'Peringatan ini muncul lagi tiap 5 menit sampai saldo diisi.', gaya: 'color:#888;font-size:12px;margin-top:8px' })
-            ]));
-            kotak.appendChild(buat('div', { gaya: 'display:flex;justify-content:flex-end;padding:10px 18px 16px' }, [bTutup]));
-            lapisan.appendChild(kotak);
-            document.body.appendChild(lapisan);
-            buka = { lapisan: lapisan, nilai: nilai };
-            bTutup.addEventListener('click', tutup);
-            lapisan.addEventListener('mousedown', (e) => { if (e.target === lapisan) tutup(); });
-            document.addEventListener('keydown', tekanTombol, true);
-            bTutup.focus();
-        }
-
-        // dipanggil setiap saldo terbaca
-        function periksa(saldo) {
-            if (saldo > BATAS) {        // saldo sudah diisi: berhenti mengingatkan
-                terakhir = 0;
-                tutup();
-                return;
-            }
-            if (!admin()) {
-                // nama user bisa baru tergambar setelah halaman selesai dimuat: coba lagi beberapa detik sebelum menyerah sampai pengecekan berikutnya
-                if (!namaUser() && tungguNama++ < 10) setTimeout(() => periksa(saldo), 1000);
-                return;
-            }
-            if (Date.now() - terakhir >= ULANG_MS) {   // pertama terbaca (terakhir = 0) langsung tampil
-                terakhir = Date.now();
-                tampil(saldo);
-            } else if (buka) {
-                buka.nilai.textContent = rp(saldo);
-            }
-        }
-
-        async function muat() {
-            if (jalan) return;
-            jalan = true;
-            try {
-                const res = await fetch(SALDO, { credentials: 'same-origin', cache: 'no-store',
-                    headers: { 'Accept': 'application/json, text/javascript, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest' } });
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                const j = await res.json();
-                if (!j || j.status === false || typeof j.balance !== 'number') throw new Error((j && j.message) || 'saldo tidak terbaca');
-                periksa(j.balance);
-            } catch (err) {
-                console.warn('[ppob.js] saldo PPOB (popup Home): ' + err.message);
-            } finally {
-                jalan = false;
-            }
-        }
-
-        muat();
-        setInterval(() => { if (!document.hidden) muat(); }, CEK_TIAP_MS);
-    }
+    console.log('[ppob.js] v1.20.1 aktif di ' + location.pathname);
 
     const TABEL = '#data_table';
-    const KOLOM_FAKTUR = 2;  // kolom ke-2 = "No Faktur" (No | No Faktur | Status | ...)
+    const KOLOM_FAKTUR = 2;   // kolom ke-2 = "No Faktur" (No | No Faktur | Status | ...)
 
     const LIST_URL = '/penjualans';
 
