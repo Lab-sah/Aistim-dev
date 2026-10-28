@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Lihat Saldo Sistem (Hitung Saldo Kas)
 // @namespace    https://trial.erzap.com/
-// @version      1.14.5
+// @version      1.15.0
 // @description  Menambahkan tombol "Lihat saldo sistem" di sebelah kolom saldo (default: Kas Brankas) pada halaman Hitung Saldo Kas. Saldo diambil dari halaman Lihat Saldo untuk outlet yang dipilih dan hanya ditampilkan di samping tombol (TIDAK dimasukkan ke input). Script TIDAK menekan tombol Simpan.
 // @match        https://trial.erzap.com/perkiraans/hitung_saldo_kas/*
 // @match        https://*.erzap.com/perkiraans/hitung_saldo_kas/*
@@ -25,14 +25,12 @@
   };
 
   // ====== HAK AKSES & FITUR (JSON) ======
-  // "role": "public"  -> SEMUA user yang membuka halaman ini bisa melihat & memakai tombol.
-  // "role": "private" -> HANYA user di daftar "private.users" (dan "admin") yang bisa melihat & memakai tombol.
-  // "admin"           -> pengembang: SELALU punya akses penuh walau tidak ada di daftar "private.users".
-  // "fitur"           -> true/false untuk menyalakan/mematikan tiap fitur.
-  // "khusus"          -> membatasi SATU fitur hanya untuk nama tertentu (di luar "admin"). Fitur yang tidak
-  //                      ada di "khusus" tetap bisa dipakai semua user yang lolos "role". Nama fitur: lihatSaldo,
-  //                      edit, sembunyi, formatRp. Contoh sekarang: tombol "Lihat saldo sistem" untuk SENTOT dan SURYO.
-  // Nama dibaca dari tulisan "NAMA (JABATAN)" di pojok kanan bawah ERZAP. Cukup sebagian nama
+  // "admin"   -> daftar nama yang SELALU bisa memakai SEMUA fitur (public maupun private).
+  // "private" -> nama fitur yang HANYA boleh dipakai "admin". Nama fitur: lihatSaldo, edit, sembunyi, formatRp.
+  // "public"  -> nama fitur yang boleh dipakai SEMUA user yang membuka halaman ini (tanpa perlu masuk daftar admin).
+  // Setiap fitur harus masuk salah satu dari "private" atau "public"; kalau tidak disebut di keduanya,
+  // dianggap private (aman secara default -> hanya admin).
+  // Nama di "admin" dibaca dari tulisan "NAMA (JABATAN)" di pojok kanan bawah ERZAP. Cukup sebagian nama
   // (tidak peduli huruf besar/kecil); isi nama lengkap persis seperti di ERZAP agar tidak
   // salah cocok dengan user lain (mis. ganti "SURYO" dengan nama lengkapnya).
   // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
@@ -40,20 +38,9 @@
   // Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script di Tampermonkey
   // dan muat ulang halaman ERZAP.
   const AKSES_JSON = `{
-    "role": "private",
-    "private": {
-      "users": ["SENTOT ARI HANDOKO", "SURYO"]
-    },
-    "admin": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT"],
-    "khusus": {
-      "lihatSaldo": ["SENTOT ARI HANDOKO", "SURYO"]
-    },
-    "fitur": {
-      "lihatSaldo": true,
-      "edit": true,
-      "sembunyi": true,
-      "formatRp": true
-    }
+    "admin": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
+    "private": ["lihatSaldo"],
+    "public": ["edit", "sembunyi", "formatRp"]
   }`;
   // ========================
 
@@ -269,7 +256,7 @@
 
   // Isi kolom saldo (tampilan "Rp ..." + nilai angka polos untuk dikirim)
   function setSaldo(input, angka) {
-    if (!SETTINGS.fitur.formatRp) {
+    if (!bolehFitur(SETTINGS, 'formatRp')) {
       // Format Rp dimatikan: isi angka polos seperti biasa
       input.value = String(angka);
       ['input', 'change', 'keyup', 'blur'].forEach((ev) => input.dispatchEvent(new Event(ev, { bubbles: true })));
@@ -463,8 +450,8 @@
       updatePulihkan(tr.closest('table'));
     });
 
-    if (SETTINGS.fitur.edit) wrap.append(edit);
-    if (SETTINGS.fitur.sembunyi) wrap.append(hide);
+    if (bolehFitur(SETTINGS, 'edit')) wrap.append(edit);
+    if (bolehFitur(SETTINGS, 'sembunyi')) wrap.append(hide);
     return wrap.childNodes.length ? wrap : null;
   }
 
@@ -473,7 +460,7 @@
     document.querySelectorAll('tr').forEach((tr) => {
       const input = tr.querySelector('input[data-tm-saldo], input[name$="[saldo_hitung]"]');
       if (!input) return;
-      if (SETTINGS.fitur.formatRp) setupFormat(input); // format "Rp 1,234" otomatis (aman dipanggil berulang)
+      if (bolehFitur(SETTINGS, 'formatRp')) setupFormat(input); // format "Rp 1,234" otomatis (aman dipanggil berulang)
       const kasCell = tr.cells[0];
 
       // 1) Tombol "Lihat saldo sistem" di sel kiri (kolom "Kas"), rata kanan.
@@ -488,7 +475,7 @@
 
       // 2) Tombol "Edit" dan "X" di sel Saldo (kanan), melayang di ujung kanan kolom input.
       const saldoCell = input.closest('td') || input.parentElement;
-      if ((SETTINGS.fitur.edit || SETTINGS.fitur.sembunyi) && !saldoCell.querySelector('.' + SALDO_AKSI_CLASS)) {
+      if ((bolehFitur(SETTINGS, 'edit') || bolehFitur(SETTINGS, 'sembunyi')) && !saldoCell.querySelector('.' + SALDO_AKSI_CLASS)) {
         saldoCell.style.position = 'relative'; // input TIDAK diubah ukurannya (tombol hanya menumpang di ujung kanan)
         // Nama kas bersih (tanpa teks tombol yang sudah menempel di sel)
         const klon = kasCell.cloneNode(true);
@@ -500,47 +487,27 @@
   }
 
   // ===== Pengaturan akses & fitur (dibaca dari AKSES_JSON di atas) =====
-  const FITUR_LABEL = {
-    lihatSaldo: 'Tombol "Lihat saldo sistem" (kolom Kas)',
-    edit: 'Tombol Edit (popup hitung pecahan)',
-    sembunyi: 'Tombol X (sembunyikan baris)',
-    formatRp: 'Format otomatis "Rp 1,234" di kolom saldo',
-  };
-
   function bacaDefault() {
     let a;
     try {
       a = JSON.parse(AKSES_JSON) || {};
     } catch (err) {
       console.error('[saldokas] AKSES_JSON tidak valid -> akses ditutup:', err.message);
-      return { role: 'tutup', users: [], admin: [], khusus: {}, fitur: { lihatSaldo: false, edit: false, sembunyi: false, formatRp: false } };
+      return { admin: [], public: [] };
     }
-    const role = ['public', 'private'].includes(norm(a.role)) ? norm(a.role) : 'tutup';
-    const fitur = {};
-    const khusus = {};
-    Object.keys(FITUR_LABEL).forEach((k) => {
-      fitur[k] = !(a.fitur && a.fitur[k] === false);
-      // fitur ada di "khusus" = hanya nama di daftar itu (dan admin); daftar kosong = tidak ada yang boleh
-      if (a.khusus && Array.isArray(a.khusus[k])) khusus[k] = a.khusus[k].map(String);
-    });
     return {
-      role,
-      users: (a.private && Array.isArray(a.private.users) ? a.private.users : []).map(String),
       admin: Array.isArray(a.admin) ? a.admin.map(String) : [],
-      khusus,
-      fitur,
+      public: Array.isArray(a.public) ? a.public.map(String) : [],
     };
   }
 
   const namaUser = () => norm((document.getElementById('info_kasir') || {}).textContent);
   const cocokNama = (daftar) => daftar.map(norm).filter(Boolean).some((u) => namaUser().includes(u));
   const isAdmin = (S) => cocokNama(S.admin);
-  const userBoleh = (S) => isAdmin(S) || S.role === 'public' || (S.role === 'private' && cocokNama(S.users));
-  // Fitur menyala DAN user boleh memakainya (fitur "khusus" hanya untuk nama tertentu atau admin)
-  const bolehFitur = (S, f) => S.fitur[f] && (!S.khusus[f] || isAdmin(S) || cocokNama(S.khusus[f]));
+  // Fitur "public" boleh dipakai semua user; fitur lain (private/tidak disebut) hanya admin.
+  const bolehFitur = (S, f) => S.public.includes(f) || isAdmin(S);
 
   SETTINGS = bacaDefault(); // pengaturan hanya dari AKSES_JSON di atas
-  if (!userBoleh(SETTINGS)) return; // bukan user yang diizinkan -> script berhenti, tombol fitur tidak muncul
 
   // Tabel kas dimuat ulang (AJAX) setiap outlet diganti -> pasang tombol lagi.
   let scheduled = false;
