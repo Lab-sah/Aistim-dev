@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Transfer Kas/Bank (Dropdown Cari & Format Nominal)
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.1.1
 // @description  Halaman Transfer Kas/Bank: dropdown bisa dicari (ketik untuk filter) dan kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); tampilan responsive untuk layar sempit. Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/jurnals/form_transfer_kas_bank*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -343,6 +343,28 @@
     t._tmRapikan();
     e.stopImmediatePropagation();
   }, true);
+
+  // Saat Simpan/Rekam ditekan (klik, submit, atau F2), kolom sementara diisi angka polos ("23000") supaya validasi
+  // bawaan ERZAP ("Angka harus > 0") membaca angka, bukan teks "Rp 23,000". Tampilan "Rp ..." dikembalikan sesudahnya.
+  function angkaSementara() {
+    const el = nominalEl();
+    if (!el || !el._tmTerapkan || !bolehFitur('formatNominal')) return;
+    const hidden = el.nextElementSibling;
+    if (!hidden || !hidden.dataset || !hidden.dataset.tmRaw) return;
+    el.value = hidden.value;
+    clearTimeout(el._tmPulih);
+    el._tmPulih = setTimeout(() => {
+      if (document.contains(el) && el.value === hidden.value) el._tmTerapkan(false);
+    }, 600);
+  }
+
+  document.addEventListener('submit', angkaSementara, true);
+  document.addEventListener('click', e => {
+    const btn = e.target.closest && e.target.closest('button, input[type="submit"], input[type="button"], a.btn');
+    if (!btn) return;
+    if (/simpan|rekam/i.test(btn.textContent || '') || /simpan|rekam/i.test(btn.value || '')) angkaSementara();
+  }, true);
+  document.addEventListener('keydown', e => { if (e.key === 'F2') angkaSementara(); }, true);
 
   /* ---------- Init ---------- */
 
