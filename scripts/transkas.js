@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Transfer Kas/Bank (Dropdown Cari & Format Nominal)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.1.0
 // @description  Halaman Transfer Kas/Bank: dropdown bisa dicari (ketik untuk filter) dan kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); tampilan responsive untuk layar sempit. Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/jurnals/form_transfer_kas_bank*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -260,48 +260,88 @@
   window.addEventListener('scroll', () => { if (pop) place(); }, true);
   window.addEventListener('resize', () => { if (pop) place(); });
 
-  /* ---------- Nominal Rp ---------- */
+  /* ---------- Nominal Rp (sistem sama dengan saldokas.js) ---------- */
+
+  // Yang tampil di kolom: "Rp 1,234,567" (otomatis saat mengetik).
+  // Yang DIKIRIM ke server saat Rekam/Simpan: angka polos ("1234567") lewat input hidden ber-name asli,
+  // jadi proses di ERZAP tidak terganggu dan tetap jalan walau Rekam lewat shortcut.
 
   function nominalEl() {
     return document.getElementById('jurnal_nominal');
   }
 
-  // Tampilan: Rp 3,000,000.5 (ribuan pakai koma, desimal pakai titik, maks 2 digit desimal)
-  // Nilai yang dikirim saat submit: 3000000.5 (tanpa pemisah ribuan)
-  function fmtNominal(el) {
-    const v = el.value.replace(/[^\d.]/g, '');
-    const dot = v.indexOf('.');
-    let intPart = dot >= 0 ? v.slice(0, dot).replace(/\./g, '') : v;
-    let decPart = dot >= 0 ? v.slice(dot + 1).replace(/\./g, '').slice(0, 2) : null;
-    intPart = intPart.replace(/^0+(?=\d)/, '');
-    if (dot >= 0 && intPart === '') intPart = '0';
-    const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    let shown = grouped;
-    if (decPart !== null) shown += '.' + decPart;
-    el.value = shown ? 'Rp ' + shown : '';
-    el.dataset.raw = intPart ? (decPart !== null ? intPart + '.' + decPart : intPart) : '';
+  function formatRupiahText(str) {
+    const s = String(str).replace(/[^\d.]/g, '');
+    const dot = s.indexOf('.');
+    let int = dot >= 0 ? s.slice(0, dot) : s;
+    const dec = dot >= 0 ? s.slice(dot + 1).replace(/\./g, '').slice(0, 2) : '';
+    int = int.replace(/^0+(?=\d)/, '');
+    if (!int && dot < 0) return { text: '', raw: '' };
+    if (!int) int = '0';
+    const intFmt = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return { text: 'Rp ' + intFmt + (dot >= 0 ? '.' + dec : ''), raw: int + (dec ? '.' + dec : '') };
+  }
+
+  function setupNominal(input) {
+    if (input.dataset.tmNominal || !input.name) return;
+    const hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.name = input.name; // nilai angka polos yang dikirim saat Rekam
+    hidden.dataset.tmRaw = '1';
+    input.parentNode.insertBefore(hidden, input.nextSibling);
+    input.removeAttribute('name'); // kolom tampilan tidak ikut terkirim
+    input.dataset.tmNominal = '1';
+    input.inputMode = 'decimal';
+    input.autocomplete = 'off';
+    // ERZAP memvalidasi input ber-class "number" sebagai angka; teks "Rp 1,000" akan ditolak
+    // ("Masukan angka"). Class dilepas agar tampilan tetap "Rp 1,000" dan nilai terkirim lewat input hidden.
+    input.classList.remove('number');
+
+    input._tmTerapkan = (keepCaret) => {
+      const pos = input.selectionStart;
+      const sig = input.value.slice(0, pos == null ? input.value.length : pos).replace(/[^\d.]/g, '').length;
+      const r = formatRupiahText(input.value);
+      input.value = r.text;
+      hidden.value = r.raw;
+      if (keepCaret && document.activeElement === input) {
+        let np = r.text ? 3 : 0; // setelah awalan "Rp "
+        let c = 0;
+        if (sig > 0) {
+          np = r.text.length;
+          for (let i = 0; i < r.text.length; i++) {
+            if (/[\d.]/.test(r.text[i])) c++;
+            if (c === sig) {
+              np = i + 1;
+              break;
+            }
+          }
+        }
+        input.setSelectionRange(np, np);
+      }
+    };
+    input._tmRapikan = () => {
+      // rapikan, mis. "Rp 12." -> "Rp 12"
+      const r = formatRupiahText(hidden.value);
+      input.value = r.text;
+      hidden.value = r.raw;
+    };
+    if (input.value) input._tmTerapkan(false);
   }
 
   // Didaftarkan di window (capture) dan menghentikan event, supaya format bawaan ERZAP
   // tidak ikut mengubah nilai (itulah penyebab "Rp 300" berubah jadi "Rp 3.00")
   window.addEventListener('input', e => {
-    if (e.target && e.target.id === 'jurnal_nominal' && bolehFitur('formatNominal')) { fmtNominal(e.target); e.stopImmediatePropagation(); }
+    const t = e.target;
+    if (!t || t.id !== 'jurnal_nominal' || !t._tmTerapkan || !bolehFitur('formatNominal')) return;
+    t._tmTerapkan(true);
+    e.stopImmediatePropagation();
   }, true);
 
   window.addEventListener('blur', e => {
-    if (e.target && e.target.id === 'jurnal_nominal' && bolehFitur('formatNominal')) { fmtNominal(e.target); e.stopImmediatePropagation(); }
-  }, true);
-
-  // Kirim angka mentah saat form disubmit atau tombol Rekam diklik
-  function stripForSubmit() {
-    const el = nominalEl();
-    if (el && bolehFitur('formatNominal')) el.value = el.dataset.raw || '';
-  }
-
-  document.addEventListener('submit', stripForSubmit, true);
-  document.addEventListener('click', e => {
-    const btn = e.target.closest && e.target.closest('button');
-    if (btn && /rekam/i.test(btn.textContent)) stripForSubmit();
+    const t = e.target;
+    if (!t || t.id !== 'jurnal_nominal' || !t._tmRapikan || !bolehFitur('formatNominal')) return;
+    t._tmRapikan();
+    e.stopImmediatePropagation();
   }, true);
 
   /* ---------- Init ---------- */
@@ -309,7 +349,7 @@
   function init() {
     injectCss();
     const el = nominalEl();
-    if (el && el.value && bolehFitur('formatNominal')) fmtNominal(el);
+    if (el && bolehFitur('formatNominal')) setupNominal(el);
   }
 
   if (document.readyState === 'loading') {
