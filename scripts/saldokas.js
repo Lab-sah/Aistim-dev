@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Lihat Saldo Sistem (Hitung Saldo Kas)
 // @namespace    https://trial.erzap.com/
-// @version      1.15.0
+// @version      1.15.1
 // @description  Menambahkan tombol "Lihat saldo sistem" di sebelah kolom saldo (default: Kas Brankas) pada halaman Hitung Saldo Kas. Saldo diambil dari halaman Lihat Saldo untuk outlet yang dipilih dan hanya ditampilkan di samping tombol (TIDAK dimasukkan ke input). Script TIDAK menekan tombol Simpan.
 // @match        https://trial.erzap.com/perkiraans/hitung_saldo_kas/*
 // @match        https://*.erzap.com/perkiraans/hitung_saldo_kas/*
@@ -221,6 +221,9 @@
     input.dataset.tmSaldo = '1';
     input.inputMode = 'decimal';
     input.autocomplete = 'off';
+    // ERZAP memvalidasi input ber-class "number" sebagai angka; teks "Rp 1,000" akan ditolak
+    // ("Masukan angka"). Class dilepas agar tampilan tetap "Rp 1,000" dan nilai terkirim lewat input hidden.
+    input.classList.remove('number');
 
     const terapkanFormat = (keepCaret) => {
       const pos = input.selectionStart;
