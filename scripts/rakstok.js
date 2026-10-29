@@ -1,12 +1,45 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.22.12
+// @version      1.22.13
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) (popup rak per toko/gudang) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
 // ==/UserScript==
+
+// ====== HAK AKSES & FITUR (JSON) ======
+// "admin"   -> daftar nama yang SELALU bisa memakai SEMUA fitur.
+// "private" -> fitur yang HANYA boleh dipakai "admin". Nama fitur: editGambar, penentuanRak.
+// "public"  -> fitur yang boleh dipakai SEMUA user (tidak dicek di kode; hanya catatan). Fitur yang tidak ada di "private" selalu terbuka.
+// Nama di "admin" dibaca dari tulisan "NAMA (JABATAN)" di pojok kanan bawah ERZAP. Cukup sebagian nama
+// (tidak peduli huruf besar/kecil); isi nama lengkap persis seperti di ERZAP agar tidak salah cocok dengan user lain.
+// Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
+// Jika JSON salah ketik, fitur private ditutup untuk semua orang.
+// Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script dan muat ulang halaman ERZAP.
+var RK_AKSES_JSON = `{
+    "admin": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
+    "private": ["editGambar", "penentuanRak"],
+    "public": ["mapRak", "barcode", "gambar", "hargaJual", "filter"]
+}`;
+var rkAkses = (function () {
+    try {
+        var a = JSON.parse(RK_AKSES_JSON) || {};
+        return {
+            admin: Array.isArray(a.admin) ? a.admin.map(String) : [],
+            private: Array.isArray(a.private) ? a.private.map(String) : []
+        };
+    } catch (err) {
+        console.error('[rakstok] RK_AKSES_JSON tidak valid -> fitur private ditutup:', err.message);
+        return { admin: [], private: ['editGambar', 'penentuanRak'] };
+    }
+})();
+// true bila fitur boleh dipakai user yang sedang login (dicek saat dipakai, karena nama kasir dimuat belakangan)
+function rkBoleh(fitur) {
+    if (rkAkses.private.indexOf(fitur) === -1) return true;
+    var nama = String((document.getElementById('info_kasir') || {}).textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    return rkAkses.admin.some(function (u) { u = u.replace(/\s+/g, ' ').trim().toLowerCase(); return !!u && nama.indexOf(u) !== -1; });
+}
 
 (function () {
     'use strict';
@@ -343,7 +376,7 @@
     // tombol "Edit gambar" di footer popup gambar (di samping Tutup)
     function tambahEditGambar(m, id) {
         const foot = m.pop.querySelector('.rk_foot');
-        if (!foot || foot.querySelector('.rk_edit')) return;
+        if (!foot || foot.querySelector('.rk_edit') || !rkBoleh('editGambar')) return;
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'rk_tutup rk_edit';
@@ -1542,7 +1575,7 @@
     if (!foot) return;
     var ex = foot.querySelector('.rk_btn_rak');
     // hanya popup Map rak (ditandai data-tipe="rak" oleh Bagian 1); popup gambar / harga tidak mendapat tombol ini
-    if (foot.parentNode.dataset.tipe !== 'rak') { if (ex) ex.remove(); return; }
+    if (foot.parentNode.dataset.tipe !== 'rak' || !rkBoleh('penentuanRak')) { if (ex) ex.remove(); return; }
     if (ex) return;
     foot.style.display = 'flex'; foot.style.gap = '6px'; foot.style.flexWrap = 'nowrap';
     foot.querySelectorAll('button').forEach(function (x) { x.style.whiteSpace = 'nowrap'; });
@@ -1722,6 +1755,7 @@
   /* ---------- buka popup Penentuan Rak ---------- */
   function openPenentuan(btn) {
     var pop = btn.closest('#gs_rak_pop'); if (!pop) return;
+    if (!rkBoleh('penentuanRak')) return;
     var bc = ((pop.querySelector('.rk_judul') || {}).textContent || '').split(' - ')[0].trim();
     var oEl = document.querySelector('.searching_multi_outlet [data-idoutlet]');
     var outlet = oEl && oEl.dataset.idoutlet;
