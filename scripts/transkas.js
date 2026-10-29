@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ERZAP - Transfer Kas/Bank (Dropdown Cari & Format Nominal)
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
-// @description  Halaman Transfer Kas/Bank: dropdown bisa dicari (ketik untuk filter) dan kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); tampilan responsive untuk layar sempit. Fitur diatur lewat AKSES_JSON (admin/private/public).
+// @version      1.2.0
+// @description  Halaman Transfer Kas/Bank: dropdown bisa dicari (ketik untuk filter) dan kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/jurnals/form_transfer_kas_bank*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @run-at       document-idle
@@ -18,7 +18,7 @@
 
   // ====== HAK AKSES & FITUR (JSON) ======
   // "admin"   -> daftar nama yang SELALU bisa memakai SEMUA fitur (public maupun private).
-  // "private" -> nama fitur yang HANYA boleh dipakai "admin". Nama fitur: dropdownCari, formatNominal, responsive.
+  // "private" -> nama fitur yang HANYA boleh dipakai "admin". Nama fitur: dropdownCari, formatNominal, responsive, validasiSimpan.
   // "public"  -> nama fitur yang boleh dipakai SEMUA user yang membuka halaman ini.
   // Fitur yang tidak disebut di keduanya dianggap private (hanya admin).
   // Nama di "admin" dibaca dari tulisan "NAMA (JABATAN)" di pojok kanan bawah ERZAP. Cukup sebagian nama
@@ -29,7 +29,7 @@
   const AKSES_JSON = `{
     "admin": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
     "private": [],
-    "public": ["dropdownCari", "formatNominal", "responsive"]
+    "public": ["dropdownCari", "formatNominal", "responsive", "validasiSimpan"]
   }`;
 
   function bacaAkses() {
@@ -260,118 +260,77 @@
   window.addEventListener('scroll', () => { if (pop) place(); }, true);
   window.addEventListener('resize', () => { if (pop) place(); });
 
-  /* ---------- Nominal Rp (sistem sama dengan saldokas.js) ---------- */
-
-  // Yang tampil di kolom: "Rp 1,234,567" (otomatis saat mengetik).
-  // Yang DIKIRIM ke server saat Rekam/Simpan: angka polos ("1234567") lewat input hidden ber-name asli,
-  // jadi proses di ERZAP tidak terganggu dan tetap jalan walau Rekam lewat shortcut.
+  /* ---------- Nominal Rp ---------- */
 
   function nominalEl() {
     return document.getElementById('jurnal_nominal');
   }
 
-  function formatRupiahText(str) {
-    const s = String(str).replace(/[^\d.]/g, '');
-    const dot = s.indexOf('.');
-    let int = dot >= 0 ? s.slice(0, dot) : s;
-    const dec = dot >= 0 ? s.slice(dot + 1).replace(/\./g, '').slice(0, 2) : '';
-    int = int.replace(/^0+(?=\d)/, '');
-    if (!int && dot < 0) return { text: '', raw: '' };
-    if (!int) int = '0';
-    const intFmt = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    return { text: 'Rp ' + intFmt + (dot >= 0 ? '.' + dec : ''), raw: int + (dec ? '.' + dec : '') };
-  }
-
-  function setupNominal(input) {
-    if (input.dataset.tmNominal || !input.name) return;
-    const hidden = document.createElement('input');
-    hidden.type = 'hidden';
-    hidden.name = input.name; // nilai angka polos yang dikirim saat Rekam
-    hidden.dataset.tmRaw = '1';
-    input.parentNode.insertBefore(hidden, input.nextSibling);
-    input.removeAttribute('name'); // kolom tampilan tidak ikut terkirim
-    input.dataset.tmNominal = '1';
-    input.inputMode = 'decimal';
-    input.autocomplete = 'off';
-    // ERZAP memvalidasi input ber-class "number" sebagai angka; teks "Rp 1,000" akan ditolak
-    // ("Masukan angka"). Class dilepas agar tampilan tetap "Rp 1,000" dan nilai terkirim lewat input hidden.
-    input.classList.remove('number');
-
-    input._tmTerapkan = (keepCaret) => {
-      const pos = input.selectionStart;
-      const sig = input.value.slice(0, pos == null ? input.value.length : pos).replace(/[^\d.]/g, '').length;
-      const r = formatRupiahText(input.value);
-      input.value = r.text;
-      hidden.value = r.raw;
-      if (keepCaret && document.activeElement === input) {
-        let np = r.text ? 3 : 0; // setelah awalan "Rp "
-        let c = 0;
-        if (sig > 0) {
-          np = r.text.length;
-          for (let i = 0; i < r.text.length; i++) {
-            if (/[\d.]/.test(r.text[i])) c++;
-            if (c === sig) {
-              np = i + 1;
-              break;
-            }
-          }
-        }
-        input.setSelectionRange(np, np);
-      }
-    };
-    input._tmRapikan = () => {
-      // rapikan, mis. "Rp 12." -> "Rp 12"
-      const r = formatRupiahText(hidden.value);
-      input.value = r.text;
-      hidden.value = r.raw;
-    };
-    if (input.value) input._tmTerapkan(false);
+  // Tampilan: Rp 3,000,000.5 (ribuan pakai koma, desimal pakai titik, maks 2 digit desimal)
+  // Nilai yang dikirim saat submit: 3000000.5 (tanpa pemisah ribuan)
+  function fmtNominal(el) {
+    const v = el.value.replace(/[^\d.]/g, '');
+    const dot = v.indexOf('.');
+    let intPart = dot >= 0 ? v.slice(0, dot).replace(/\./g, '') : v;
+    let decPart = dot >= 0 ? v.slice(dot + 1).replace(/\./g, '').slice(0, 2) : null;
+    intPart = intPart.replace(/^0+(?=\d)/, '');
+    if (dot >= 0 && intPart === '') intPart = '0';
+    const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    let shown = grouped;
+    if (decPart !== null) shown += '.' + decPart;
+    el.value = shown ? 'Rp ' + shown : '';
+    el.dataset.raw = intPart ? (decPart !== null ? intPart + '.' + decPart : intPart) : '';
   }
 
   // Didaftarkan di window (capture) dan menghentikan event, supaya format bawaan ERZAP
   // tidak ikut mengubah nilai (itulah penyebab "Rp 300" berubah jadi "Rp 3.00")
   window.addEventListener('input', e => {
-    const t = e.target;
-    if (!t || t.id !== 'jurnal_nominal' || !t._tmTerapkan || !bolehFitur('formatNominal')) return;
-    t._tmTerapkan(true);
-    e.stopImmediatePropagation();
+    if (e.target && e.target.id === 'jurnal_nominal' && bolehFitur('formatNominal')) { fmtNominal(e.target); e.stopImmediatePropagation(); }
   }, true);
 
   window.addEventListener('blur', e => {
-    const t = e.target;
-    if (!t || t.id !== 'jurnal_nominal' || !t._tmRapikan || !bolehFitur('formatNominal')) return;
-    t._tmRapikan();
-    e.stopImmediatePropagation();
+    if (e.target && e.target.id === 'jurnal_nominal' && bolehFitur('formatNominal')) { fmtNominal(e.target); e.stopImmediatePropagation(); }
   }, true);
 
-  // Saat Simpan/Rekam ditekan (klik, submit, atau F2), kolom sementara diisi angka polos ("23000") supaya validasi
-  // bawaan ERZAP ("Angka harus > 0") membaca angka, bukan teks "Rp 23,000". Tampilan "Rp ..." dikembalikan sesudahnya.
-  function angkaSementara() {
+  // Kirim angka mentah saat form disubmit, tombol Simpan, atau tombol Rekam ditekan
+  function stripForSubmit() {
     const el = nominalEl();
-    if (!el || !el._tmTerapkan || !bolehFitur('formatNominal')) return;
-    const hidden = el.nextElementSibling;
-    if (!hidden || !hidden.dataset || !hidden.dataset.tmRaw) return;
-    el.value = hidden.value;
-    clearTimeout(el._tmPulih);
-    el._tmPulih = setTimeout(() => {
-      if (document.contains(el) && el.value === hidden.value) el._tmTerapkan(false);
-    }, 600);
+    if (el && bolehFitur('formatNominal')) el.value = el.dataset.raw || '';
   }
 
-  document.addEventListener('submit', angkaSementara, true);
+  const SAVE_SEL = '#bt_simpan,#image_simpan,#simpan_new_produk_simple';
+  document.addEventListener('submit', stripForSubmit, true);
+  ['pointerdown', 'mousedown', 'click'].forEach(t => {
+    window.addEventListener(t, e => {
+      if (e.target && e.target.closest && e.target.closest(SAVE_SEL)) stripForSubmit();
+    }, true);
+  });
   document.addEventListener('click', e => {
-    const btn = e.target.closest && e.target.closest('button, input[type="submit"], input[type="button"], a.btn');
-    if (!btn) return;
-    if (/simpan|rekam/i.test(btn.textContent || '') || /simpan|rekam/i.test(btn.value || '')) angkaSementara();
+    const btn = e.target.closest && e.target.closest('button');
+    if (btn && /rekam/i.test(btn.textContent)) stripForSubmit();
   }, true);
-  document.addEventListener('keydown', e => { if (e.key === 'F2') angkaSementara(); }, true);
+
+  /* ---------- Validasi: jangan tampilkan error saat field wajib masih kosong ---------- */
+  // Error "Diperlukan" / "Angka harus > 0" hanya boleh muncul saat Simpan ditekan.
+  // Saat pindah field, blur/focusout pada field wajib yang masih kosong dihentikan.
+  function isEmptyRequired(t) {
+    const f = t && t.closest && t.closest('form.new_jurnal');
+    if (!f || !(t.classList.contains('required') || t.required)) return false;
+    if (t.tagName === 'SELECT') return t.selectedIndex <= 0 || t.value === '';
+    return (t.value || '').trim() === '' || /^Rp\s*0?$/.test(t.value || '');
+  }
+  ['blur', 'focusout'].forEach(type => {
+    window.addEventListener(type, e => {
+      if (bolehFitur('validasiSimpan') && isEmptyRequired(e.target)) e.stopImmediatePropagation();
+    }, true);
+  });
 
   /* ---------- Init ---------- */
 
   function init() {
     injectCss();
     const el = nominalEl();
-    if (el && bolehFitur('formatNominal')) setupNominal(el);
+    if (el && el.value && bolehFitur('formatNominal')) fmtNominal(el);
   }
 
   if (document.readyState === 'loading') {
