@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ERZAP - Piutang Lain (Rincian Transaksi)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
-// @description  Rincian Transaksi Piutang Lain: pilih jumlah baris tampil (5-100), tabel bisa di-scroll, pencarian di semua kolom, data diambil sesuai kebutuhan; tampilan responsif untuk layar sempit.
+// @version      1.1.0
+// @description  Rincian Transaksi Piutang Lain: pilih jumlah baris per halaman (5, 10, 50, 100), tombol halaman, kotak tabel bisa di-scroll, pencarian di semua kolom, data diambil sesuai kebutuhan; tampilan responsif untuk layar sempit. Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/jurnals/form_kelola_piutang_debitur/kelola*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @run-at       document-idle
@@ -19,7 +19,7 @@
 
   // ====== HAK AKSES & FITUR (JSON) ======
   // "admin"   -> daftar nama yang SELALU bisa memakai SEMUA fitur (public maupun private).
-  // "private" -> nama fitur yang HANYA boleh dipakai "admin". Nama fitur: pilihBaris, cari, muatUlang, responsif.
+  // "private" -> nama fitur yang HANYA boleh dipakai "admin". Nama fitur: pilihBaris, cari, muatUlang, paginasi, responsif.
   // "public"  -> nama fitur yang boleh dipakai SEMUA user yang membuka halaman ini.
   // Fitur yang tidak disebut di keduanya dianggap private (hanya admin).
   // Nama di "admin" dibaca dari tulisan "NAMA (JABATAN)" di pojok kanan bawah ERZAP. Cukup sebagian nama
@@ -30,7 +30,7 @@
   const AKSES_JSON = `{
     "admin": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
     "private": [],
-    "public": ["pilihBaris", "cari", "muatUlang", "responsif"]
+    "public": ["pilihBaris", "cari", "muatUlang", "paginasi", "responsif"]
   }`;
 
   function bacaAkses() {
@@ -57,22 +57,21 @@
     });
   }
 
-
-  // Link nomor halaman dari paginasi server
+  // Link nomor halaman dari paginasi server (jika ada)
   const numLinks = [...tbl.tFoot.querySelectorAll('a')].filter(a => /^\d+$/.test(a.textContent.trim()));
-  // Jika tidak ada paginasi (data sedikit), semua baris sudah ada di halaman
   const hasPaging = numLinks.length > 0;
   const maxPage = hasPaging ? Math.max(...numLinks.map(a => +a.textContent.trim())) : 1;
   const sampleHref = hasPaging ? new URL(numLinks[0].getAttribute('href'), location.href).href : '';
   const pageUrl = p => sampleHref.replace(/([?&]page=)\d+/, '$1' + p);
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
-  const DELAY_MS = 4000;      // jeda antar permintaan halaman
+  const DELAY_MS = 4000;       // jeda antar permintaan halaman
   const RETRY_WAIT_MS = 30000; // tunggu jika server membatasi permintaan
 
-  let allRows = [];          // <tr> dari halaman yang sudah diambil (berurutan)
-  let nextPage = 1;          // halaman server berikutnya yang belum diambil
-  let size = 5;              // jumlah baris tampil (dropdown hanya 5 agar server tidak terbebani)
+  let allRows = [];   // <tr> yang sudah diambil
+  let nextPage = 1;   // halaman server berikutnya yang belum diambil
+  let size = 5;       // jumlah baris per halaman
+  let pageNo = 1;     // halaman tampilan yang sedang dilihat
   let busy = false;
 
   // ---------- Style ----------
@@ -87,6 +86,7 @@
     #pt-toolbar input#pt-search { flex:1 1 220px; min-width:0; }
     #pt-toolbar button { cursor:pointer; min-width:34px; }
     #pt-toolbar button:disabled { opacity:.5; cursor:default; }
+    #pt-toolbar .pt-nav { margin-left:auto; display:flex; align-items:center; gap:6px; white-space:nowrap; }
     .pt-scroll { width:100%; overflow:auto; -webkit-overflow-scrolling:touch; }
     .pt-scroll table { min-width:640px; }
     .pt-scroll thead th { position:sticky; top:0; background:#fff; z-index:1; }
@@ -96,6 +96,7 @@
       #pt-toolbar label { justify-content:flex-start; }
       #pt-toolbar input#pt-search { flex:none; width:100%; }
       #pt-toolbar button#pt-reload { width:100%; }
+      #pt-toolbar .pt-nav { margin-left:0; justify-content:space-between; }
       .pt-scroll table { font-size:12px; }
       .make_content_float_left, .noprint { float:none !important; width:100% !important; max-width:100% !important; box-sizing:border-box !important; }
       .make_content_float_left { padding:0 10px !important; }
@@ -118,12 +119,18 @@
       </select>
     </label>
     <input id="pt-search" type="search" placeholder="Cari di semua kolom...">
-    <button id="pt-reload" type="button" title="Muat ulang data" aria-label="Muat ulang data">&#x21bb;</button>`;
+    <button id="pt-reload" type="button" title="Muat ulang data" aria-label="Muat ulang data">&#x21bb;</button>
+    <span class="pt-nav">
+      <button id="pt-prev" type="button">&laquo; Sebelumnya</button>
+      <span id="pt-page"></span>
+      <button id="pt-next" type="button">Berikutnya &raquo;</button>
+    </span>`;
   tbl.parentNode.insertBefore(bar, tbl);
   // fitur yang tidak diizinkan disembunyikan; nilainya tetap (5 baris, kolom cari kosong, tanpa muat ulang)
   if (!bolehFitur('pilihBaris')) bar.querySelector('#pt-size').closest('label').style.display = 'none';
   if (!bolehFitur('cari')) bar.querySelector('#pt-search').style.display = 'none';
   if (!bolehFitur('muatUlang')) bar.querySelector('#pt-reload').style.display = 'none';
+  if (!bolehFitur('paginasi')) bar.querySelector('.pt-nav').style.display = 'none';
   tbl.tFoot.style.display = 'none';
 
   const scroll = document.createElement('div');
@@ -144,7 +151,7 @@
     return [...doc.querySelectorAll('#data_table tbody tr')];
   }
 
-  // Ambil halaman berikutnya sampai jumlah baris >= target (atau semua halaman jika target = Infinity)
+  // Ambil halaman server berikutnya sampai jumlah baris >= target
   async function ensureRows(target) {
     if (busy) return false;
     busy = true;
@@ -173,75 +180,105 @@
     }
   }
 
+  // Jika tidak ada paginasi (data sedikit), semua baris sudah ada di halaman
   if (!hasPaging) {
     allRows = [...tbl.tBodies[0].rows].map(tr => document.importNode(tr, true));
-    nextPage = 2; // sudah selesai, tidak perlu ambil dari server
+    nextPage = 2;
   }
 
   // ---------- Tampilan ----------
-  function currentFilter() {
-    const q = $('pt-search').value.trim().toLowerCase();
-    return q ? allRows.filter(tr => tr.textContent.toLowerCase().includes(q)) : allRows.slice();
+  function matchedRows() {
+    const ql = $('pt-search').value.trim().toLowerCase();
+    return ql ? allRows.filter(tr => tr.textContent.toLowerCase().includes(ql)) : allRows.slice();
   }
 
   function render() {
     const q = $('pt-search').value.trim();
-    const matched = currentFilter();
-    const shown = matched.slice(0, size);   // jumlah baris sesuai pilihan (5, 10, 50, 100)
-    shown.forEach((tr, i) => { if (tr.cells[0]) tr.cells[0].textContent = String(i + 1); });
+    const matched = matchedRows();
+    const totalPages = Math.max(1, Math.ceil(matched.length / size));
+    if (pageNo > totalPages) pageNo = totalPages;
+    if (pageNo < 1) pageNo = 1;
+    const start = (pageNo - 1) * size;
+    const shown = matched.slice(start, start + size);
+
+    shown.forEach((tr, i) => { if (tr.cells[0]) tr.cells[0].textContent = String(start + i + 1); });
     tbl.tBodies[0].replaceChildren(...shown);
 
-    // Tinggi kotak tabel = header + jumlah baris pilihan; sisanya di-scroll
+    // Kotak tabel terlihat maksimal 10 baris (atau sesuai pilihan jika lebih kecil); sisanya di-scroll
     const thead = tbl.tHead ? tbl.tHead.getBoundingClientRect().height : 36;
     const sample = shown[0] ? shown[0].getBoundingClientRect().height : 0;
     const rowH = sample > 0 ? sample : 44;
-    // Kotak tabel terlihat maksimal 10 baris (atau sesuai pilihan jika lebih kecil); sisanya di-scroll
     scroll.style.maxHeight = Math.round(thead + Math.min(size, 10) * rowH + 4) + 'px';
 
+    const from = shown.length ? start + 1 : 0;
+    const to = start + shown.length;
     const more = nextPage <= maxPage ? ' (data lain diambil saat dibutuhkan)' : '';
-    statusEl.textContent = shown.length
-      ? `Menampilkan ${shown.length} baris dari ${matched.length} data` + (q ? ' (hasil cari)' : '') + more
+    statusEl.textContent = matched.length
+      ? `Menampilkan ${from} - ${to} dari ${matched.length} data` + (q ? ' (hasil cari)' : '') + more
       : (nextPage <= maxPage && q ? 'Mengambil semua data untuk pencarian...' : 'Tidak ada data yang cocok');
+
+    $('pt-page').textContent = ` Halaman ${pageNo} / ${totalPages} `;
+    $('pt-prev').disabled = pageNo <= 1;
+    $('pt-next').disabled = pageNo >= totalPages && nextPage > maxPage;
   }
 
-  // Ubah jumlah baris: ambil data secukupnya saja
+  // Ambil data sampai cukup untuk halaman yang dilihat
+  async function ensureForPage() {
+    const need = pageNo * size;
+    if (allRows.length < need && nextPage <= maxPage) {
+      const ok = await ensureRows(need);
+      if (!ok) return false;
+    }
+    return true;
+  }
+
   async function onSizeChange() {
     size = +$('pt-size').value;
-    // Ambil dulu sebanyak tinggi kotak (maks 10); sisanya diambil saat kotak di-scroll ke bawah
-    const need = Math.min(size, 10);
-    if (allRows.length < need) {
-      const ok = await ensureRows(need);
-      if (!ok) { render(); return; }
-    }
+    pageNo = 1;
+    // Awal: ambil sebanyak tinggi kotak (maks 10); sisanya diambil saat di-scroll atau pindah halaman
+    const first = Math.min(size, 10);
+    if (allRows.length < first) await ensureRows(first);
     render();
   }
 
-  // Pencarian: perlu semua data, jadi ambil semua halaman
   async function onSearch() {
-    const q = $('pt-search').value.trim();
-    if (q && nextPage <= maxPage) {
-      const ok = await ensureRows(Infinity);
-      if (!ok) { render(); return; }
+    pageNo = 1;
+    if ($('pt-search').value.trim() && nextPage <= maxPage) {
+      await ensureRows(Infinity);   // pencarian perlu semua data
     }
     render();
   }
 
-  // Scroll ke bawah: ambil 10 data berikutnya (sampai jumlah yang dipilih)
+  async function onNext() {
+    pageNo++;
+    await ensureForPage();
+    render();
+  }
+
+  function onPrev() {
+    pageNo--;
+    render();
+  }
+
+  // Scroll ke bawah kotak: ambil 10 data berikutnya (sampai halaman yang dilihat terpenuhi)
   scroll.addEventListener('scroll', async () => {
     if (scroll.scrollTop + scroll.clientHeight < scroll.scrollHeight - 40) return;
-    if (allRows.length >= size || nextPage > maxPage || busy) return;
-    const ok = await ensureRows(Math.min(size, allRows.length + 10));
+    if (allRows.length >= pageNo * size || nextPage > maxPage || busy) return;
+    const ok = await ensureRows(Math.min(pageNo * size, allRows.length + 10));
     if (ok || allRows.length) render();
   });
 
   $('pt-size').addEventListener('change', onSizeChange);
   $('pt-search').addEventListener('input', onSearch);
+  $('pt-prev').addEventListener('click', onPrev);
+  $('pt-next').addEventListener('click', onNext);
   $('pt-reload').addEventListener('click', () => {
     allRows = [];
-    nextPage = 1;
+    nextPage = hasPaging ? 1 : 2;
+    if (!hasPaging) allRows = [...tbl.tBodies[0].rows].map(tr => document.importNode(tr, true));
+    pageNo = 1;
     onSizeChange();
   });
 
-  // Mulai: ambil halaman pertama yang cukup untuk tampilan awal
   onSizeChange();
 })();
