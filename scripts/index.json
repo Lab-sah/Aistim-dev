@@ -32,7 +32,8 @@
     "grafik.js",
     "pengisian_so.js",
     "crm.js",
-    "transkas.js"
+    "transkas.js",
+    "piutanglain.js"
   ],
   "hapus": [
     "pemindahan.js",
