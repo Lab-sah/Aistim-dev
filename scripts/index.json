@@ -48,6 +48,7 @@
     "rekapservis.js",
     "rekapstokmin.js",
     "smart_repair.js",
-    "grafik.js"
+    "grafik.js",
+    "penjualan.js"
   ]
 }
