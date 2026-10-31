@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - PPOB (No Faktur + Outlet)
 // @namespace    http://tampermonkey.net/
-// @version      1.20.1
+// @version      1.21.0
 // @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Filter Toko (outlet) ditambahkan di bagian paling atas form pencarian: tombol Toko membuka daftar outlet (diambil dari /outlets/list_nama_outlet/new hanya setelah diklik) dan menyaring baris tabel yang sedang tampil berdasarkan outlet notanya. Transaksi berstatus Error diberi keterangan "Sudah dibatalkan" / "Belum dibatalkan" di kolom Status (dicek dari status nota di /penjualans; bila belum dibatalkan, halaman nota dicek: peringatan "telah dibatalkan" lalu akun "Retur Penjualan" di rincian transaksi => "Sudah diretur"). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan.
 // @author       You
 // @match        https://trial.erzap.com/penjualans*
@@ -18,7 +18,48 @@
     if (!/^\/penjualans(\/aktifitas_ppob\/new|\/index\/new)?\/?$/.test(location.pathname)) return;
     if (window.__aistimPpob) return;
     window.__aistimPpob = true;
-    console.log('[ppob.js] v1.20.1 aktif di ' + location.pathname);
+    console.log('[ppob.js] v1.21.0 aktif di ' + location.pathname);
+
+    // ====== HAK AKSES & FITUR (JSON) ======
+    // "admin"   -> daftar nama yang SELALU bisa memakai SEMUA fitur (public maupun private).
+    // "private" -> nama fitur yang HANYA boleh dipakai "admin". Nama fitur: noFaktur (link nota), outlet, batal,
+    //              filterToko, cariOtomatis (isi filter di /penjualans), saldo (kotak saldo PPOB + peringatan suara).
+    // "public"  -> nama fitur yang boleh dipakai SEMUA user yang membuka halaman ini.
+    // Fitur yang tidak disebut di keduanya dianggap private (hanya admin).
+    // Nama di "admin" dibaca dari tulisan "NAMA (JABATAN)" di pojok kanan bawah ERZAP. Cukup sebagian nama
+    // (tidak peduli huruf besar/kecil); isi nama lengkap persis seperti di ERZAP agar tidak salah cocok dengan user lain.
+    // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
+    // Jika JSON salah ketik, akses ditutup (fitur private ikut tertutup untuk semua orang).
+    // Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script dan muat ulang halaman ERZAP.
+    const AKSES_JSON = `{
+        "admin": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
+        "private": ["noFaktur", "outlet", "batal", "filterToko", "cariOtomatis", "saldo"],
+        "public": []
+    }`;
+
+    function bacaAkses() {
+        try {
+            const a = JSON.parse(AKSES_JSON) || {};
+            return {
+                admin: Array.isArray(a.admin) ? a.admin.map(String) : [],
+                public: Array.isArray(a.public) ? a.public.map(String) : [],
+            };
+        } catch (err) {
+            console.error('[ppob.js] AKSES_JSON tidak valid -> akses ditutup:', err.message);
+            return { admin: [], public: [] };
+        }
+    }
+    const AKSES = bacaAkses();
+
+    // dicek saat dipakai (bukan sekali di awal), karena nama kasir di pojok ERZAP bisa dimuat belakangan
+    function bolehFitur(fitur) {
+        if (AKSES.public.indexOf(fitur) !== -1) return true;
+        const nama = (((document.getElementById('info_kasir') || {}).textContent) || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        return AKSES.admin.some(u => {
+            u = u.replace(/\s+/g, ' ').trim().toLowerCase();
+            return !!u && nama.indexOf(u) !== -1;
+        });
+    }
 
     const TABEL = '#data_table';
     const KOLOM_FAKTUR = 2;   // kolom ke-2 = "No Faktur" (No | No Faktur | Status | ...)
@@ -496,7 +537,7 @@
 
     // ---------- Saldo PPOB di atas tabel (GET /main/check_balance_ppob/new -> {status, message, balance}) ----------
     const SALDO_URL = '/main/check_balance_ppob/new';
-    const SALDO_TIAP_MS = 60 * 1000;
+    const SALDO_TIAP_MS = 90 * 1000;
     const fmtRp = (n) => 'Rp ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     let saldoBox = null, saldoJalan = false;
 
@@ -609,7 +650,7 @@
         target.parentNode.insertBefore(saldoBox, target);
         muatSaldo();
     }
-    setInterval(() => { if (!document.hidden) muatSaldo(); }, SALDO_TIAP_MS);
+    setInterval(() => { if (!document.hidden && bolehFitur('saldo')) muatSaldo(); }, SALDO_TIAP_MS);
 
     // ---------- Filter Toko (outlet) ----------
     // Tombol "Toko" membuka daftar outlet. Daftar lengkap diambil dari /outlets/list_nama_outlet/new (endpoint pemilih outlet Erzap, seperti di halaman /penjualans)
@@ -779,14 +820,18 @@
     }
 
     function proses() {
-        try { pasangSaldo(); } catch (e) { console.warn('[ppob.js] kotak saldo gagal dipasang: ' + e.message); }
+        if (bolehFitur('saldo')) {
+            try { pasangSaldo(); } catch (e) { console.warn('[ppob.js] kotak saldo gagal dipasang: ' + e.message); }
+        }
         document.querySelectorAll(TABEL + ' tbody tr td:nth-child(' + KOLOM_FAKTUR + ') a').forEach((a) => {
-            if (a.classList.contains('disabled') || a.hasAttribute('disabled')) aktifkan(a);
-            tambahOutlet(a);
-            tambahBatal(a);
+            if ((a.classList.contains('disabled') || a.hasAttribute('disabled')) && bolehFitur('noFaktur')) aktifkan(a);
+            if (bolehFitur('outlet')) tambahOutlet(a);
+            if (bolehFitur('batal')) tambahBatal(a);
         });
-        try { pasangFilterToko(); terapkanFilterToko(); } catch (e) { console.warn('[ppob.js] filter toko gagal: ' + e.message); }
-        prosesAntriOutlet();
+        if (bolehFitur('filterToko')) {
+            try { pasangFilterToko(); terapkanFilterToko(); } catch (e) { console.warn('[ppob.js] filter toko gagal: ' + e.message); }
+        }
+        if (bolehFitur('outlet')) prosesAntriOutlet();
     }
 
     // ---------- Di /penjualans: isi filter No Faktur -> Cari -> klik Lihat ----------
@@ -863,7 +908,7 @@
 
     // Baris tabel digambar ulang (DataTables: ganti halaman, cari, urut) -> proses lagi
     if (!/\/aktifitas_ppob\//.test(location.pathname)) {
-        halamanCari();
+        if (bolehFitur('cariOtomatis')) halamanCari();
         return;
     }
 
