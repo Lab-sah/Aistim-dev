@@ -47,6 +47,7 @@
     "rekapbeban.js",
     "rekapservis.js",
     "rekapstokmin.js",
-    "smart_repair.js"
+    "smart_repair.js",
+    "grafik.js"
   ]
 }
