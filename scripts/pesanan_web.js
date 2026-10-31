@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.26.1
+// @version      1.26.2
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -24,7 +24,7 @@
     // (tanpa \b: di DOM teks "Kode Pemesanan" bisa menempel langsung setelah nomor faktur)
     const RE_FAKTUR = /(?<![A-Z0-9])(1[A-Z0-9]{9,13})-(\d{10})(?!\d)/;
     const LIST_URL = '/penjualans';
-    const POLL_MS = 1000;              // cek tiap 1 detik di latar (juga saat tab tidak terlihat); mundur otomatis bila gagal
+    const POLL_MS = 5000;              // cek tiap 5 detik di latar (juga saat tab tidak terlihat); mundur otomatis bila gagal
     const K_LEADER = 'aistim_pw_leader';   // penanda tab yang bertugas mengecek (satu tab per browser)
     const KATA_BUNYI = 'Pesanan baru dari web';   // diucapkan saat ada nota web baru
     const CACHE_MS = 90 * 1000;        // pindah halaman tidak memicu fetch ulang kalau data masih segar
@@ -1100,16 +1100,16 @@
         sesuaikanBadge();
     });
     // Pengecekan di latar tiap POLL_MS. Supaya cek tiap detik tidak berlipat ganda:
-    //  - hanya satu tab per browser yang mengecek (pemimpin; diambil alih tab lain bila 5 detik tak ada denyut),
+    //  - hanya satu tab per browser yang mengecek (pemimpin; diambil alih tab lain bila 15 detik tak ada denyut),
     //  - tidak ada permintaan yang bertumpuk (muatData menolak bila masih berjalan),
-    //  - bila gagal, jedanya melebar 2x tiap kegagalan (maks. 60 detik) dan kembali 1 detik setelah berhasil.
+    //  - bila gagal, jedanya melebar 2x tiap kegagalan (maks. 60 detik) dan kembali ke POLL_MS setelah berhasil.
     const ID_TAB = Math.random().toString(36).slice(2);
     let gagalCek = 0;
     function jadiPemimpin() {
         try {
             const l = JSON.parse(ls.get(K_LEADER) || 'null');
             const now = Date.now();
-            if (l && l.id !== ID_TAB && now - l.t < 5000) return false;
+            if (l && l.id !== ID_TAB && now - l.t < 15000) return false;   // denyut pemimpin tiap POLL_MS; 3x jeda supaya tidak berganti-ganti
             ls.set(K_LEADER, JSON.stringify({ id: ID_TAB, t: now }));
         } catch (e) { /* localStorage diblokir: anggap pemimpin */ }
         return true;
