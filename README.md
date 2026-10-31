@@ -44,6 +44,32 @@ Aturan script:
 - `@version` format `x.y.z` — naikkan setiap kali edit script (misal `1.0.0` → `1.0.1`)
 - File baru di `scripts/` otomatis terdeteksi dari GitHub — **tidak perlu** edit file lain
 
+## 🔐 Sistem Akses JSON (per script)
+
+Script yang punya pembatasan fitur (contoh: `saldokas.js`, `rakstok.js`, `transkas.js`, `piutanglain.js`) menyimpan aturan aksesnya sendiri di konstanta `AKSES_JSON` (atau `RK_AKSES_JSON` di `rakstok.js`) di bagian atas file. Ini bagian dari isi script, jadi mengubahnya cukup dengan naikkan `@version` dan klik 🔄 (tidak perlu update ZIP).
+
+Bentuknya:
+
+```json
+{
+  "admin": ["SENTOT ARI HANDOKO", "DIMAS", "..."],
+  "private": ["namaFiturA"],
+  "public": ["namaFiturB", "namaFiturC"]
+}
+```
+
+- **`admin`**: nama yang SELALU boleh memakai semua fitur. Dicocokkan dengan teks `#info_kasir` (pojok kanan bawah ERZAP, format "NAMA (JABATAN)"), tanpa membedakan huruf besar/kecil, cukup sebagian nama. Isi nama lengkap persis agar tidak salah cocok (nama pendek seperti `ISA` bisa ikut cocok dengan `ISABELLA`).
+- **`public`**: fitur yang boleh dipakai semua user.
+- **`private`**: fitur yang hanya boleh dipakai admin. Fitur yang tidak disebut di `public` dianggap private.
+- JSON salah ketik: akses ditutup (script menulis `console.error` `AKSES_JSON tidak valid`). `rakstok.js` hanya menutup fitur private, fitur publik tetap jalan.
+- Izin dicek saat fitur dipakai (fungsi `bolehFitur(fitur)`), bukan sekali di awal, karena nama kasir bisa dimuat belakangan.
+
+Aturan ini hanya pengaturan tampilan di browser, **bukan pengamanan**.
+
+Daftar admin yang sama dipakai di beberapa script. Kalau daftar berubah, ubah di setiap script yang memakainya.
+
+Cara menambah akses ke script baru: salin blok `AKSES_JSON` + fungsi `bacaAkses()` dan `bolehFitur()` dari `transkas.js`, lalu bungkus tiap fitur dengan `if (bolehFitur('namaFitur'))`.
+
 ## 🔢 Kapan Versi Dinaikkan
 
 | Yang diubah | Yang dinaikkan | Perlu user install ulang? |
