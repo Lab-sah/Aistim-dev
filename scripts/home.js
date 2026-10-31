@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.21.7
+// @version      1.22.0
 // @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerimaan Piutang" (Laporan Rekap Piutang, Tipe Rekap Penerimaan Piutang) dan "Pembayaran Hutang" (Laporan Rekap Hutang, Tipe Rekap Pembayaran Hutang): total dari blok Rekapitulasi, semua untuk hari ini, klik baris nota = popup daftar; lalu kartu "Pendapatan Lain-Lain" (Daftar Data Jurnal, gabungan Akun Pendapatan Lain + Bunga + Sewa, Dasar Filter Tanggal Transaksi, kolom Total dijumlah semua halaman). Saldo Rp 5 juta ke bawah: popup peringatan muncul HANYA di halaman Home (saat Home dibuka, lalu diulang tiap 5 menit sampai saldo diisi) dan HANYA untuk admin SURYO/SENTOT/PUGUH/DIMAS/MANAJEMEN PUSAT (dibaca dari #info_kasir seperti saldokas.js); script tidak jalan di halaman lain. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -813,9 +813,36 @@
 
     // ---------- popup peringatan: saldo PPOB Rp 5 juta ke bawah ----------
     // Muncul saat Home pertama dibuka, lalu diulang tiap 5 menit selama saldo masih di bawah batas; berhenti (dan popup ditutup) setelah saldo diisi.
-    // Hanya untuk ADMIN (daftar di bawah): nama/jabatan user yang login memuat salah satu kata ini.
+    // Fitur notifSaldo hanya untuk ADMIN (daftar "admin" di AKSES_JSON): nama/jabatan user yang login memuat salah satu kata ini.
     // Sistem pencarian admin sama dengan saldokas.js: teks "NAMA (JABATAN)" dibaca dari #info_kasir, tidak peduli huruf besar/kecil.
-    const ADMIN = ['SURYO', 'SENTOT', 'PUGUH', 'DIMAS', 'MANAJEMEN PUSAT'];
+    // ====== HAK AKSES & FITUR (JSON) ======
+    // "admin"   -> daftar nama yang SELALU bisa memakai SEMUA fitur (public maupun private).
+    // "private" -> nama fitur yang HANYA boleh dipakai "admin". Nama fitur: kartuPpob (kartu PPOB + Dana Keluar), kartuRekap (Penerimaan Piutang, Pembayaran Hutang, Pendapatan Lain-Lain), notifSaldo (popup peringatan saldo PPOB).
+    // "public"  -> nama fitur yang boleh dipakai SEMUA user yang membuka halaman ini (saat ini kosong: semua fitur khusus admin).
+    // Fitur yang tidak disebut di keduanya dianggap private (hanya admin).
+    // Nama di "admin" dibaca dari tulisan "NAMA (JABATAN)" di pojok kanan bawah ERZAP (#info_kasir atau cadangannya). Cukup sebagian nama
+    // (tidak peduli huruf besar/kecil); isi nama lengkap persis seperti di ERZAP agar tidak salah cocok dengan user lain.
+    // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
+    // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
+    // Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script dan muat ulang halaman ERZAP.
+    const AKSES_JSON = `{
+        "admin": ["SURYO", "SENTOT", "PUGUH", "DIMAS", "MANAJEMEN PUSAT"],
+        "private": ["kartuPpob", "kartuRekap", "notifSaldo"],
+        "public": []
+    }`;
+    function bacaAkses() {
+        try {
+            const a = JSON.parse(AKSES_JSON) || {};
+            return {
+                admin: Array.isArray(a.admin) ? a.admin.map(String) : [],
+                public: Array.isArray(a.public) ? a.public.map(String) : [],
+            };
+        } catch (err) {
+            console.error('[home.js] AKSES_JSON tidak valid -> akses ditutup:', err.message);
+            return { admin: [], public: [] };
+        }
+    }
+    const AKSES = bacaAkses();
     // Cadangan bila #info_kasir tidak ada: elemen daun (tanpa anak) berpola "NAMA (JABATAN)", mis. "SENTOT ARI HANDOKO (STAF IT)"
     const RE_LABEL_USER = /^[A-Z][A-Z.' -]{2,60}\([^()]{2,40}\)$/;
     function namaUser() {
@@ -830,8 +857,9 @@
         return '';
     }
     const cocokNama = (daftar) => { const n = namaUser(); return !!n && daftar.some((u) => n.indexOf(u.toLowerCase()) !== -1); };
-    const isAdmin = () => cocokNama(ADMIN);
-    function bolehNotifSaldo() { return isAdmin(); }
+    const isAdmin = () => cocokNama(AKSES.admin);
+    // dicek saat dipakai (bukan sekali di awal), karena nama kasir bisa dimuat belakangan
+    function bolehFitur(fitur) { return AKSES.public.indexOf(fitur) !== -1 || isAdmin(); }
     const NOTIF_BATAS = 5000000;   // peringatan bila saldo sama dengan atau di bawah batas ini (5 juta ke bawah)
     const NOTIF_ULANG_MS = 5 * 60 * 1000;
     let notifTerakhir = 0;      // waktu popup terakhir ditampilkan (0 = belum pernah di halaman ini)
@@ -873,7 +901,7 @@
             tutupNotif();
             return;
         }
-        if (!bolehNotifSaldo()) return;   // bukan user yang diizinkan lihat popup peringatan saldo
+        if (!bolehFitur('notifSaldo')) return;   // bukan user yang diizinkan lihat popup peringatan saldo
         if (Date.now() - notifTerakhir >= NOTIF_ULANG_MS) {   // pertama terbaca (notifTerakhir = 0) langsung tampil
             notifTerakhir = Date.now();
             tampilNotif(saldo);
@@ -1027,16 +1055,21 @@
     const mulai = Date.now();
     const pemeriksa = setInterval(() => {
         const habis = Date.now() - mulai > MAKS_TUNGGU_MS;
-        const siap = pasang(habis);
+        const siap = bolehFitur('kartuPpob') && pasang(habis);
         if (siap) pasangKartuRekap();   // disisipkan berurutan di sebelah kanan kartu PPOB
         if (siap || habis) clearInterval(pemeriksa);
     }, 400);
 
-    setInterval(() => { if (!document.hidden) muatSaldo(); }, SALDO_TIAP_MS);
-    setInterval(() => { if (!document.hidden) { muatPengeluaran(); Object.values(kartuRekap).forEach(muatRekap); } }, PENGELUARAN_TIAP_MS);
+    setInterval(() => { if (!document.hidden && bolehFitur('kartuPpob')) muatSaldo(); }, SALDO_TIAP_MS);
+    setInterval(() => {
+        if (document.hidden) return;
+        if (bolehFitur('kartuPpob')) muatPengeluaran();
+        if (bolehFitur('kartuRekap')) Object.values(kartuRekap).forEach(muatRekap);
+    }, PENGELUARAN_TIAP_MS);
     // kartu stats bisa digambar ulang oleh halaman (ganti outlet/periode): pasang lagi bila kartu kita hilang
     setInterval(() => {
+        if (!bolehFitur('kartuPpob')) return;
         if (kartu && !document.body.contains(kartu)) { kartu = null; pasang(false); }
-        pasangKartuRekap();
+        if (bolehFitur('kartuRekap')) pasangKartuRekap();
     }, 2000);
 })();
