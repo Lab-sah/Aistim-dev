@@ -1,4 +1,4 @@
-const VERSION = '2.10.7';
+const VERSION = '2.10.8';
 const X_FETCH_ALLOW = ['partdistro.com'];   // host yang boleh diakses lewat jembatan x-fetch
 
 // ===== KONFIGURASI =====

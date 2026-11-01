@@ -1,7 +1,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2.10.7';
+  var VERSION = '2.10.8';
   console.log('[Aistim] ===== Content script v' + VERSION + ' loaded =====');
   console.log('[Aistim] URL:', window.location.href);
 

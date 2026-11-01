@@ -108,6 +108,8 @@ async function cekEngine() {
 
 // ---- tampilan ----
 function renderEngine() {
+  $('semua').checked = daftar.some((s) => s.nyala);   // tombol di pojok kanan: menyala bila ada script yang berjalan
+  $('semua').disabled = !daftar.length;
   $('engine').className = 'kartu ' + (engineSiap ? 'ok' : 'warn');
   $('engine-judul').textContent = engineSiap ? 'Engine Aktif' : 'Engine belum aktif';
   const jalan = daftar.filter((s) => s.nyala).length;
@@ -192,6 +194,22 @@ async function ubahScript(s, cb) {
   } finally { cb.disabled = false; }
 }
 
+// Tombol di pojok kanan header: mematikan / menyalakan semua script auto sekaligus (disabledAuto diisi / dikosongkan).
+async function ubahSemua(nyala) {
+  const cb = $('semua');
+  cb.disabled = true;
+  try {
+    const d = await chrome.storage.local.get(['autoScripts']);
+    const auto = d.autoScripts || [];
+    const mati = nyala ? [] : auto.map((x) => x.file);
+    const autoScripts = auto.map((x) => Object.assign({}, x, { enabled: nyala }));
+    await chrome.storage.local.set({ disabledAuto: mati, autoScripts: autoScripts });
+    daftar = daftar.map((s) => Object.assign({}, s, { nyala: nyala }));
+    renderEngine(); renderManager();
+    imsg(nyala ? 'Semua script dinyalakan.' : 'Semua script dimatikan.', 'ok');
+  } finally { cb.disabled = false; }
+}
+
 // ---- cek versi ekstensi terbaru ----
 function compareVersion(a, b) {
   const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
@@ -230,6 +248,7 @@ async function cekUpdate(paksa = false) {
 }
 
 $('sync').addEventListener('click', jalankanSync);
+$('semua').addEventListener('change', (e) => ubahSemua(e.target.checked));
 // permissions.request harus langsung dari klik (user gesture). Kalau popup tertutup saat dialog izin muncul,
 // background tetap sinkron ulang lewat permissions.onAdded.
 $('izin-tombol').addEventListener('click', () => {
