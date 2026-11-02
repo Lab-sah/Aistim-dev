@@ -22,7 +22,7 @@
   // Jika JSON salah ketik, akses ditutup (tidak ada yang memakai fitur apa pun).
   // Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script dan muat ulang halaman ERZAP.
   const AKSES_JSON = `{
-    "admin": ["SENTOT", "SURYO", "MANAJEMEN PUSAT"],
+    "admin": ["SENTOT", "SURYO"],
     "private": ["auditLabaRugi", "auditNeraca"],
     "public": []
   }`;
@@ -76,24 +76,26 @@
   // Keluaran: { title, summary (HTML), flags: [{l, t}], extra (HTML) }
   // ==========================================================
   function auditLabaRugi() {
+    // Tabel laporan = tabel yang baris headernya diakhiri "Total" (bukan sembarang tabel di halaman)
     const readTable = () => {
       const out = { cols: [], R: {} };
-      const t = document.querySelector('table');
-      if (!t) return out;
-      let hdr = null;
-      for (const r of t.rows) {
-        const c = [...r.cells].map(x => x.textContent.trim());
-        if (c.length >= 3 && c[c.length - 1] === 'Total' && c.slice(1).every(x => !/\d/.test(x))) { hdr = c; break; }
-      }
-      if (!hdr) return out;
-      out.cols = hdr.slice(1);
-      const n = out.cols.length;
-      for (const r of t.rows) {
-        const c = [...r.cells].map(x => x.textContent.trim());
-        if (c.length !== n + 1) continue;
-        const vals = c.slice(1).map(parseNum);
-        if (vals.some(v => v === null)) continue;
-        if (!out.R[c[0]]) out.R[c[0]] = { label: c[0], v: vals };
+      for (const t of document.querySelectorAll('table')) {
+        let hdr = null;
+        for (const r of t.rows) {
+          const c = [...r.cells].map(x => x.textContent.trim());
+          if (c.length >= 3 && c[c.length - 1] === 'Total' && c.slice(1).every(x => !/\d/.test(x))) { hdr = c; break; }
+        }
+        if (!hdr) continue;
+        out.cols = hdr.slice(1);
+        const n = out.cols.length;
+        for (const r of t.rows) {
+          const c = [...r.cells].map(x => x.textContent.trim());
+          if (c.length !== n + 1) continue;
+          const vals = c.slice(1).map(parseNum);
+          if (vals.some(v => v === null)) continue;
+          if (!out.R[c[0]]) out.R[c[0]] = { label: c[0], v: vals };
+        }
+        return out;
       }
       return out;
     };
@@ -103,12 +105,17 @@
     if (!n) return { empty: true, title: 'Audit Analisa Laba Rugi' };
     const T = n - 1;
     const bulan = cols.slice(0, T);
+    // baris yang dipakai pemeriksaan; yang tidak terbaca dicatat, pemeriksaan yang memakainya dilewati (bukan dianggap Rp 0)
+    const KUNCI = ['Penjualan', 'Penjualan Bersih', 'Harga Pokok Penjualan', 'Laba Kotor Penjualan', 'Total Beban', 'Laba/Rugi Operasional',
+      'Total Pendapatan (Beban) Lain-lain', 'Laba/Rugi Bersih Sebelum Pajak', 'Pajak Penghasilan (PPh)', 'Laba/Rugi Bersih Setelah Pajak', 'Retur Penjualan'];
+    const kurang = KUNCI.filter(k => !R[k]);
+    const ada = (...names) => names.every(k => R[k]);
     const g = name => (R[name] ? R[name].v : new Array(n).fill(0));
     const pb = g('Penjualan Bersih'), pk = g('Penjualan'), hpp = g('Harga Pokok Penjualan');
     const lk = g('Laba Kotor Penjualan'), beban = g('Total Beban'), lo = g('Laba/Rugi Operasional');
     const lain = g('Total Pendapatan (Beban) Lain-lain'), sp = g('Laba/Rugi Bersih Sebelum Pajak');
     const pph = g('Pajak Penghasilan (PPh)'), lb = g('Laba/Rugi Bersih Setelah Pajak'), retur = g('Retur Penjualan');
-    const missing = ['Penjualan Bersih', 'Laba Kotor Penjualan', 'Total Beban', 'Laba/Rugi Operasional', 'Laba/Rugi Bersih Setelah Pajak'].some(k => !R[k]);
+    const missing = kurang.length > 0;
 
     const idx = [...Array(n).keys()];
     const metrics = idx.map(i => ({
@@ -116,29 +123,44 @@
       gm: lk[i] / pb[i], br: beban[i] / pb[i], om: lo[i] / pb[i], nm: lb[i] / pb[i],
       rr: Math.abs(retur[i]) / pk[i]
     }));
-    const pbMom = idx.map(i => (i >= 1 && i < T ? (pb[i] - pb[i - 1]) / Math.abs(pb[i - 1]) : NaN));
-    const loMom = idx.map(i => (i >= 1 && i < T ? (lo[i] - lo[i - 1]) / Math.abs(lo[i - 1]) : NaN));
+    // perubahan vs bulan lalu hanya dihitung bila bulan lalu tidak nol (hindari "naik -" / tak hingga)
+    const pbMom = idx.map(i => (i >= 1 && i < T && pb[i - 1] !== 0 ? (pb[i] - pb[i - 1]) / Math.abs(pb[i - 1]) : NaN));
+    const loMom = idx.map(i => (i >= 1 && i < T && lo[i - 1] !== 0 ? (lo[i] - lo[i - 1]) / Math.abs(lo[i - 1]) : NaN));
 
     const flags = [];
-    if (missing) flags.push({ l: 'warn', t: 'Sebagian baris utama tidak ditemukan di tabel. Pastikan laporan sudah selesai dimuat.' });
+    if (missing) flags.push({ l: 'warn', t: 'Baris tidak terbaca di tabel: ' + kurang.join(', ') + '. Pemeriksaan yang memakai baris ini dilewati. Pastikan laporan sudah selesai dimuat.' });
 
-    let konsisten = true;
+    let cek = 0, gagal = 0;
     for (let i = 0; i < n; i++) {
       const nm = cols[i];
-      if (Math.abs(pb[i] + hpp[i] - lk[i]) > 1) { konsisten = false; flags.push({ l: 'warn', t: `Laba kotor ${nm} tidak sama dengan penjualan bersih dikurangi HPP.` }); }
-      if (Math.abs(lk[i] - beban[i] - lo[i]) > 1) { konsisten = false; flags.push({ l: 'warn', t: `Laba operasional ${nm} tidak sama dengan laba kotor dikurangi total beban.` }); }
-      if (Math.abs(lo[i] + lain[i] - sp[i]) > 1) { konsisten = false; flags.push({ l: 'warn', t: `Laba sebelum pajak ${nm} tidak cocok dengan laba operasional ditambah lain-lain.` }); }
-      if (Math.abs(sp[i] - pph[i] - lb[i]) > 1) { konsisten = false; flags.push({ l: 'warn', t: `Laba bersih ${nm} tidak sama dengan laba sebelum pajak dikurangi PPh.` }); }
+      if (ada('Penjualan Bersih', 'Harga Pokok Penjualan', 'Laba Kotor Penjualan')) {
+        cek++;
+        if (Math.abs(pb[i] + hpp[i] - lk[i]) > 1) { gagal++; flags.push({ l: 'warn', t: `Laba kotor ${nm} tidak sama dengan penjualan bersih dikurangi HPP.` }); }
+      }
+      if (ada('Laba Kotor Penjualan', 'Total Beban', 'Laba/Rugi Operasional')) {
+        cek++;
+        if (Math.abs(lk[i] - beban[i] - lo[i]) > 1) { gagal++; flags.push({ l: 'warn', t: `Laba operasional ${nm} tidak sama dengan laba kotor dikurangi total beban.` }); }
+      }
+      if (ada('Laba/Rugi Operasional', 'Total Pendapatan (Beban) Lain-lain', 'Laba/Rugi Bersih Sebelum Pajak')) {
+        cek++;
+        if (Math.abs(lo[i] + lain[i] - sp[i]) > 1) { gagal++; flags.push({ l: 'warn', t: `Laba sebelum pajak ${nm} tidak cocok dengan laba operasional ditambah lain-lain.` }); }
+      }
+      if (ada('Laba/Rugi Bersih Sebelum Pajak', 'Pajak Penghasilan (PPh)', 'Laba/Rugi Bersih Setelah Pajak')) {
+        cek++;
+        if (Math.abs(sp[i] - pph[i] - lb[i]) > 1) { gagal++; flags.push({ l: 'warn', t: `Laba bersih ${nm} tidak sama dengan laba sebelum pajak dikurangi PPh.` }); }
+      }
     }
-    if (konsisten && !missing) flags.push({ l: 'ok', t: 'Semua subtotal di setiap kolom cocok dengan komponennya.' });
+    if (cek && !gagal) flags.push({ l: 'ok', t: 'Semua subtotal yang bisa diperiksa cocok dengan komponennya.' });
 
-    const pphNol = bulan.filter((b, i) => pph[i] === 0 && sp[i] > 0);
-    if (pphNol.length) flags.push({ l: 'warn', t: `PPh Rp 0 pada ${pphNol.join(', ')}, padahal laba sebelum pajaknya positif. Pastikan pajak sudah dicatat.` });
-    if (metrics[T].rr > 0.05) flags.push({ l: 'warn', t: `Retur penjualan total ${pct(metrics[T].rr)} dari penjualan kotor (di atas 5%). Perlu ditelusuri penyebabnya.` });
+    if (ada('Pajak Penghasilan (PPh)', 'Laba/Rugi Bersih Sebelum Pajak')) {
+      const pphNol = bulan.filter((b, i) => pph[i] === 0 && sp[i] > 0);
+      if (pphNol.length) flags.push({ l: 'warn', t: `PPh Rp 0 pada ${pphNol.join(', ')}, padahal laba sebelum pajaknya positif. Pastikan pajak sudah dicatat.` });
+    }
+    if (ada('Retur Penjualan', 'Penjualan') && metrics[T].rr > 0.05) flags.push({ l: 'warn', t: `Retur penjualan total ${pct(metrics[T].rr)} dari penjualan kotor (di atas 5%). Perlu ditelusuri penyebabnya.` });
 
     for (let i = 1; i < T; i++) {
-      if (Math.abs(pbMom[i]) >= 0.10) flags.push({ l: 'info', t: `Penjualan bersih ${bulan[i]} vs ${bulan[i - 1]} ${dirTxt(pbMom[i])} ${pct(Math.abs(pbMom[i]))}.` });
-      if (Math.abs(loMom[i]) >= 0.10) flags.push({ l: loMom[i] < 0 ? 'warn' : 'info', t: `Laba operasional ${bulan[i]} vs ${bulan[i - 1]} ${dirTxt(loMom[i])} ${pct(Math.abs(loMom[i]))}.` });
+      if (isFinite(pbMom[i]) && Math.abs(pbMom[i]) >= 0.10) flags.push({ l: 'info', t: `Penjualan bersih ${bulan[i]} vs ${bulan[i - 1]} ${dirTxt(pbMom[i])} ${pct(Math.abs(pbMom[i]))}.` });
+      if (isFinite(loMom[i]) && Math.abs(loMom[i]) >= 0.10) flags.push({ l: loMom[i] < 0 ? 'warn' : 'info', t: `Laba operasional ${bulan[i]} vs ${bulan[i - 1]} ${dirTxt(loMom[i])} ${pct(Math.abs(loMom[i]))}.` });
     }
 
     const expenses = Object.values(R).filter(r => /^Beban/.test(r.label) && !/^Total/.test(r.label));
@@ -191,7 +213,8 @@
   // ==========================================================
   function auditNeraca() {
     const rows = [];
-    const t = document.querySelector('table');
+    // tabel neraca = tabel yang punya baris "Total Harta" (bukan sembarang tabel di halaman)
+    const t = [...document.querySelectorAll('table')].find(tb => [...tb.rows].some(r => r.cells[0] && r.cells[0].textContent.trim() === 'Total Harta'));
     if (t) {
       for (const r of t.rows) {
         const c = [...r.cells].map(x => x.textContent.trim());
@@ -208,13 +231,16 @@
     if (TH === null || TKM === null) return { empty: true, title: 'Audit Analisa Neraca' };
 
     const flags = [];
+    const kurangN = ['Total Harta', 'Total Kewajiban dan Modal', 'Total Kewajiban', 'Total Modal', 'Total Harta Lancar', 'Total Harta Tetap'].filter(k => find(k) === null);
+    if (kurangN.length) flags.push({ l: 'warn', t: 'Baris tidak terbaca di tabel: ' + kurangN.join(', ') + '. Pemeriksaan yang memakai baris ini dilewati.' });
     const selisih = TH - TKM;
     const bal = Math.abs(selisih) < 1;
     flags.push(bal ? { l: 'ok', t: 'Neraca seimbang: total harta sama dengan total kewajiban dan modal.' } : { l: 'warn', t: `Neraca TIDAK seimbang. Selisih ${fmt(selisih)}.` });
     if (HL !== null && HT !== null && Math.abs(TH - (HL + HT + HLn)) > 1) flags.push({ l: 'warn', t: 'Total harta tidak sama dengan harta lancar ditambah harta tetap dan harta lainnya.' });
     if (TK !== null && TM !== null && Math.abs(TK + TM - TKM) > 1) flags.push({ l: 'warn', t: 'Total kewajiban ditambah total modal tidak sama dengan total kewajiban dan modal.' });
 
-    const cr = HL / TK, quick = (HL - PS) / TK, der = TK / TM, eq = TM / TH, psShare = PS / HL;
+    // rasio hanya dihitung bila penyebutnya tidak nol; yang tidak bisa dihitung tampil "-"
+    const cr = TK ? HL / TK : NaN, quick = TK ? (HL - PS) / TK : NaN, der = TM ? TK / TM : NaN, eq = TH ? TM / TH : NaN, psShare = HL ? PS / HL : NaN;
     if (cr < 1) flags.push({ l: 'warn', t: `Rasio lancar ${rat(cr)}, di bawah 1. Harta lancar tidak cukup menutup kewajiban.` });
     if (quick < 1) flags.push({ l: 'warn', t: `Rasio cepat (tanpa persediaan) ${rat(quick)}, di bawah 1.` });
     if (psShare > 0.5) flags.push({ l: 'info', t: `Persediaan barang dagang ${pct(psShare)} dari harta lancar.` });
@@ -365,6 +391,11 @@
     if (helpBtn) helpBtn.onclick = () => flipTo(true);
     if (backBtn) backBtn.onclick = () => flipTo(false);
     panel.addEventListener('click', e => { if (e.target === panel) panel.remove(); });
+    const tutupEsc = e => {
+      if (!panel.isConnected) { document.removeEventListener('keydown', tutupEsc); return; }
+      if (e.key === 'Escape') { panel.remove(); document.removeEventListener('keydown', tutupEsc); }
+    };
+    document.addEventListener('keydown', tutupEsc);
   }
 
   // ==========================================================
@@ -391,13 +422,19 @@
     if (icon) icon.className = 'fa fa-calculator';
     const label = btn.querySelector('span');
     if (label) label.textContent = 'Audit Analisa';
-    btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); showPanel(cur.jalankan()); });
+    btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); if (!bolehFitur(cur.fitur)) return; showPanel(cur.jalankan()); });
     src.insertAdjacentElement('afterend', btn);
   }
 
   // ==========================================================
   // [BAGIAN 6 - JALANKAN]
   // ==========================================================
+  // #info_kasir dan tombol AI Insight bisa muncul belakangan: pantau DOM sampai tombol terpasang (maks. 60 detik)
+  const pasang = () => { injectButton(); return !!document.getElementById(BTN_ID); };
   document.getElementById(BTN_ID)?.remove();
-  injectButton();
+  if (!pasang()) {
+    const pantau = new MutationObserver(() => { if (pasang()) pantau.disconnect(); });
+    pantau.observe(document.body, { childList: true, subtree: true });
+    setTimeout(() => pantau.disconnect(), 60000);
+  }
 })();
