@@ -34,7 +34,8 @@
     "crm.js",
     "transkas.js",
     "piutanglain.js",
-    "auditanalisa.js"
+    "auditanalisa.js",
+    "deposit.js"
   ],
   "hapus": [
     "pemindahan.js",
