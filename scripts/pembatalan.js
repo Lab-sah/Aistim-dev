@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Erzap - Pembatalan
+// @name         Erzap - Pembatalan Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Halaman Data Penjualan (detail): tombol 'Batal' ditambahkan di samping 'Duplikasi Penjualan' -- memicu tombol 'Batalkan' bawaan Erzap (show_popup_batal) yang aslinya ada di tempat lain di halaman, supaya lebih gampang dijangkau.
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
