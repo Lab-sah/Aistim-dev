@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.23.0
-// @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) (popup rak per toko/gudang) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
+// @version      1.23.1
+// @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -12,11 +12,9 @@
 // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini.
 // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua). Nama fitur: editGambar, penentuanRak.
 // "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
-//              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
+//              cukup sebagian nama), "fitur" = fitur private yang boleh dipakai role itu.
 // Fitur yang tidak disebut di "public" maupun "private" ditolak.
 // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
-// Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
-// Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script dan muat ulang halaman ERZAP.
 var RK_AKSES_JSON = `{
     "public": ["mapRak", "barcode", "gambar", "hargaJual", "filter"],
     "private": ["editGambar", "penentuanRak"],
@@ -51,7 +49,6 @@ var rkAkses = (function () {
     }
 })();
 // true bila fitur boleh dipakai user yang sedang login (dicek saat dipakai, karena nama kasir dimuat belakangan).
-// Role dicocokkan urut dari atas; role pertama yang namanya cocok yang menentukan.
 function rkBoleh(fitur) {
     if (rkAkses.public.indexOf(fitur) !== -1) return true;
     var nama = String((document.getElementById('info_kasir') || {}).textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -62,19 +59,21 @@ function rkBoleh(fitur) {
     }
     return false;
 }
+
+// =====================================================================================================
+// Bagian 1: tabel Lihat Stok (Map rak, barcode, gambar, harga jual, filter)
+// =====================================================================================================
 (function () {
     'use strict';
 
     const TABLE_SEL = '#data_table_produk';
-    const STOK_SEL = 'td.bt_dialog_aktifitas_stok'; // sel stok bawaan: menyimpan data-prd / data-otl / data-gdn
-    const CACHE_KEY = 'aistim_rak_cache_v4'; // v4: hasil lama (gudang stok 0 terlewat) dibuang
-    const CACHE_TTL = 60 * 60 * 1000; // 1 jam
-    const MAKS_GUDANG = 8;            // batas request aktifitas per produk
+    const STOK_SEL = 'td.bt_dialog_aktifitas_stok';
+    const CACHE_KEY = 'aistim_rak_cache_v4';
+    const CACHE_TTL = 60 * 60 * 1000;
+    const MAKS_GUDANG = 8;
 
-    // sisa penyimpanan dari versi lama (tabel hasil sendiri) dibersihkan
-    try { sessionStorage.removeItem('aistim_rak_jelajah'); } catch (e) { /* abaikan */ }
+    try { sessionStorage.removeItem('aistim_rak_jelajah'); } catch (e) { }
 
-    // ---------- cache (localStorage, aman kalau diblokir) ----------
     let cache = {};
     try { cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}') || {}; } catch (e) { cache = {}; }
     Object.keys(cache).forEach((k) => { if (!cache[k] || Date.now() - cache[k].t > CACHE_TTL) delete cache[k]; });
@@ -86,12 +85,10 @@ function rkBoleh(fitur) {
                 const now = Date.now();
                 Object.keys(cache).forEach((k) => { if (now - cache[k].t > CACHE_TTL) delete cache[k]; });
                 localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
-            } catch (e) { /* abaikan */ }
+            } catch (e) { }
         }, 500);
     }
 
-    // cache ringan khusus filter (localStorage): status rak / gambar per produk, supaya produk yang sudah pernah
-    // diperiksa langsung tampil tanpa request lagi
     const FILTER_TTL = 30 * 60 * 1000;
     function muatCache(key) {
         try {
@@ -100,8 +97,8 @@ function rkBoleh(fitur) {
             return o;
         } catch (e) { return {}; }
     }
-    const RAKF = muatCache('aistim_rakf_cache_v1');  // 'produk|gudang' -> {t, ada}
-    const GBOOL = muatCache('aistim_gbool_cache_v1'); // produk -> {t, ada}
+    const RAKF = muatCache('aistim_rakf_cache_v1');
+    const GBOOL = muatCache('aistim_gbool_cache_v1');
     let simpanFTimer = null;
     function simpanFilterCache() {
         clearTimeout(simpanFTimer);
@@ -109,12 +106,11 @@ function rkBoleh(fitur) {
             try {
                 localStorage.setItem('aistim_rakf_cache_v1', JSON.stringify(RAKF));
                 localStorage.setItem('aistim_gbool_cache_v1', JSON.stringify(GBOOL));
-            } catch (e) { /* abaikan */ }
+            } catch (e) { }
         }, 800);
     }
     function segar(c) { return !!c && Date.now() - c.t < FILTER_TTL; }
 
-    // logo PartDistro sebagai ikon gambar produk
     const LOGO_IKON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAMAAACdt4HsAAAAPFBMVEVHcEztHCT////sAATtHCTtHCTtHCTtHCTtHCTtHCTtEhzwTVH4ubruNDn6y8zzf4H83t/+8vLyaGz1m50cRTncAAAACnRSTlMA////pHz73ii9DsDuxAAAAnVJREFUWIXNl9uaoyAMgJW0ajkf3v9dN1i/kQhB3LnYzcWMRfMTIAnJNB2yvT/rPCjr571NVLZh5UOWlSBeD9V3eZ36T6c/ZB3Qlyi3BMZ+CQBSoUB+aH+zr2Jj1E2y4hCbDIPYmAVIcF4Q8a6JWNsGQAyikhChacK7Mb2t1bPo2ojlPX0qfdOY/jDCVIRPtQXScOpZKsI6PdJvEK4AYO0/VnHdyQsAdF8/72QPIOOdvhBRdgCXBeiY3ThSqy6LIABw1NjvuWNQEISTPKD0XwcM2QMHIEfoyGeEQI6yBEDiN7tcRQIOUMRA5bPyfGdZQGANICYEFnBOEmsLChdhAOUetpJHexdLgGrPUdun/g3gt0sY2cQuYOAYb5ZwvuQcqQsovZRz5R6ABBN5MwSQZZjx4cwApISZ3DSRSygEcIpx9KLybEorAR1RbFIdA3TS+hDAdy6WEUCYO1fbAKBxPT8C+EbF9QTQKDCeALxqJYlhgI1MnTYCCNbNXKVYFRhXMWbO/sx/cAeozv0x4E7+A8BS/ir3Cwv9vUz/DpzbSM9jIYUmJGv13iKgcozKWuvAm/w7me+wnC3JSCspdcF7F/TszKyM8jaKpEXUUjl0EWdMlMbJGEhW/5BiG3wC64UVmEN1CAkzm9fC4YAW+IBPXhhHIvJNyv29yIo4rUZVq9X+F2k2gTDaZ76nEbVspOHIr/EGUDj9AZhx1ugSDhlrcQgCuVX2rmmjAJntzBbgxDmIABEh4N2uLWCwBOqZW6PpAvNdJOTskU8VMzt8Dw9vCBoVr2bbJ3/8//r/KiONY09+9H/f+v5F8z2vVf+O7f9yr5dlKdv/P98nJyMLRjJkAAAAAElFTkSuQmCC';
 
     const style = document.createElement('style');
@@ -129,13 +125,11 @@ function rkBoleh(fitur) {
         #gs_rak_pop .rk_bcteks { margin-top: 2px; font: 600 15px/1.3 ui-monospace, Consolas, monospace; letter-spacing: .12em; color: #111; word-break: break-all; }
         .rk_bc_rak { display: inline-flex; align-items: center; gap: 3px; color: #0d6efd; cursor: pointer; text-decoration: underline; white-space: nowrap; font-size: inherit; }
         .rk_bc_rak:hover { color: #0a58ca; }
-        /* ikon peta dalam kotak (satu keluarga dengan ikon QR di sebelah kirinya) */
         .rk_bc_rak .fa-map-marker { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; box-sizing: border-box; border: 1.5px solid currentColor; border-radius: 4px; font-size: 12px; line-height: 1; text-decoration: none; }
         @keyframes rk_kedip { 0%, 100% { opacity: 1; } 50% { opacity: .15; } }
         .rk_bc_rak .fa { animation: rk_kedip 2.4s ease-in-out infinite; }
         .rk_bc_rak:hover .fa { animation-play-state: paused; opacity: 1; }
         @media (prefers-reduced-motion: reduce) { .rk_bc_rak .fa { animation: none; } }
-        /* Popup: melayang di area tabel, mirip popup detail stok */
         #gs_rak_pop { position: absolute; z-index: 99995; box-sizing: border-box; min-width: 150px; max-width: min(280px, 94vw);
                       display: flex; flex-direction: column; background: #fff; border: 1px solid #ccc; border-radius: 4px;
                       box-shadow: 0 4px 16px rgba(0,0,0,.25); font-size: 12px; text-align: left; }
@@ -165,14 +159,12 @@ function rkBoleh(fitur) {
                                     pointer-events: none; -webkit-touch-callout: none; -webkit-user-drag: none; user-select: none; }
         #gs_rak_pop .rk_kotak .rk_no { position: absolute; left: 4px; top: 4px; font-size: 10px; line-height: 1; padding: 2px 6px; border-radius: 8px;
                                        background: rgba(0,0,0,.55); color: #fff; pointer-events: none; }
-        /* Ikon gambar (logo PartDistro) di kolom Nama */
         .gs_ikon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
                    margin: 0 5px 2px 0; border: 1px solid #ccd; border-radius: 4px; background: #f4f6ff;
                    cursor: pointer; font-size: 11px; line-height: 1; vertical-align: middle; user-select: none;
                    overflow: hidden; box-sizing: border-box; flex: none; max-width: 20px; max-height: 20px; }
         .gs_ikon:hover { background: #e3e8ff; }
         .gs_ikon.gs_logo { background: #fff url("${LOGO_IKON}") no-repeat 50% 50% / contain; border-color: #e3e3e8; }
-        /* Harga jual per pelanggan: dibuka lewat panah merah bawaan situs di sel Harga Jual */
         .hj_td i.fa-angle-double-down, .hj_td .hj_btn { cursor: pointer; padding: 0 4px; }
         .hj_td .hj_btn { color: red; font-style: normal; }
         #gs_rak_pop .hj_row { display: flex; justify-content: space-between; gap: 14px; padding: 3px 0; border-bottom: 1px solid #ddd; }
@@ -190,19 +182,17 @@ function rkBoleh(fitur) {
         return -1;
     }
 
-    // ---------- ambil data rak ----------
     function angka(t) {
         const m = String(t || '').match(/-?[\d.,]+/);
         if (!m) return NaN;
         return parseFloat(m[0].replace(/\./g, '').replace(',', '.'));
     }
 
-    // Catatan ringkas tiap request (dibaca tombol Perekam lewat atribut dokumen)
     const rakLog = [];
     function catatLog(baris) {
         rakLog.push(new Date().toTimeString().slice(0, 8) + ' ' + baris);
         if (rakLog.length > 30) rakLog.shift();
-        try { document.documentElement.setAttribute('data-aistim-rak-log', rakLog.join('\n')); } catch (e) { /* abaikan */ }
+        try { document.documentElement.setAttribute('data-aistim-rak-log', rakLog.join('\n')); } catch (e) { }
     }
 
     async function ambilHtml(url, params) {
@@ -211,10 +201,7 @@ function rkBoleh(fitur) {
         try {
             res = await fetch(url + '?' + qs, {
                 credentials: 'same-origin',
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'Accept': 'text/plain, */*; q=0.01' // sama dengan $.ajax dataType:text milik situs
-                }
+                headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/plain, */*; q=0.01' }
             });
         } catch (e) {
             catatLog('FETCH ' + url + '?' + qs + ' -> ERROR ' + e);
@@ -228,16 +215,12 @@ function rkBoleh(fitur) {
     function parseHtml(html) {
         const doc = new DOMParser().parseFromString(html, 'text/html');
         doc.querySelectorAll('script, style').forEach((x) => x.remove());
-        doc.querySelectorAll('br').forEach((b) => b.replaceWith('\n')); // textContent tidak memuat <br>
+        doc.querySelectorAll('br').forEach((b) => b.replaceWith('\n'));
         return doc;
     }
 
-    // Sama dengan popup "detail stok": label tebal = outlet, label biasa = gudang,
-    // lalu <a class="bt_detail_stok_aktifitas" data-gdn> = jumlah stok gudang itu.
     async function daftarGudang(idproduk, idoutlet) {
-        const html = await ambilHtml('/produk_gudangs/detail_stok/new', {
-            idproduk: idproduk, idgudang: '', idoutlet: idoutlet
-        });
+        const html = await ambilHtml('/produk_gudangs/detail_stok/new', { idproduk: idproduk, idgudang: '', idoutlet: idoutlet });
         const doc = parseHtml(html);
         const list = [];
         let outlet = '', gudang = '';
@@ -259,7 +242,6 @@ function rkBoleh(fitur) {
         return list;
     }
 
-    // Dari dialog Aktifitas Stok: blok "Penempatan Rak :" lalu nama rak
     async function rakGudang(idproduk, idgudang, idoutlet) {
         const html = await ambilHtml('/produk_gudangs/aktifitas_stok/new', {
             idproduk: idproduk, idgudang: idgudang, idoutlet: idoutlet,
@@ -276,12 +258,9 @@ function rkBoleh(fitur) {
 
     async function ambilRakProduk(idproduk, idoutlet, idgudangCell) {
         let gudangs = [];
-        try { gudangs = await daftarGudang(idproduk, idoutlet); } catch (e) { /* coba gudang dari sel */ }
+        try { gudangs = await daftarGudang(idproduk, idoutlet); } catch (e) { }
         if (!gudangs.length) gudangs = [{ id: idgudangCell || '', nama: '', outlet: '', stok: NaN }];
-
-        // periksa SEMUA gudang (termasuk yang stoknya 0): rak bisa saja ditempatkan di gudang yang sedang kosong
         const target = gudangs.slice(0, MAKS_GUDANG);
-
         const hasil = [];
         let errTerakhir = null;
         for (const g of target) {
@@ -297,8 +276,6 @@ function rkBoleh(fitur) {
         return hasil;
     }
 
-    // data rak per gudang/toko untuk satu produk ('td' = sel stok bawaan: dataset prd/otl/gdn).
-    // paksa=true (klik "Map rak"): lewati cache, selalu ambil ulang dari server lalu perbarui cache.
     function dataRak(td, paksa) {
         const idproduk = td.dataset.prd;
         const idoutlet = td.dataset.otl || '';
@@ -313,11 +290,10 @@ function rkBoleh(fitur) {
         });
     }
 
-    const GCACHE = {}; // id -> [url,...] selama halaman terbuka
-    const HDIAG = {}; // id -> keterangan bila tab harga ditemukan tapi tabelnya kosong
-    const HCACHE = {}; // id -> [{nama, harga},...] harga jual per pelanggan
+    const GCACHE = {};
+    const HDIAG = {};
+    const HCACHE = {};
 
-    // ---------- ambil harga jual per pelanggan dari tab harga di halaman detail produk ----------
     function teksBersih(el) { return (el.textContent || '').replace(/\s+/g, ' ').trim(); }
 
     function nilaiSel(td) {
@@ -340,7 +316,7 @@ function rkBoleh(fitur) {
             if (!/harga/i.test(a.textContent)) return;
             const ref = a.getAttribute('href') || a.getAttribute('data-bs-target') || a.getAttribute('data-target') || '';
             if (ref.length < 2) return;
-            try { tambah(doc.querySelector(ref)); } catch (e) { /* selector tidak valid */ }
+            try { tambah(doc.querySelector(ref)); } catch (e) { }
         });
         doc.querySelectorAll('[id*="harga" i]').forEach((el) => { if (el.querySelector('table')) tambah(el); });
         return panes;
@@ -361,7 +337,7 @@ function rkBoleh(fitur) {
             pane.querySelectorAll('table').forEach((tb) => {
                 const heads = Array.from(tb.querySelectorAll('thead th')).map(teksBersih);
                 judulTabel.push(heads.slice(0, 3).join('/'));
-                if (!heads.length || !/^jenis/i.test(heads[0])) return; // hanya tabel "per Jenis Pelanggan"
+                if (!heads.length || !/^jenis/i.test(heads[0])) return;
                 const col = heads.findIndex((h, i) => i > 0 && /harga/i.test(h) && !/diskon/i.test(h));
                 kolomJenis = heads.join(' | ');
                 if (col < 0) return;
@@ -385,16 +361,10 @@ function rkBoleh(fitur) {
         return hasil;
     }
 
-    // ---------- gambar produk: dibaca dari halaman detail (/produks/<id>, ±800 KB) ----------
-    // Tab Gambar ada di tengah halaman (±420 KB), jadi unduhan dihentikan begitu tab itu selesai dibaca
-    // (hemat setengah transfer), dan hasilnya (ada/tidak) disimpan di cache filter.
-    const GPROMISE = {}; // id -> promise yang sedang berjalan (hindari fetch ganda)
+    const GPROMISE = {};
     const RE_PANE = /id\s*=\s*["']tab_produk_gambar["']/;
-
-    // halaman edit produk selalu /produks/<id>/edit
     function urlEdit(id) { return location.origin + '/produks/' + encodeURIComponent(id) + '/edit'; }
 
-    // tombol "Edit gambar" di footer popup gambar (di samping Tutup)
     function tambahEditGambar(m, id) {
         const foot = m.pop.querySelector('.rk_foot');
         if (!foot || foot.querySelector('.rk_edit') || !rkBoleh('editGambar')) return;
@@ -407,21 +377,16 @@ function rkBoleh(fitur) {
         foot.insertBefore(b, foot.firstChild);
     }
 
-    // "Edit gambar": halaman edit produk dimuat di dalam popup (iframe satu asal), tidak membuka tab/link baru.
-    // Yang ditampilkan hanya isi tab "Gambar" (pilih/unggah/hapus gambar); menu, judul, tab lain & sidebar disembunyikan.
     const CSS_EDIT_IFRAME =
         '#header,#wrapper_menu_mobile,#wrapper_sidebar_mobile,#footer,#menu_action,#sidebar,#extra_notice,#produkTab,#floating-buttons-group,#mcp-float,' +
         '#content_full_page_target > .d-flex,#produkTabContent > .tab-pane:not(#tab_produk_gambar){display:none!important}' +
         '#tab_produk_gambar{display:block!important;opacity:1!important}' +
         'html,body{background:#fff!important;margin:0!important;padding:0!important}' +
         '#wrapper,#container,#content_full_page,#content_full_page_target{margin:0!important;padding:0!important;width:100%!important;max-width:none!important;min-height:0!important;position:static!important;float:none!important}' +
-        // bungkus bertingkat bawaan (form, tab, isi tab) punya padding + garis sendiri: dibuang supaya gambar memakai lebar popup sepenuhnya
         '[id^="edit_produk_"],#produkTabContent{margin:0!important;padding:0!important;border:0!important;box-shadow:none!important;background:none!important;width:auto!important;max-width:none!important}' +
         '#tabs_produk{margin:0!important;padding:12px!important;border:0!important}' +
-        // area gulir berhenti tepat di atas bilah tombol (bukan di belakangnya), jadi bilah menempel penuh ke dasar popup tanpa celah / scrollbar di sampingnya
         'html{overflow:hidden!important}' +
         'body{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:62px!important;overflow-x:hidden!important;overflow-y:auto!important}' +
-        // bilah tombol di dasar popup: selebar popup, menempel ke dasar, dengan garis pembatas di atasnya, tombol rata kanan
         '#rk_aksi{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;align-items:center;justify-content:flex-end;gap:8px;box-sizing:border-box;padding:12px 16px;background:#f7f8fa;border-top:1px solid #d5d9e0;box-shadow:0 -3px 8px rgba(0,0,0,.06)}' +
         'label.btn[for="fileupload"]{position:static!important;width:auto!important;margin:0!important;' +
         'padding:9px 18px!important;font-size:13px!important;font-weight:600;line-height:1.2;color:#fff!important;background:#0d6efd!important;border:0!important;' +
@@ -430,7 +395,6 @@ function rkBoleh(fitur) {
         'label.btn[for="fileupload"] .fa-image{display:none!important}' +
         '#rk_batal{padding:9px 18px;font-size:13px;font-weight:600;line-height:1.2;color:#444;background:#fff;border:1px solid #bbb;border-radius:6px;box-shadow:0 3px 10px rgba(0,0,0,.25);cursor:pointer}' +
         '#rk_batal:hover{background:#f0f0f0}' +
-        // Simpan + daftar gambar yang sudah dipilih tapi belum disimpan
         '#rk_simpan{padding:9px 18px;font-size:13px;font-weight:600;line-height:1.2;color:#fff;background:#198754;border:0;border-radius:6px;box-shadow:0 3px 10px rgba(0,0,0,.35);cursor:pointer}' +
         '#rk_simpan:hover{background:#157347}' +
         '#rk_simpan:disabled{background:#9dbfae;box-shadow:none;cursor:not-allowed}' +
@@ -443,18 +407,15 @@ function rkBoleh(fitur) {
         '#rk_pending .rk_pc .rk_gagal{color:#dc3545;font-weight:600}' +
         '#rk_pending .rk_px{border:0;background:#fff;border-radius:50%;width:26px;height:26px;line-height:24px;font-size:18px;color:#dc3545;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.3);flex:none}' +
         'body.rk_ada_pending #rk_kosong{display:none!important}' +
-        // daftar gambar: kotak persegi selebar 340px dengan gambar utuh (contain), sama seperti popup tampilan gambar
         '#tab_produk_gambar .row.row-gap-3{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),340px));gap:12px!important;justify-content:center;margin:0!important}' +
         '#tab_produk_gambar .row.row-gap-3 > *{width:100%!important;max-width:340px;min-width:0;flex:none!important;padding:0!important;margin:0!important}' +
         '#tab_produk_gambar .row.row-gap-3 > #new_photo{display:none!important}' +
         '#tab_produk_gambar .card-img-top{height:auto!important;max-height:none!important}' +
         '#tab_produk_gambar img.card-img-top{display:block;width:100%!important;height:auto!important;aspect-ratio:1/1;object-fit:contain!important;background:#fafafa}' +
-        // belum ada gambar: ikon gambar sebagai placeholder (hilang otomatis begitu ada gambar di daftar)
         '#rk_kosong{display:none;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:340px;max-width:100%;aspect-ratio:1/1;margin:12px auto 0;' +
         'border:2px dashed #cfd6e4;border-radius:8px;background:#fafafa;color:#9aa4b5;font-size:13px}' +
         '#rk_kosong .fa{font-size:64px;line-height:1}' +
         '#tab_produk_gambar .row.row-gap-3:not(:has(> :not(#new_photo))) + #rk_kosong{display:flex}' +
-        // layar sempit (HP / popup kecil): bilah tombol selebar popup di bawah, tiga tombol sama lebar, kartu gambar selebar popup
         '@media (max-width:560px){' +
         '#tabs_produk{padding:8px!important}' +
         '#rk_aksi{padding:10px 12px}' +
@@ -469,16 +430,12 @@ function rkBoleh(fitur) {
         if (ov._rkTimer) clearInterval(ov._rkTimer);
         const id = ov.dataset.prd;
         ov.remove();
-        // gambar bisa berubah setelah diunggah/dihapus: buang cache supaya popup gambar & filter membaca ulang
         if (id) { delete GCACHE[id]; delete GBOOL[id]; simpanFilterCache(); }
     }
 
-    // Unggah gambar TIDAK langsung dikirim saat file dipilih: autoUpload plugin jQuery File Upload dimatikan, file yang dipilih
-    // ditampung (dengan pratinjau) dan baru dikirim saat tombol Simpan ditekan.
     function pasangSimpanGambar(ov, w, doc, aksi) {
         const $ = w.jQuery;
         const inp = doc.getElementById('fileupload');
-        // alasan terakhir kenapa belum bisa dipasang (dicatat ke konsol bila terlalu lama): membantu bila plugin unggah di halaman edit lambat siap
         if (!$) { ov._rkAlasan = 'jQuery di halaman edit belum ada'; return false; }
         if (!$.fn || !$.fn.fileupload) { ov._rkAlasan = 'plugin fileupload belum dimuat'; return false; }
         if (!inp) { ov._rkAlasan = 'input #fileupload belum ada'; return false; }
@@ -490,7 +447,6 @@ function rkBoleh(fitur) {
         if (!daftar && !pane) { ov._rkAlasan = 'tab gambar tidak ditemukan'; return false; }
         ov._rkSimpanOK = true;
         try { fu.fileupload('option', 'autoUpload', false); } catch (e) { ov._rkSimpanOK = false; ov._rkAlasan = 'gagal mematikan autoUpload: ' + e.message; return false; }
-        // pilih lebih dari satu gambar sekaligus (Ctrl/Shift/tarik di dialog file); pilihan berikutnya menambah ke daftar
         inp.multiple = true;
         inp.accept = 'image/jpeg,image/png';
         const pending = [];
@@ -499,13 +455,11 @@ function rkBoleh(fitur) {
         const wadah = doc.createElement('div');
         wadah.id = 'rk_pending';
         if (daftar) daftar.insertAdjacentElement('beforebegin', wadah); else pane.insertBefore(wadah, pane.firstChild);
-        // tombol Simpan sudah dibuat (nonaktif) saat bilah tombol dibuat; di sini hanya diaktifkan
         let simpan = doc.getElementById('rk_simpan');
         if (!simpan) {
             simpan = doc.createElement('button');
             simpan.type = 'button';
             simpan.id = 'rk_simpan';
-            // urutan tombol: Batal, Simpan, Pilih Gambar (Simpan di kiri Pilih Gambar)
             const lblGambar = aksi.querySelector('label[for="fileupload"]');
             if (lblGambar) aksi.insertBefore(simpan, lblGambar); else aksi.appendChild(simpan);
         }
@@ -550,9 +504,7 @@ function rkBoleh(fitur) {
         };
         fu.on('fileuploadadd', (e, data) => {
             (data.files || []).forEach((file) => {
-                if (file.type && !/^image\/(jpeg|png)$/i.test(file.type)) return; // hanya .jpg / .png, sama seperti bawaan
-                // pratinjau lewat data URL (blob: diblokir di halaman Erzap, gambar tidak tampil)
-                // file yang sama (nama, ukuran, tanggal ubah) yang sudah ada di daftar tidak ditambah dua kali
+                if (file.type && !/^image\/(jpeg|png)$/i.test(file.type)) return;
                 if (pending.some((p) => p.file.name === file.name && p.file.size === file.size && p.file.lastModified === file.lastModified)) return;
                 const item = { data: data, file: file, nama: file.name || 'gambar', url: '', gagal: false, proses: false };
                 pending.push(item);
@@ -560,7 +512,7 @@ function rkBoleh(fitur) {
                     const fr = new w.FileReader();
                     fr.onload = () => { item.url = String(fr.result || ''); render(); };
                     fr.readAsDataURL(file);
-                } catch (err) { /* tanpa pratinjau */ }
+                } catch (err) { }
             });
             render();
         });
@@ -569,7 +521,6 @@ function rkBoleh(fitur) {
             menyimpan = true;
             const antre = pending.slice();
             render();
-            // beberapa gambar dikirim satu per satu (bukan bersamaan) supaya urutan & penyimpanan di server aman
             const lanjut = () => {
                 const item = antre.shift();
                 if (!item) { menyimpan = false; render(); return; }
@@ -602,7 +553,6 @@ function rkBoleh(fitur) {
                 '#rk_edit_box .rk_eh{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border-bottom:1px solid #ddd;background:#f7f8fa;flex:none}' +
                 '#rk_edit_box .rk_et{font-size:13px;font-weight:600;color:#333;word-break:break-word;min-width:0}' +
                 '#rk_edit_box .rk_ex{border:0;background:none;font-size:22px;line-height:1;cursor:pointer;color:#555;padding:0 4px;flex:none}' +
-                // layar kecil / HP: popup memenuhi layar, tombol tutup lebih mudah disentuh
                 '@media (max-width:600px),(max-height:520px){#rk_edit_ov{padding:0}#rk_edit_box{width:100vw;height:100vh;height:100dvh;border-radius:0}' +
                 '#rk_edit_box .rk_ex{font-size:28px;padding:0 10px}}' +
                 '#rk_edit_box .rk_ex:hover{color:#000}' +
@@ -645,7 +595,6 @@ function rkBoleh(fitur) {
         tx0.textContent = 'Memuat halaman edit gambar...';
         msg.appendChild(sp0);
         msg.appendChild(tx0);
-        // overlay "Memproses..." saat unggah / hapus / simpan (permintaan ajax di dalam halaman edit)
         const proses = document.createElement('div');
         proses.className = 'rk_load';
         const sp1 = document.createElement('div');
@@ -687,7 +636,6 @@ function rkBoleh(fitur) {
                     }
                     const lbl = doc.querySelector('label[for="fileupload"]');
                     if (lbl) {
-                        // teksnya ada di node teks di dalam label (bukan langsung anak label): persingkat jadi "Pilih Gambar"
                         const tw = doc.createTreeWalker(lbl, NodeFilter.SHOW_TEXT);
                         for (let n = tw.nextNode(); n; n = tw.nextNode()) {
                             if (/pilih\s+gambar/i.test(n.nodeValue) && n.nodeValue !== 'Pilih Gambar') n.nodeValue = 'Pilih Gambar';
@@ -707,7 +655,6 @@ function rkBoleh(fitur) {
                         daftar.insertAdjacentElement('afterend', kosong);
                     }
                     if (lbl && !doc.getElementById('rk_aksi')) {
-                        // tombol Batal di samping Pilih Gambar (keduanya di pojok kanan bawah popup)
                         const aksi = doc.createElement('div');
                         aksi.id = 'rk_aksi';
                         const batal = doc.createElement('button');
@@ -716,8 +663,6 @@ function rkBoleh(fitur) {
                         batal.textContent = 'Tutup';
                         batal.title = 'Tutup popup (Esc)';
                         batal.addEventListener('click', tutupEditGambar);
-                        // Simpan langsung tampil (nonaktif) walau plugin unggah halaman edit belum siap; Pilih Gambar langsung bisa diklik.
-                        // File yang dipilih sebelum autoUpload dimatikan ditahan oleh penjaga di bawah (tidak terkirim otomatis)
                         const simpanBtn = doc.createElement('button');
                         simpanBtn.type = 'button';
                         simpanBtn.id = 'rk_simpan';
@@ -728,9 +673,6 @@ function rkBoleh(fitur) {
                         aksi.appendChild(simpanBtn);
                         aksi.appendChild(lbl);
                         doc.body.appendChild(aksi);
-                        // penjaga: sebelum tahap Simpan siap, 'change' dari #fileupload dihentikan di fase capture (sebelum sampai ke plugin yang
-                        // masih auto-upload) dan filenya ditampung di ov._rkTahan; begitu siap, file dimasukkan ke daftar (lihat bawah).
-                        // Lewat 15 detik tanpa siap, penjaga membiarkan (perilaku bawaan Erzap).
                         if (!ov._rkTahan) {
                             ov._rkTahan = [];
                             doc.addEventListener('change', (ev) => {
@@ -740,10 +682,10 @@ function rkBoleh(fitur) {
                                     if (!t.files || !t.files.length) return;
                                     ev.stopImmediatePropagation();
                                     Array.prototype.push.apply(ov._rkTahan, Array.from(t.files));
-                                    try { t.value = ''; } catch (e2) { /* abaikan */ }
+                                    try { t.value = ''; } catch (e2) { }
                                     const sb = doc.getElementById('rk_simpan');
                                     if (sb) sb.textContent = 'Menyiapkan ' + ov._rkTahan.length + ' gambar...';
-                                } catch (e3) { /* biarkan bawaan */ }
+                                } catch (e3) { }
                             }, true);
                         }
                     }
@@ -766,17 +708,13 @@ function rkBoleh(fitur) {
                     }
                     const aksiEl = doc.getElementById('rk_aksi');
                     if (aksiEl && !ov._rkSimpanOK) pasangSimpanGambar(ov, w, doc, aksiEl);
-                    // popup langsung ditampilkan dengan tombol Pilih Gambar yang bisa diklik; file yang sempat dipilih sebelum tahap Simpan siap
-                    // (ditahan penjaga) diproses di sini
                     try {
                         if (ov._rkTahan && ov._rkTahan.length) {
                             const inpEl = doc.getElementById('fileupload');
                             if (ov._rkSimpanOK) {
-                                // tahap Simpan sudah siap: masukkan ke daftar gambar yang belum disimpan
                                 const fl = ov._rkTahan.splice(0);
                                 w.jQuery(inpEl).fileupload('add', { files: fl });
                             } else if (lama > 15000) {
-                                // tahap Simpan tak kunjung siap: kembalikan file ke input supaya diproses bawaan Erzap (langsung terkirim)
                                 const fl = ov._rkTahan.splice(0);
                                 const dt = new w.DataTransfer();
                                 fl.forEach((x) => dt.items.add(x));
@@ -790,14 +728,12 @@ function rkBoleh(fitur) {
                     if (!siapSejak) siapSejak = Date.now();
                     f.style.visibility = 'visible';
                     msg.remove();
-                    // terus mencoba memasang Simpan sampai berhasil (halaman edit yang berat bisa menyiapkan plugin unggah lebih dari 10 detik)
                     if (!ov._rkSimpanOK && lama > 15000 && !ov._rkLapor) { ov._rkLapor = true; console.warn('[Edit gambar] Simpan belum bisa dipasang: ' + (ov._rkAlasan || 'belum diketahui') + ' (masih dicoba)'); }
-                    if (ov._rkSimpanOK ? Date.now() - siapSejak > 3000 : lama > 180000) clearInterval(ov._rkTimer); // sudah stabil / menyerah
+                    if (ov._rkSimpanOK ? Date.now() - siapSejak > 3000 : lama > 180000) clearInterval(ov._rkTimer);
                     return;
                 }
-            } catch (e) { /* halaman belum siap / pindah: coba lagi */ }
+            } catch (e) { }
             if (lama > 20000 && !siapSejak) {
-                // gagal menyiapkan (mis. sesi habis / halaman login): tampilkan apa adanya supaya pengguna bisa menanganinya
                 f.style.visibility = 'visible';
                 msg.remove();
                 clearInterval(ov._rkTimer);
@@ -821,7 +757,7 @@ function rkBoleh(fitur) {
             try {
                 const u = new URL(m[1].replace(/&amp;/g, '&'), location.origin).href;
                 if (urls.indexOf(u) === -1) urls.push(u);
-            } catch (e) { /* lewati */ }
+            } catch (e) { }
         });
         return urls;
     }
@@ -844,11 +780,11 @@ function rkBoleh(fitur) {
             buf += dec.decode(value, { stream: true });
             const m = RE_PANE.exec(buf);
             if (m) {
-                const e = buf.indexOf('new_photo', m.index); // penanda akhir daftar gambar (tombol unggah)
+                const e = buf.indexOf('new_photo', m.index);
                 if (e >= 0) { bagian = buf.slice(m.index, e); ac.abort(); break; }
             }
         }
-        if (bagian === null) { // penanda tidak ketemu: baca utuh lewat DOM
+        if (bagian === null) {
             const pane = new DOMParser().parseFromString(buf, 'text/html').querySelector('#tab_produk_gambar');
             bagian = pane ? pane.innerHTML : '';
         }
@@ -860,7 +796,6 @@ function rkBoleh(fitur) {
         return urls;
     }
 
-    // ---------- harga jual per pelanggan: dibaca dari halaman detail yang sama (hanya saat panah harga diklik) ----------
     const HPROMISE = {};
     function ambilHarga(id) {
         if (HCACHE[id] !== undefined) return Promise.resolve(HCACHE[id]);
@@ -877,13 +812,11 @@ function rkBoleh(fitur) {
         return HPROMISE[id];
     }
 
-    // ---------- popup (melayang di area tabel, dekat elemen yang diklik) ----------
     function tutupModal() {
         const rp = document.getElementById('gs_rak_pop');
         if (rp) rp.remove();
     }
 
-    // kerangka popup: judul + tombol x + isi yang bisa di-scroll. 'anchor' = elemen yang diklik.
     function bukaPop(anchor, judul, kelas) {
         tutupModal();
         const pop = document.createElement('div');
@@ -954,7 +887,6 @@ function rkBoleh(fitur) {
         return { pop: pop, judul: judul, isi: isi, taruh: taruh, tombolTutup: tombolTutup, info: info };
     }
 
-    // popup gambar produk (klik ikon logo di kolom Nama)
     function bukaModal(ikon, id, judul) {
         const m = bukaPop(ikon, judul || ('Produk ' + id), 'rk_gambar');
         m.info('Memuat gambar...');
@@ -983,7 +915,6 @@ function rkBoleh(fitur) {
                 grid.appendChild(kotak);
             });
             m.isi.appendChild(grid);
-            // tinggi area isi = tepat satu kotak: gambar pertama terlihat, sisanya di-scroll
             if (urls.length > 1) {
                 const satuKotak = () => {
                     const k = grid.firstElementChild;
@@ -1006,10 +937,9 @@ function rkBoleh(fitur) {
         });
     }
 
-    // popup daftar rak: toko/gudang tebal, nama rak di bawahnya, dipisah garis (klik "Map rak")
     function bukaModalRak(td, judul, anchor) {
         const m = bukaPop(anchor || td, judul || 'Rak produk');
-        m.pop.dataset.tipe = 'rak'; // dipakai Bagian 2 (tombol Penentuan Rak) untuk mengenali popup Map rak
+        m.pop.dataset.tipe = 'rak';
         m.info('Memuat rak...');
 
         dataRak(td, true).then((data) => {
@@ -1017,7 +947,6 @@ function rkBoleh(fitur) {
             data = data || [];
             if (!data.some((x) => x.r)) return m.info('Produk ini belum punya penempatan rak.');
             m.isi.textContent = '';
-            // hanya toko/gudang yang punya rak; yang kosong tidak ditampilkan
             data.filter((x) => x.r).forEach((x) => {
                 const baris = document.createElement('div');
                 baris.className = 'rk_baris';
@@ -1041,7 +970,6 @@ function rkBoleh(fitur) {
         });
     }
 
-    // klik di luar popup (bukan "Map rak"/ikon gambar/panah harga) menutupnya
     document.addEventListener('mousedown', (e) => {
         if (!document.getElementById('gs_rak_pop')) return;
         if (e.target.closest && (e.target.closest('#gs_rak_pop') || e.target.closest('.rk_bc_rak') || e.target.closest('.gs_ikon') || e.target.closest('.rk_bc_ikon') || e.target.closest('.hj_td i'))) return;
@@ -1050,13 +978,11 @@ function rkBoleh(fitur) {
 
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (document.getElementById('rk_edit_ov')) tutupEditGambar(); else tutupModal(); } });
 
-    // ---------- popup barcode (klik ikon barcode di depan nomor barcode): gambar Code 128 dibuat di sini, tanpa pustaka luar ----------
-    // Subset C (pasangan angka) dipakai untuk deretan angka, subset B untuk huruf/simbol; checksum dihitung otomatis.
     const C128 = '212222 222122 222221 121223 121322 131222 122213 122312 132212 221213 221312 231212 112232 122132 122231 113222 123122 123221 223211 221132 221231 213212 223112 312131 311222 321122 321221 312212 322112 322211 212123 212321 232121 111323 131123 131321 112313 132113 132311 211313 231113 231311 112133 112331 132131 113123 113321 133121 313121 211331 231131 213113 213311 213131 311123 311321 331121 312113 312311 332111 314111 221411 431111 111224 111422 121124 121421 141122 141221 112214 112412 122114 122411 142112 142211 241211 221114 413111 241112 134111 111242 121142 121241 114212 124112 124211 411212 421112 421211 212141 214121 412121 111143 111341 131141 114113 114311 411113 411311 113141 114131 311141 411131 211412 211214 211232 2331112'.split(' ');
 
     function lebarCode128(teks) {
         const s = String(teks);
-        if (!s || !/^[\x20-\x7e]+$/.test(s)) return null; // hanya ASCII yang bisa dicetak
+        if (!s || !/^[\x20-\x7e]+$/.test(s)) return null;
         const runAngka = (i) => { let n = 0; while (i + n < s.length && s[i + n] >= '0' && s[i + n] <= '9') n++; return n; };
         const kode = [];
         let mode;
@@ -1081,7 +1007,6 @@ function rkBoleh(fitur) {
         return kode.map((c) => C128[c]).join('');
     }
 
-    // elemen SVG barcode (dibuat lewat DOM, bukan innerHTML); null bila teks tidak bisa dikodekan
     function svgBarcode(teks) {
         const lebar = lebarCode128(teks);
         if (!lebar) return null;
@@ -1112,7 +1037,6 @@ function rkBoleh(fitur) {
         return svg;
     }
 
-    // teks barcode asli di sel Barcode (tanpa ikon / "Map rak" tambahan skrip)
     function teksBarcodeSel(td) {
         const c = td.cloneNode(true);
         c.querySelectorAll('.rk_bc_baris, .rk_bc_ikon, .gs_ikon').forEach((x) => x.remove());
@@ -1136,7 +1060,6 @@ function rkBoleh(fitur) {
         m.taruh();
     }
 
-    // judul popup untuk satu baris tabel: "barcode - nama" (teks asli sel, tanpa tambahan skrip)
     function judulBaris(tr) {
         const table = tr.closest('table');
         const head = table && table.querySelector('thead tr');
@@ -1150,18 +1073,16 @@ function rkBoleh(fitur) {
         return [bersih(tr.children[findIndexIn(head, 'barcode')]), bersih(tr.children[findIndexIn(head, 'nama')])].filter(Boolean).join(' - ');
     }
 
-    // ---------- tambahan di tabel bawaan: ikon barcode + "Map rak" di sel Barcode, ikon gambar di sel Nama, panah Harga Jual ----------
     function pasangBarcode(bcTd, namaTd, prd) {
         if (!bcTd || !prd) return;
-        if (namaTd) namaTd.classList.add('rk_nama_td'); // nama produk turun ke baris berikutnya (tidak dipotong "...")
+        if (namaTd) namaTd.classList.add('rk_nama_td');
         if (namaTd && !namaTd.querySelector('.gs_ikon')) {
             const ikon = document.createElement('span');
-            ikon.className = 'gs_ikon gs_logo'; // logo PartDistro sebagai ikon gambar produk
+            ikon.className = 'gs_ikon gs_logo';
             ikon.title = 'Lihat gambar produk';
             ikon.dataset.prd = prd;
             namaTd.insertBefore(ikon, namaTd.firstChild);
         }
-        // versi lama menaruh ikon di depan nomor barcode (melebarkan kolom): pindahkan ke baris "Map rak"
         const lama = bcTd.querySelector('.rk_bc_ikon');
         if (lama && !lama.closest('.rk_bc_baris')) lama.remove();
         if (!bcTd.querySelector('.rk_bc_rak')) {
@@ -1179,7 +1100,6 @@ function rkBoleh(fitur) {
             baris.appendChild(lihat);
             bcTd.appendChild(baris);
         }
-        // ikon QR di baris kedua, di KIRI "Map rak": tidak menambah lebar kolom Barcode, jadi tabel tidak berubah ukuran
         const baris2 = bcTd.querySelector('.rk_bc_baris');
         if (baris2) {
             let ib = baris2.querySelector('.rk_bc_ikon');
@@ -1189,7 +1109,7 @@ function rkBoleh(fitur) {
                 ib.title = 'Lihat barcode';
                 ib.setAttribute('aria-hidden', 'true');
             }
-            if (baris2.firstChild !== ib) baris2.insertBefore(ib, baris2.firstChild); // juga memindahkan ikon dari versi sebelumnya
+            if (baris2.firstChild !== ib) baris2.insertBefore(ib, baris2.firstChild);
         }
     }
 
@@ -1203,12 +1123,11 @@ function rkBoleh(fitur) {
 
         table.querySelectorAll('tbody tr').forEach((tr) => {
             const tds = tr.children;
-            if (tds.length <= Math.max(namaIdx, barcodeIdx)) return; // baris pesan kosong / loading
+            if (tds.length <= Math.max(namaIdx, barcodeIdx)) return;
             const stok = tr.querySelector(STOK_SEL);
             if (!stok || !stok.dataset.prd || !tds[barcodeIdx].textContent.trim()) return;
             pasangBarcode(tds[barcodeIdx], tds[namaIdx], stok.dataset.prd);
 
-            // panah Harga Jual: pemicu = panah merah bawaan situs; kalau sel tidak punya, pasang panah merah serupa
             const hd = hjIdx >= 0 ? tds[hjIdx] : null;
             if (!hd) return;
             hd.classList.add('hj_td');
@@ -1223,9 +1142,6 @@ function rkBoleh(fitur) {
         sesuaikanKolom(table);
     }
 
-    // DataTables (scrollX) menghitung lebar kolom header sebelum ikon/"Map rak" kita ditambahkan, sehingga header
-    // jadi lebih sempit dan bergeser dari isi tabel. Hitung ulang hanya bila memang tidak sejajar
-    // (supaya tidak memicu MutationObserver berulang-ulang).
     function sesuaikanKolom(table) {
         try {
             const wrap = table.closest('.dataTables_scroll');
@@ -1248,23 +1164,18 @@ function rkBoleh(fitur) {
         }
     }
 
-    // ---------- filter "Status Rak / Gambar": hanya menyembunyikan baris di tabel bawaan halaman yang sedang dibuka ----------
-    // filterRak: '' = semua, 'ada' = sudah ada rak, 'kosong' = belum ada rak. filterGbr: sama untuk gambar.
-    // Disimpan di sessionStorage supaya tetap terpilih saat pindah halaman tabel / halaman dimuat ulang.
     const FILTER_KEY = 'aistim_rak_filter';
     const FILTER_GBR_KEY = 'aistim_gbr_filter';
     let filterRak = '';
     let filterGbr = '';
-    try { const f = sessionStorage.getItem(FILTER_KEY); if (f === 'ada' || f === 'kosong') filterRak = f; } catch (e) { /* abaikan */ }
-    try { const f = sessionStorage.getItem(FILTER_GBR_KEY); if (f === 'ada' || f === 'kosong') filterGbr = f; } catch (e) { /* abaikan */ }
+    try { const f = sessionStorage.getItem(FILTER_KEY); if (f === 'ada' || f === 'kosong') filterRak = f; } catch (e) { }
+    try { const f = sessionStorage.getItem(FILTER_GBR_KEY); if (f === 'ada' || f === 'kosong') filterGbr = f; } catch (e) { }
     function aktifFilter() { return !!(filterRak || filterGbr); }
 
     const antreFilter = [];
     let jalanFilter = 0;
-    const MAKS_FILTER = 6; // maks produk yang diperiksa bersamaan
+    const MAKS_FILTER = 6;
 
-    // Filter rak cukup memeriksa gudang yang sedang ditampilkan tabel (data-gdn sel stok): 1 request kecil (±2 KB) per produk,
-    // bukan semua gudang. Kalau gudang tidak diketahui, baru periksa semua gudang.
     function rakAdaCepat(td) {
         const prd = td.dataset.prd;
         if (!prd) return Promise.resolve(false);
@@ -1279,7 +1190,6 @@ function rkBoleh(fitur) {
         });
     }
 
-    // 'ada' | 'kosong' | 'gagal' | null (belum diketahui); td = sel stok bawaan
     function statusRak(td) {
         const prd = td.dataset.prd;
         if (!prd) return 'kosong';
@@ -1303,7 +1213,6 @@ function rkBoleh(fitur) {
         return td.dataset.gbgagal ? 'gagal' : null;
     }
 
-    // status gabungan semua filter aktif: 'cocok' | 'tidak' | 'gagal' (tetap tampil) | null (belum diketahui)
     function statusFilter(td) {
         let gagal = false;
         if (filterRak) {
@@ -1335,7 +1244,6 @@ function rkBoleh(fitur) {
         const table = document.querySelector(TABLE_SEL);
         if (!table) return;
         const info = document.getElementById('rk_filter_info');
-        // hanya tulis bila berubah: menulis ulang memicu MutationObserver dan membuat putaran tak berujung
         const tulis = (teks) => { if (info && info.textContent !== teks) info.textContent = teks; };
         const tampilkan = (tr, nilai) => { if (tr.style.display !== nilai) tr.style.display = nilai; };
         const rows = Array.from(table.querySelectorAll('tbody tr')).filter((tr) => tr.querySelector(STOK_SEL));
@@ -1350,13 +1258,12 @@ function rkBoleh(fitur) {
             const td = tr.querySelector(STOK_SEL);
             const st = statusFilter(td);
             if (st === null) {
-                // belum diketahui: sembunyikan dulu, periksa rak/gambarnya, lalu saring ulang
                 menunggu++;
                 tampilkan(tr, 'none');
                 if (!td.dataset.rkantri) { td.dataset.rkantri = '1'; antreFilter.push(td); }
                 return;
             }
-            const ok = st === 'cocok' || st === 'gagal'; // yang gagal diperiksa tetap tampil
+            const ok = st === 'cocok' || st === 'gagal';
             if (ok) cocok++;
             tampilkan(tr, ok ? '' : 'none');
         });
@@ -1366,7 +1273,6 @@ function rkBoleh(fitur) {
             : 'Menampilkan ' + cocok + ' dari ' + rows.length + ' baris di halaman ini');
     }
 
-    // combobox di bawah kolom Barcode/Nama Produk/Kode Ref pada panel filter (dipasang ulang bila panel digambar ulang)
     function pasangFilter() {
         const cari = document.getElementById('pencarian_nama');
         const field = cari && cari.closest('.field2');
@@ -1383,7 +1289,7 @@ function rkBoleh(fitur) {
         lb.htmlFor = 'rk_filter_status';
         lb.textContent = 'Status Rak / Gambar';
         const sel = document.createElement('select');
-        sel.id = 'rk_filter_status'; // tanpa atribut name: tidak ikut terkirim ke server
+        sel.id = 'rk_filter_status';
         [['', '-- Semua --'], ['rak_ada', 'Sudah ada rak'], ['rak_kosong', 'Belum ada rak'], ['gbr_ada', 'Sudah bergambar'], ['gbr_kosong', 'Belum ada gambar']].forEach((o) => {
             const op = document.createElement('option');
             op.value = o[0];
@@ -1398,7 +1304,7 @@ function rkBoleh(fitur) {
             try {
                 sessionStorage.setItem(FILTER_KEY, filterRak);
                 sessionStorage.setItem(FILTER_GBR_KEY, filterGbr);
-            } catch (e) { /* abaikan */ }
+            } catch (e) { }
             terapkanFilter();
         });
         const info = document.createElement('div');
@@ -1412,7 +1318,6 @@ function rkBoleh(fitur) {
         terapkanFilter();
     }
 
-    // popup harga jual per jenis pelanggan (klik panah merah di sel Harga Jual)
     function bukaModalHarga(panah, id, judul) {
         const m = bukaPop(panah, judul || ('Produk ' + id));
         m.info('Memuat harga...');
@@ -1447,7 +1352,6 @@ function rkBoleh(fitur) {
         });
     }
 
-    // klik panah merah Harga Jual -> popup harga per pelanggan (capture + stopPropagation: tidak sampai ke handler situs)
     document.addEventListener('click', (e) => {
         const panah = e.target.closest && e.target.closest('i.fa-angle-double-down, .hj_btn');
         if (!panah) return;
@@ -1462,7 +1366,6 @@ function rkBoleh(fitur) {
         }
     }, true);
 
-    // klik ikon gambar -> ambil & tampilkan gambar di popup
     document.addEventListener('click', (e) => {
         const ikon = e.target.closest && e.target.closest('.gs_ikon');
         if (!ikon) return;
@@ -1472,7 +1375,6 @@ function rkBoleh(fitur) {
         bukaModal(ikon, ikon.dataset.prd, tr ? judulBaris(tr) : '');
     }, true);
 
-    // klik "Map rak" di bawah barcode -> popup daftar rak
     document.addEventListener('click', (e) => {
         const lihat = e.target.closest && e.target.closest('.rk_bc_rak');
         if (!lihat) return;
@@ -1489,7 +1391,6 @@ function rkBoleh(fitur) {
         }
     }, true);
 
-    // klik ikon barcode di depan nomor barcode -> popup gambar barcode
     document.addEventListener('click', (e) => {
         const ikon = e.target.closest && e.target.closest('.rk_bc_ikon');
         if (!ikon) return;
@@ -1517,8 +1418,6 @@ function rkBoleh(fitur) {
         }, 150);
     }
 
-    // Jalur cepat: ikon + penyejajaran header dikerjakan langsung di callback observer (sebelum browser menggambar),
-    // supaya kolom tidak terlihat "melompat"/berubah ukuran setelah tabel muncul.
     function cepat() {
         const table = document.querySelector(TABLE_SEL);
         if (!table) return;
@@ -1532,8 +1431,9 @@ function rkBoleh(fitur) {
 
 
 // =====================================================================================================
-// Bagian 2: Penentuan Rak dari popup Map rak (dulu skrip terpisah "ERZAP - Penentuan Rak dari Map Rak" v1.2.1).
-// Bergantung pada popup Map rak di Bagian 1 (#gs_rak_pop .rk_foot, .rk_bc_rak, .rk_judul). Dibungkus sendiri supaya tidak bentrok.
+// Bagian 2: Penentuan Rak dari popup Map rak.
+// Perbaikan v1.23.1: outlet multi/single (ambilOutlet), syarat outlet >= 1, dan menunggu pengaturan gudang
+// sampai #selected_idgudang sama dengan gudang (bukan jeda tetap).
 // =====================================================================================================
 (function () {
   if (window.__rkCleanup) { try { window.__rkCleanup(); } catch (e) {} }
@@ -1552,8 +1452,7 @@ function rkBoleh(fitur) {
     '#content_produk .callout{margin:0!important;padding:10px 14px!important;background:#f2f8fd!important;border:1px solid #d6e8f6!important;border-left:4px solid #3498db!important;border-radius:8px!important;font-size:14px;line-height:1.6;color:#33475b}',
     '#content_produk .callout strong{display:inline;color:#0b5c8a}',
     '#content_produk h4{margin:18px 0 8px!important;font-size:12px!important;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#7b8794}',
-    '#rk_inp{padding:11px 14px 11px 40px!important;font-size:15px!important;border:1.5px solid #cfd8e3!important;border-radius:8px!important;outline:0;' +
-      'background:#fff url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'18\' height=\'18\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%239aa7b5\' stroke-width=\'2.2\' stroke-linecap=\'round\'><circle cx=\'11\' cy=\'11\' r=\'7\'/><line x1=\'16.5\' y1=\'16.5\' x2=\'21\' y2=\'21\'/></svg>") no-repeat 13px 50%!important;transition:border-color .15s,box-shadow .15s}',
+    '#rk_inp{padding:11px 14px 11px 40px!important;font-size:15px!important;border:1.5px solid #cfd8e3!important;border-radius:8px!important;outline:0;transition:border-color .15s,box-shadow .15s}',
     '#rk_inp:focus{border-color:#3498db!important;box-shadow:0 0 0 3px rgba(52,152,219,.2)}',
     '#rk_chips span{background:#e3f2fd!important;color:#0b5c8a!important;border:1px solid #b6dcf5;border-radius:16px!important;font-size:13px!important}',
     '#rk_list{border:1px solid #cfd8e3!important;border-radius:8px!important;margin-top:4px;box-shadow:0 8px 20px rgba(0,0,0,.15)!important}',
@@ -1564,10 +1463,10 @@ function rkBoleh(fitur) {
     '#rk_batal_rak:hover{background:#f3f6f9!important}'
   ].join('');
 
-  var mode = 'other';          // 'rak' kalau popup dibuka lewat link "Map rak"
-  var lastLihat = null;        // link "Map rak" terakhir yang diklik (dimuat ulang setelah Simpan)
+  var mode = 'other';
+  var lastLihat = null;
   var timers = [];
-  // pesan singkat di pojok bawah halaman utama (pengganti alert bawaan halaman Penentuan Rak)
+
   function toast(msg, jenis) {
     if (!msg) return;
     var t = document.createElement('div');
@@ -1590,12 +1489,20 @@ function rkBoleh(fitur) {
     el.dispatchEvent(new w.Event('change', { bubbles: true }));
   };
 
-  /* ---------- tombol di popup Map rak ---------- */
+  // outlet: layout multi (.searching_multi_outlet) dulu, lalu layout single (#pencarian_idoutlet_own)
+  function ambilOutlet() {
+    var multi = document.querySelector('.searching_multi_outlet [data-idoutlet]');
+    if (multi && multi.dataset.idoutlet) return multi.dataset.idoutlet;
+    var own = document.getElementById('pencarian_idoutlet_own');
+    if (own && own.value) return own.value;
+    var sel = document.getElementById('pencarian_idoutlet');
+    return (sel && sel.value) || '';
+  }
+
   function syncPopupButton() {
     var foot = document.querySelector('#gs_rak_pop .rk_foot');
     if (!foot) return;
     var ex = foot.querySelector('.rk_btn_rak');
-    // hanya popup Map rak (ditandai data-tipe="rak" oleh Bagian 1); popup gambar / harga tidak mendapat tombol ini
     if (foot.parentNode.dataset.tipe !== 'rak' || !rkBoleh('penentuanRak')) { if (ex) ex.remove(); return; }
     if (ex) return;
     foot.style.display = 'flex'; foot.style.gap = '6px'; foot.style.flexWrap = 'nowrap';
@@ -1609,14 +1516,12 @@ function rkBoleh(fitur) {
   var popupObs = new MutationObserver(syncPopupButton);
   popupObs.observe(document.documentElement, { childList: true, subtree: true });
 
-  /* ---------- overlay ---------- */
   function closeOverlay() {
     var o = document.getElementById('rk_overlay'); if (o) o.remove();
     document.removeEventListener('keydown', onEsc, true);
   }
   function onEsc(e) { if (e.key === 'Escape') closeOverlay(); }
 
-  /* ---------- combobox rak (di dalam iframe) ---------- */
   function buildCombo(d) {
     var first = d.querySelector('.check_box_rak_barangs'); if (!first) return;
     var table = first.closest('table'); if (!table) return;
@@ -1683,7 +1588,6 @@ function rkBoleh(fitur) {
     renderChips();
   }
 
-  /* ---------- perapihan isi iframe + tinggi otomatis + loading ---------- */
   function tick(ov, fr, state) {
     var d, w;
     try { d = fr.contentDocument; w = fr.contentWindow; } catch (e) { return; }
@@ -1692,7 +1596,7 @@ function rkBoleh(fitur) {
     if (!d.getElementById('rk_css')) {
       var st = d.createElement('style'); st.id = 'rk_css'; st.textContent = IFRAME_CSS; d.head.appendChild(st);
     }
-    if (!d.__rkFocusFix) {           // halaman ini merebut fokus ke kolom barcode; cegah saat mengetik di combobox
+    if (!d.__rkFocusFix) {
       d.__rkFocusFix = 1;
       ['blur', 'focusout'].forEach(function (t) {
         d.addEventListener(t, function (e) {
@@ -1704,7 +1608,6 @@ function rkBoleh(fitur) {
       });
     }
 
-    // setelah Simpan berhasil: popup langsung menutup (alert bawaan halaman diganti toast kecil, lalu Map rak dimuat ulang)
     if (!d.__rkSaveHook && w.jQuery) {
       d.__rkSaveHook = 1;
       w.alert = function (m) { state.msg = m; if (!state.saving) toast(m, 'info'); };
@@ -1719,7 +1622,7 @@ function rkBoleh(fitur) {
         if (r && String(r.status) === '1') {
           closeOverlay();
           toast(msg || 'Rak tersimpan', 'ok');
-          if (lastLihat && document.body.contains(lastLihat)) setTimeout(function () { lastLihat.click(); }, 50); // muat ulang popup Map rak
+          if (lastLihat && document.body.contains(lastLihat)) setTimeout(function () { lastLihat.click(); }, 50);
         } else {
           toast(msg || 'Gagal menyimpan rak', 'err');
         }
@@ -1729,19 +1632,16 @@ function rkBoleh(fitur) {
     buildCombo(d);
     var ready = !!d.getElementById('rk_combo');
 
-    // sembunyikan kolom cari barcode + kotak setingan gudang setelah rak muncul
     var form = d.getElementById('barcode_form');
     var al = d.querySelector('.alert.alert-success');
     if (form) form.style.display = ready ? 'none' : '';
     if (al && /Penentuan Rak untuk Gudang/.test(al.textContent)) al.style.display = ready ? 'none' : '';
 
-    // sembunyikan gambar produk
     d.querySelectorAll('#content_produk img').forEach(function (im) {
       var b = im.closest('.mb-3') || im;
       if (b.textContent.trim() === '') b.style.display = 'none'; else im.style.display = 'none';
     });
 
-    // tombol Batal di sebelah kanan tombol Simpan (menutup popup tanpa menyimpan)
     var btn = d.getElementById('btn_update_rak');
     if (ready && btn && !d.getElementById('rk_batal_rak')) {
       var row = d.createElement('div'); row.id = 'rk_aksi_rak'; row.style.cssText = 'display:flex;gap:8px;align-items:stretch';
@@ -1753,11 +1653,10 @@ function rkBoleh(fitur) {
       btn.style.flex = '1 1 auto'; btn.style.width = 'auto';
     }
 
-    // tinggi popup pas sampai tombol Simpan
     if (ready && btn && btn.offsetParent !== null) {
       var bottom = btn.getBoundingClientRect().bottom;
       var lst = d.getElementById('rk_list');
-      if (lst && lst.style.display === 'block') bottom = Math.max(bottom, lst.getBoundingClientRect().bottom); // daftar terbuka ke bawah -> popup ikut memanjang
+      if (lst && lst.style.display === 'block') bottom = Math.max(bottom, lst.getBoundingClientRect().bottom);
       var h = Math.ceil(bottom + w.scrollY + 14);
       var target = Math.min(48 + h, Math.round(window.innerHeight * 0.92));
       var box = ov.firstElementChild;
@@ -1773,13 +1672,11 @@ function rkBoleh(fitur) {
     }
   }
 
-  /* ---------- buka popup Penentuan Rak ---------- */
   function openPenentuan(btn) {
     var pop = btn.closest('#gs_rak_pop'); if (!pop) return;
     if (!rkBoleh('penentuanRak')) return;
     var bc = ((pop.querySelector('.rk_judul') || {}).textContent || '').split(' - ')[0].trim();
-    var oEl = document.querySelector('.searching_multi_outlet [data-idoutlet]');
-    var outlet = oEl && oEl.dataset.idoutlet;
+    var outlet = ambilOutlet();
     var gSel = document.getElementById('pencarian_idgudang');
     var gudang = gSel && gSel.value;
     if (!bc) { alert('Barcode tidak terbaca'); return; }
@@ -1793,7 +1690,7 @@ function rkBoleh(fitur) {
     var ov = document.createElement('div'); ov.id = 'rk_overlay';
     ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2147483000;display:flex;align-items:center;justify-content:center';
     ov.innerHTML =
-      '<div style="position:relative;background:#fff;border-radius:8px;width:min(560px,96vw);height:340px;display:flex;flex-direction:column;box-shadow:0 12px 48px rgba(0,0,0,.4);overflow:hidden;border-radius:12px">' +
+      '<div style="position:relative;background:#fff;width:min(560px,96vw);height:340px;display:flex;flex-direction:column;box-shadow:0 12px 48px rgba(0,0,0,.4);overflow:hidden;border-radius:12px">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:48px;box-sizing:border-box;flex:none;background:linear-gradient(135deg,#2f86c9,#3aa0e0);color:#fff;font-weight:600;font-size:15px"><span>Penentuan Rak</span>' +
         '<button type="button" id="rk_ov_x" style="background:transparent;border:0;color:#fff;font-size:22px;line-height:1;cursor:pointer">×</button></div>' +
         '<iframe id="rk_iframe" style="flex:1;border:0;width:100%;visibility:hidden"></iframe>' +
@@ -1815,21 +1712,21 @@ function rkBoleh(fitur) {
     }, 120);
     timers.push(iv);
 
-    // isi setingan outlet/gudang + barcode di belakang layar
     (async function () {
       var D = function () { return fr.contentWindow.document; };
       await sleep(500);
-      var o = await waitFor(function () { var s = D().getElementById('setting_idoutlet'); return s && s.options.length > 1 && s; }, 15000);
+      var o = await waitFor(function () { var s = D().getElementById('setting_idoutlet'); return s && s.options.length >= 1 && s; }, 15000);
       if (!o) return;
       var W = fr.contentWindow, start = Date.now(), done = false;
-      while (!done && Date.now() - start < 20000) {
+      while (!done && Date.now() - start < 30000) {
         if (o.value !== outlet) { o.value = outlet; fire(W, o); await sleep(800); }
         var g = D().getElementById('setting_idgudang');
         if (g && Array.prototype.some.call(g.options, function (x) { return x.value === gudang; })) {
           if (g.value !== gudang) { g.value = gudang; fire(W, g); await sleep(300); }
           if (g.value === gudang) {
-            D().getElementById('update_settings').click(); await sleep(1200);
-            if (D().getElementById('selected_idgudang').value === gudang) done = true; else await sleep(500);
+            D().getElementById('update_settings').click();
+            for (var k = 0; k < 25 && D().getElementById('selected_idgudang').value !== gudang; k++) await sleep(300);
+            if (D().getElementById('selected_idgudang').value === gudang) done = true;
           }
         } else await sleep(300);
       }
@@ -1846,7 +1743,6 @@ function rkBoleh(fitur) {
     })();
   }
 
-  /* ---------- klik global ---------- */
   function onClick(e) {
     var t = e.target; if (!t || !t.closest) return;
     var btn = t.closest('.rk_btn_rak');
