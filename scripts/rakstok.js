@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.22.13
+// @version      1.23.0
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) (popup rak per toko/gudang) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -9,38 +9,59 @@
 // ==/UserScript==
 
 // ====== HAK AKSES & FITUR (JSON) ======
-// "admin"   -> daftar nama yang SELALU bisa memakai SEMUA fitur.
-// "private" -> fitur yang HANYA boleh dipakai "admin". Nama fitur: editGambar, penentuanRak.
-// "public"  -> fitur yang boleh dipakai SEMUA user (tidak dicek di kode; hanya catatan). Fitur yang tidak ada di "private" selalu terbuka.
-// Nama di "admin" dibaca dari tulisan "NAMA (JABATAN)" di pojok kanan bawah ERZAP. Cukup sebagian nama
-// (tidak peduli huruf besar/kecil); isi nama lengkap persis seperti di ERZAP agar tidak salah cocok dengan user lain.
+// "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini.
+// "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua). Nama fitur: editGambar, penentuanRak.
+// "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
+//              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
+// Fitur yang tidak disebut di "public" maupun "private" ditolak.
 // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
-// Jika JSON salah ketik, fitur private ditutup untuk semua orang.
+// Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
 // Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script dan muat ulang halaman ERZAP.
 var RK_AKSES_JSON = `{
-    "admin": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
+    "public": ["mapRak", "barcode", "gambar", "hargaJual", "filter"],
     "private": ["editGambar", "penentuanRak"],
-    "public": ["mapRak", "barcode", "gambar", "hargaJual", "filter"]
+    "role": {
+        "pusat": {
+            "nama": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
+            "fitur": ["*"]
+        },
+        "cabang": {
+            "nama": ["PRAMUTECH"],
+            "fitur": ["penentuanRak"]
+        }
+    }
 }`;
 var rkAkses = (function () {
     try {
         var a = JSON.parse(RK_AKSES_JSON) || {};
+        var role = a.role && typeof a.role === 'object' ? a.role : {};
         return {
-            admin: Array.isArray(a.admin) ? a.admin.map(String) : [],
-            private: Array.isArray(a.private) ? a.private.map(String) : []
+            public: Array.isArray(a.public) ? a.public.map(String) : [],
+            role: Object.keys(role).map(function (k) {
+                var r = role[k] || {};
+                return {
+                    nama: Array.isArray(r.nama) ? r.nama.map(String) : [],
+                    fitur: Array.isArray(r.fitur) ? r.fitur.map(String) : []
+                };
+            })
         };
     } catch (err) {
-        console.error('[rakstok] RK_AKSES_JSON tidak valid -> fitur private ditutup:', err.message);
-        return { admin: [], private: ['editGambar', 'penentuanRak'] };
+        console.error('[rakstok] RK_AKSES_JSON tidak valid -> akses ditutup:', err.message);
+        return { public: [], role: [] };
     }
 })();
-// true bila fitur boleh dipakai user yang sedang login (dicek saat dipakai, karena nama kasir dimuat belakangan)
+// true bila fitur boleh dipakai user yang sedang login (dicek saat dipakai, karena nama kasir dimuat belakangan).
+// Role dicocokkan urut dari atas; role pertama yang namanya cocok yang menentukan.
 function rkBoleh(fitur) {
-    if (rkAkses.private.indexOf(fitur) === -1) return true;
+    if (rkAkses.public.indexOf(fitur) !== -1) return true;
     var nama = String((document.getElementById('info_kasir') || {}).textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
-    return rkAkses.admin.some(function (u) { u = u.replace(/\s+/g, ' ').trim().toLowerCase(); return !!u && nama.indexOf(u) !== -1; });
+    for (var i = 0; i < rkAkses.role.length; i++) {
+        var r = rkAkses.role[i];
+        var cocok = r.nama.some(function (u) { u = u.replace(/\s+/g, ' ').trim().toLowerCase(); return !!u && nama.indexOf(u) !== -1; });
+        if (cocok) return r.fitur.indexOf('*') !== -1 || r.fitur.indexOf(fitur) !== -1;
+    }
+    return false;
 }
-
 (function () {
     'use strict';
 
