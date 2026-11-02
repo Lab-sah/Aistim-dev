@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Audit Analisa (Laba Rugi & Neraca)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Tombol "Audit Analisa" di sebelah AI Insight pada Laporan Laba Rugi dan Neraca ERZAP. Dihitung dari angka tabel (tanpa AI). Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/laporans/laporan_laba_rugi/*
 // @match        https://*.erzap.com/laporans/neraca/*
