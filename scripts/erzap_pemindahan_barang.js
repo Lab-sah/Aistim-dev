@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pemindahan Barang
 // @namespace    http://tampermonkey.net/
-// @version      1.15.1
+// @version      1.16.0
 // @description  [v1.15.1] Nama diganti jadi 'Erzap - Pemindahan Barang' (pindah dari pemindahan.js). Tambah tombol "Log Data Pemindahan" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel. Tombol "Data Pembelian" mengambil daftar barang dengan cara yang sama dari Faktur Pembelian (No Faktur atau link /faktur_pembelians/<ID>).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
@@ -12,6 +12,65 @@
 
 (function () {
     'use strict';
+
+    // ====== HAK AKSES & FITUR (JSON) ======
+    // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini.
+    // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua).
+    //              Nama fitur: logDataPemindahan (tombol Log Data Pemindahan), dataPembelian (tombol Data Pembelian),
+    //              masukkanTabel (tombol Masukkan ke Tabel di dalam popup).
+    // "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
+    //              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
+    // Fitur yang tidak disebut di "public" maupun "private" ditolak.
+    // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
+    // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
+    // Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script dan muat ulang halaman ERZAP.
+    var AKSES_JSON = `{
+        "public": ["logDataPemindahan", "dataPembelian", "masukkanTabel"],
+        "private": [],
+        "role": {
+            "pusat": {
+                "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT"],
+                "fitur": ["*"]
+            }
+        }
+    }`;
+
+    function bacaAkses() {
+        try {
+            var a = JSON.parse(AKSES_JSON) || {};
+            var role = a.role && typeof a.role === 'object' ? a.role : {};
+            return {
+                public: Array.isArray(a.public) ? a.public.map(String) : [],
+                role: Object.keys(role).map(function (k) {
+                    var r = role[k] || {};
+                    return {
+                        nama: Array.isArray(r.nama) ? r.nama.map(String) : [],
+                        fitur: Array.isArray(r.fitur) ? r.fitur.map(String) : []
+                    };
+                })
+            };
+        } catch (err) {
+            console.error('[lihat-barang] AKSES_JSON tidak valid -> akses ditutup:', err.message);
+            return { public: [], role: [] };
+        }
+    }
+    var AKSES = bacaAkses();
+
+    // dicek saat dipakai (bukan sekali di awal), karena nama kasir di pojok ERZAP bisa dimuat belakangan.
+    // Role dicocokkan urut dari atas; role pertama yang namanya cocok yang menentukan.
+    function bolehFitur(fitur) {
+        if (AKSES.public.indexOf(fitur) !== -1) return true;
+        var nama = String((document.getElementById('info_kasir') || {}).textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        for (var i = 0; i < AKSES.role.length; i++) {
+            var r = AKSES.role[i];
+            var cocok = r.nama.some(function (u) {
+                u = u.replace(/\s+/g, ' ').trim().toLowerCase();
+                return !!u && nama.indexOf(u) !== -1;
+            });
+            if (cocok) return r.fitur.indexOf('*') !== -1 || r.fitur.indexOf(fitur) !== -1;
+        }
+        return false;
+    }
 
     var STYLE = [
         '#bt_lihat_barang, #bt_pembelian{cursor:pointer;}',
@@ -1150,7 +1209,7 @@
         render_header_lihat_barang();
         // "Masukkan ke Tabel" hanya masuk akal kalau tabel di halaman ini masih bisa diisi.
         var bisa_impor = $('#term_produk_quick').length > 0 && !$('#term_produk_quick').is(':disabled');
-        $('#llb_btn_masukkan_v2').toggle(bisa_impor);
+        $('#llb_btn_masukkan_v2').toggle(bisa_impor && bolehFitur('masukkanTabel'));
         buka_modal('#modal_lihat_barang');
     }
 
@@ -1878,7 +1937,8 @@
         $(document).on('click', '#bt_pembelian', buka_modal_pembelian);
         $(document).on('click', '#llb_btn_tampilkan', tampilkan_dari_input_link);
         $(document).on('click', '#llb_btn_simpan_header', simpan_header_ke_localstorage);
-        $(document).on('click', '#llb_btn_masukkan_v2', masukkan_sesuai_sumber);
+        if (!bolehFitur('masukkanTabel')) { $('#llb_btn_masukkan_v2').hide(); }
+        $(document).on('click', '#llb_btn_masukkan_v2', function () { if (bolehFitur('masukkanTabel')) masukkan_sesuai_sumber(); });
         $(document).on('click', '#llb_btn_tutup, #llb_btn_close_x', tutup_semua_modal);
 
         $(document).on('keydown', '#llb_input_link', function (e) {
@@ -1905,7 +1965,7 @@
             return;
         }
 
-        if ($('#bt_lihat_barang').length === 0) {
+        if ($('#bt_lihat_barang').length === 0 && bolehFitur('logDataPemindahan')) {
             wrapper.append(
                 '<div class="additional_button" id="wrapper_bt_lihat_barang">' +
                     '<div id="bt_lihat_barang">' +
@@ -1915,7 +1975,7 @@
             );
         }
 
-        if ($('#bt_pembelian').length === 0) {
+        if ($('#bt_pembelian').length === 0 && bolehFitur('dataPembelian')) {
             wrapper.append(
                 '<div class="additional_button" id="wrapper_bt_pembelian">' +
                     '<div id="bt_pembelian">' +

@@ -36,7 +36,8 @@
     "piutanglain.js",
     "auditanalisa.js",
     "deposit.js",
-    "pembatalan.js"
+    "pembatalan.js",
+    "searchable_select.js"
   ],
   "hapus": [
     "pemindahan.js",
