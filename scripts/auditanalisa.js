@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Audit Analisa (Laba Rugi & Neraca)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.1
+// @version      1.1.0
 // @description  Tombol "Audit Analisa" di sebelah AI Insight pada Laporan Laba Rugi dan Neraca ERZAP. Dihitung dari angka tabel (tanpa AI). Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/laporans/laporan_laba_rugi/*
 // @match        https://*.erzap.com/laporans/neraca/*
@@ -12,43 +12,59 @@
 
 (() => {
   // ====== HAK AKSES & FITUR (JSON) ======
-  // "admin"   -> daftar nama yang SELALU bisa memakai SEMUA fitur (public maupun private).
-  // "private" -> nama fitur yang HANYA boleh dipakai "admin". Nama fitur: auditLabaRugi (tombol Audit Analisa di Laba Rugi), auditNeraca (tombol Audit Analisa di Neraca).
-  // "public"  -> nama fitur yang boleh dipakai SEMUA user yang membuka halaman ini.
-  // Fitur yang tidak disebut di keduanya dianggap private (hanya admin).
-  // Nama di "admin" dibaca dari tulisan "NAMA (JABATAN)" di pojok kanan bawah ERZAP. Cukup sebagian nama
-  // (tidak peduli huruf besar/kecil); isi nama lengkap persis seperti di ERZAP agar tidak salah cocok dengan user lain.
+  // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini.
+  // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua). Nama fitur: auditLabaRugi (tombol Audit Analisa di Laba Rugi), auditNeraca (tombol Audit Analisa di Neraca).
+  // "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
+  //              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
+  // Fitur yang tidak disebut di "public" maupun "private" ditolak.
   // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
-  // Jika JSON salah ketik, akses ditutup (tidak ada yang memakai fitur apa pun).
+  // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
   // Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script dan muat ulang halaman ERZAP.
   const AKSES_JSON = `{
-    "admin": ["SENTOT", "SURYO"],
+    "public": [],
     "private": ["auditLabaRugi", "auditNeraca"],
-    "public": []
+    "role": {
+      "pusat": {
+        "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT"],
+        "fitur": ["*"]
+      }
+    }
   }`;
 
   function bacaAkses() {
     try {
       const a = JSON.parse(AKSES_JSON) || {};
+      const role = a.role && typeof a.role === 'object' ? a.role : {};
       return {
-        admin: Array.isArray(a.admin) ? a.admin.map(String) : [],
         public: Array.isArray(a.public) ? a.public.map(String) : [],
+        role: Object.keys(role).map(k => {
+          const r = role[k] || {};
+          return {
+            nama: Array.isArray(r.nama) ? r.nama.map(String) : [],
+            fitur: Array.isArray(r.fitur) ? r.fitur.map(String) : [],
+          };
+        }),
       };
     } catch (err) {
       console.error('[auditanalisa] AKSES_JSON tidak valid -> akses ditutup:', err.message);
-      return { admin: [], public: [] };
+      return { public: [], role: [] };
     }
   }
   const AKSES = bacaAkses();
 
   // dicek saat dipakai (bukan sekali di awal), karena nama kasir di pojok ERZAP bisa dimuat belakangan
+  // Role dicocokkan urut dari atas; role pertama yang namanya cocok yang menentukan.
   function bolehFitur(fitur) {
     if (AKSES.public.indexOf(fitur) !== -1) return true;
     const nama = (((document.getElementById('info_kasir') || {}).textContent) || '').replace(/\s+/g, ' ').trim().toLowerCase();
-    return AKSES.admin.some(u => {
-      u = u.replace(/\s+/g, ' ').trim().toLowerCase();
-      return !!u && nama.indexOf(u) !== -1;
-    });
+    for (const r of AKSES.role) {
+      const cocok = r.nama.some(u => {
+        u = u.replace(/\s+/g, ' ').trim().toLowerCase();
+        return !!u && nama.indexOf(u) !== -1;
+      });
+      if (cocok) return r.fitur.indexOf('*') !== -1 || r.fitur.indexOf(fitur) !== -1;
+    }
+    return false;
   }
 
   // ==========================================================
