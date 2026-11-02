@@ -1,9 +1,8 @@
 // ==UserScript==
 // @name         ERZAP - Lihat Saldo Sistem (Hitung Saldo Kas)
 // @namespace    https://trial.erzap.com/
-// @version      1.15.1
+// @version      1.15.2
 // @description  Menambahkan tombol "Lihat saldo sistem" di sebelah kolom saldo (default: Kas Brankas) pada halaman Hitung Saldo Kas. Saldo diambil dari halaman Lihat Saldo untuk outlet yang dipilih dan hanya ditampilkan di samping tombol (TIDAK dimasukkan ke input). Script TIDAK menekan tombol Simpan.
-// @match        https://trial.erzap.com/perkiraans/hitung_saldo_kas/*
 // @match        https://*.erzap.com/perkiraans/hitung_saldo_kas/*
 // @run-at       document-idle
 // @grant        none

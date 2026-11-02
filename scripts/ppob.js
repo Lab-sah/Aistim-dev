@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Erzap - PPOB (No Faktur + Outlet)
 // @namespace    http://tampermonkey.net/
-// @version      1.21.0
+// @version      1.21.1
 // @description  Mengaktifkan link No Faktur di tabel Aktifitas PPOB (bawaan disabled), membukanya ke halaman nota /penjualans/<id>, menampilkan outlet notanya di bawah No Faktur. Di /penjualans mengisi filter No Faktur otomatis lalu membuka nota (Lihat). Filter Toko (outlet) ditambahkan di bagian paling atas form pencarian: tombol Toko membuka daftar outlet (diambil dari /outlets/list_nama_outlet/new hanya setelah diklik) dan menyaring baris tabel yang sedang tampil berdasarkan outlet notanya. Transaksi berstatus Error diberi keterangan "Sudah dibatalkan" / "Belum dibatalkan" di kolom Status (dicek dari status nota di /penjualans; bila belum dibatalkan, halaman nota dicek: peringatan "telah dibatalkan" lalu akun "Retur Penjualan" di rincian transaksi => "Sudah diretur"). Saldo PPOB tampil di atas tabel; saldo < Rp 1 juta: suara "Cek saldo bosku" + tulisan peringatan.
 // @author       You
-// @match        https://trial.erzap.com/penjualans*
+// @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
 // ==/UserScript==
@@ -490,16 +490,16 @@
         const faktur = e.currentTarget.textContent.trim();
         const langsung = urlLangsung(e.currentTarget);
         if (langsung) {
-            if (!window.open(langsung, '_blank')) alert('Tab baru diblokir browser. Izinkan popup untuk trial.erzap.com.');
+            if (!window.open(langsung, '_blank')) alert('Tab baru diblokir browser. Izinkan popup untuk situs ERZAP ini.');
             return;
         }
         // Nota sudah dikenal (tersimpan): langsung buka URL-nya, tanpa tab kosong
         if (simpanan[faktur] && simpanan[faktur].url) {
-            if (!window.open(simpanan[faktur].url, '_blank')) alert('Tab baru diblokir browser. Izinkan popup untuk trial.erzap.com.');
+            if (!window.open(simpanan[faktur].url, '_blank')) alert('Tab baru diblokir browser. Izinkan popup untuk situs ERZAP ini.');
             return;
         }
         const tab = window.open('', '_blank');
-        if (!tab) { alert('Tab baru diblokir browser. Izinkan popup untuk trial.erzap.com.'); return; }
+        if (!tab) { alert('Tab baru diblokir browser. Izinkan popup untuk situs ERZAP ini.'); return; }
         // Tab sementara berisi tulisan "Memuat nota ..." (bukan about:blank kosong) selama pencarian berjalan
         try {
             tab.document.title = 'Memuat nota ' + faktur + ' ...';

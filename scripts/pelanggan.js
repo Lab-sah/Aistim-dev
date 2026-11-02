@@ -1,9 +1,8 @@
 // ==UserScript==
 // @name         ERZAP - Tombol Profil (popup kartu ID) di bawah Lihat
 // @namespace    erzap-profil-button
-// @version      2.0.0
+// @version      2.0.1
 // @description  Ikon profil di bawah tombol "Lihat" pada Daftar Data Pelanggan; klik untuk membuka popup kartu ID dengan QR kode pelanggan sebagai foto
-// @match        https://trial.erzap.com/pelanggans*
 // @match        https://*.erzap.com/pelanggans*
 // @run-at       document-idle
 // @grant        none
