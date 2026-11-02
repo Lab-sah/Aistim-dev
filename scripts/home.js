@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Home & Peringatan Saldo PPOB
 // @namespace    http://tampermonkey.net/
-// @version      1.22.0
+// @version      1.24.0
 // @description  Halaman Home (Transaksi Hari Ini): kartu stats "PPOB" di samping kartu Penjualan + Servis / Beban / Dana Masuk / Dana Keluar, berisi "Saldo (nilai)" (dari /main/check_balance_ppob/new, merah bila Rp 5 juta ke bawah) dan di bawahnya "Transaksi hari ini" (jumlah Saldo Digunakan transaksi PPOB sukses hari ini, dibaca dari Aktifitas PPOB); klik baris transaksi = popup daftar transaksi PPOB hari ini + tombol ke Aktifitas PPOB. Di sebelah kanan kartu PPOB: kartu "Penerimaan Piutang" (Laporan Rekap Piutang, Tipe Rekap Penerimaan Piutang) dan "Pembayaran Hutang" (Laporan Rekap Hutang, Tipe Rekap Pembayaran Hutang): total dari blok Rekapitulasi, semua untuk hari ini, klik baris nota = popup daftar; lalu kartu "Pendapatan Lain-Lain" (Daftar Data Jurnal, gabungan Akun Pendapatan Lain + Bunga + Sewa, Dasar Filter Tanggal Transaksi, kolom Total dijumlah semua halaman). Saldo Rp 5 juta ke bawah: popup peringatan muncul HANYA di halaman Home (saat Home dibuka, lalu diulang tiap 5 menit sampai saldo diisi) dan HANYA untuk admin SURYO/SENTOT/PUGUH/DIMAS/MANAJEMEN PUSAT (dibaca dari #info_kasir seperti saldokas.js); script tidak jalan di halaman lain. Tidak jalan di halaman Login.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -813,33 +813,43 @@
 
     // ---------- popup peringatan: saldo PPOB Rp 5 juta ke bawah ----------
     // Muncul saat Home pertama dibuka, lalu diulang tiap 5 menit selama saldo masih di bawah batas; berhenti (dan popup ditutup) setelah saldo diisi.
-    // Fitur notifSaldo hanya untuk ADMIN (daftar "admin" di AKSES_JSON): nama/jabatan user yang login memuat salah satu kata ini.
-    // Sistem pencarian admin sama dengan saldokas.js: teks "NAMA (JABATAN)" dibaca dari #info_kasir, tidak peduli huruf besar/kecil.
+    // Fitur notifSaldo hanya untuk role yang punya fitur itu (lihat AKSES_JSON).
     // ====== HAK AKSES & FITUR (JSON) ======
-    // "admin"   -> daftar nama yang SELALU bisa memakai SEMUA fitur (public maupun private).
-    // "private" -> nama fitur yang HANYA boleh dipakai "admin". Nama fitur: kartuPpob (kartu PPOB + Dana Keluar), kartuRekap (Penerimaan Piutang, Pembayaran Hutang, Pendapatan Lain-Lain), notifSaldo (popup peringatan saldo PPOB).
-    // "public"  -> nama fitur yang boleh dipakai SEMUA user yang membuka halaman ini (saat ini kosong: semua fitur khusus admin).
-    // Fitur yang tidak disebut di keduanya dianggap private (hanya admin).
-    // Nama di "admin" dibaca dari tulisan "NAMA (JABATAN)" di pojok kanan bawah ERZAP (#info_kasir atau cadangannya). Cukup sebagian nama
-    // (tidak peduli huruf besar/kecil); isi nama lengkap persis seperti di ERZAP agar tidak salah cocok dengan user lain.
+    // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini.
+    // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua). Nama fitur: kartuPpob (kartu PPOB + Dana Keluar), kartuRekap (Penerimaan Piutang, Pembayaran Hutang, Pendapatan Lain-Lain), notifSaldo (popup peringatan saldo PPOB).
+    // "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
+    //              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
+    // Fitur yang tidak disebut di "public" maupun "private" ditolak.
     // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
     // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
     // Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script dan muat ulang halaman ERZAP.
     const AKSES_JSON = `{
-        "admin": ["SURYO", "SENTOT", "PUGUH", "DIMAS", "MANAJEMEN PUSAT"],
+        "public": ["tombolMenu"],
         "private": ["kartuPpob", "kartuRekap", "notifSaldo"],
-        "public": []
+        "role": {
+            "pusat": {
+                "nama": ["SURYO", "SENTOT", "PUGUH", "DIMAS", "MANAJEMEN PUSAT"],
+                "fitur": ["*"]
+            }
+        }
     }`;
     function bacaAkses() {
         try {
             const a = JSON.parse(AKSES_JSON) || {};
+            const role = a.role && typeof a.role === 'object' ? a.role : {};
             return {
-                admin: Array.isArray(a.admin) ? a.admin.map(String) : [],
                 public: Array.isArray(a.public) ? a.public.map(String) : [],
+                role: Object.keys(role).map(k => {
+                    const r = role[k] || {};
+                    return {
+                        nama: Array.isArray(r.nama) ? r.nama.map(String) : [],
+                        fitur: Array.isArray(r.fitur) ? r.fitur.map(String) : [],
+                    };
+                }),
             };
         } catch (err) {
             console.error('[home.js] AKSES_JSON tidak valid -> akses ditutup:', err.message);
-            return { admin: [], public: [] };
+            return { public: [], role: [] };
         }
     }
     const AKSES = bacaAkses();
@@ -857,9 +867,16 @@
         return '';
     }
     const cocokNama = (daftar) => { const n = namaUser(); return !!n && daftar.some((u) => n.indexOf(u.toLowerCase()) !== -1); };
-    const isAdmin = () => cocokNama(AKSES.admin);
+
     // dicek saat dipakai (bukan sekali di awal), karena nama kasir bisa dimuat belakangan
-    function bolehFitur(fitur) { return AKSES.public.indexOf(fitur) !== -1 || isAdmin(); }
+    // Role dicocokkan urut dari atas; role pertama yang namanya cocok yang menentukan.
+    function bolehFitur(fitur) {
+        if (AKSES.public.indexOf(fitur) !== -1) return true;
+        for (const r of AKSES.role) {
+            if (cocokNama(r.nama)) return r.fitur.indexOf('*') !== -1 || r.fitur.indexOf(fitur) !== -1;
+        }
+        return false;
+    }
     const NOTIF_BATAS = 5000000;   // peringatan bila saldo sama dengan atau di bawah batas ini (5 juta ke bawah)
     const NOTIF_ULANG_MS = 5 * 60 * 1000;
     let notifTerakhir = 0;      // waktu popup terakhir ditampilkan (0 = belum pernah di halaman ini)
@@ -1072,4 +1089,73 @@
         if (kartu && !document.body.contains(kartu)) { kartu = null; pasang(false); }
         if (bolehFitur('kartuRekap')) pasangKartuRekap();
     }, 2000);
+
+    // ====== TOMBOL MENU BERANDA (dari home_menu.js) ======
+    // Tombol tambahan di beranda + penyeragaman ukuran tombol. Akses: fitur "tombolMenu" (public).
+    if (bolehFitur('tombolMenu')) {
+
+      // Tombol tambahan: setelah tombol bernama "after", dengan ikon, teks, dan tujuan.
+      const EXTRA = [
+        { after: 'Produk',       icon: 'fa-archive',        text: 'Lihat stok',        href: '/produk_gudangs/lihat_stok/new' },
+        { after: 'Pembelian',    icon: 'fa-file-text',      text: 'Data PO',           href: '/pemesanans' },
+        { after: 'Penjualan',    icon: 'fa-check-square-o', text: 'Proses Pesanan',    href: '/pesanan_penjualans/index_proses_pesanan_start/new' },
+        { after: 'POS',          icon: 'fa-wrench',         text: 'Smart Repair',      href: '/servis_elektroniks/new' },
+        { after: 'Laba Rugi',    icon: 'fa-balance-scale',  text: 'Neraca',            href: '/laporans/neraca/new' },
+        { after: 'Hitung Kas',   icon: 'fa-exchange',       text: 'Transfer Kas/Bank', href: '/jurnals/form_transfer_kas_bank/new' }
+      ];
+  
+      const ALL_TILES = ['Produk', 'Pembelian', 'Penjualan', 'POS', 'Laba Rugi', 'Hitung Kas',
+        'Lihat stok', 'Data PO', 'Proses Pesanan', 'Smart Repair', 'Neraca', 'Transfer Kas/Bank'];
+  
+      const findLink = (text) =>
+        [...document.querySelectorAll('a')].find(a => a.querySelector('span')?.textContent.trim() === text);
+  
+      function addButtons() {
+        EXTRA.forEach(item => {
+          const id = 'erzap-btn-' + item.text.toLowerCase().replace(/[^a-z]+/g, '-');
+          if (document.getElementById(id)) return;
+          const anchor = findLink(item.after);
+          if (!anchor) return;
+          const panel = anchor.closest('.panel');
+          if (!panel) return;
+          const clone = panel.cloneNode(true);
+          const a = clone.querySelector('a');
+          a.id = id;
+          a.href = item.href;
+          a.querySelector('i').className = 'fa ' + item.icon;
+          a.querySelector('span').textContent = item.text;
+          panel.insertAdjacentElement('afterend', clone);
+        });
+      }
+  
+      function normalizeTiles() {
+        ALL_TILES.forEach(t => {
+          const a = findLink(t);
+          if (!a) return;
+          const panel = a.closest('.panel');
+          const body = panel.querySelector('.panel-body');
+          body.style.cssText = 'height:98px;box-sizing:border-box;padding:0 6px;overflow:hidden;display:flex;align-items:center;justify-content:center;';
+          a.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;text-align:center;';
+          const s = a.querySelector('span');
+          if (t === 'Transfer Kas/Bank') {
+            s.style.cssText = 'font-size:13px;line-height:16px;white-space:normal;word-break:break-word;display:block;margin-top:4px;padding:0 4px;';
+          } else {
+            s.style.cssText = 'font-size:14px;line-height:20px;white-space:nowrap;display:block;margin-top:4px;';
+          }
+          a.querySelector('i').style.fontSize = '25px';
+        });
+      }
+  
+      function run() {
+        addButtons();
+        normalizeTiles();
+      }
+  
+      run();
+      // Tidak memantau perubahan halaman terus-menerus. Hanya memeriksa ulang
+      // setelah pengguna mengklik sesuatu di halaman (misalnya saat menu berganti).
+      document.addEventListener('click', () => {
+        setTimeout(() => { if (!document.getElementById('erzap-btn-lihat-stok')) run(); }, 300);
+      }, true);
+    }
 })();
