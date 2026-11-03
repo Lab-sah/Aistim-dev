@@ -37,7 +37,8 @@
     "auditanalisa.js",
     "deposit.js",
     "pembatalan.js",
-    "searchable_select.js"
+    "searchable_select.js",
+    "crmrak.js"
   ],
   "hapus": [
     "pemindahan.js",
