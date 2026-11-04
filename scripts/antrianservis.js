@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.3
+// @version      1.13.4
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -28,10 +28,6 @@
       "pusat": {
         "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT"],
         "fitur": ["*"]
-      },
-      "cabang": {
-        "nama": ["ADMINTECH"],
-        "fitur": ["buatNota", "buatMember"]
       }
     }
   }`;
