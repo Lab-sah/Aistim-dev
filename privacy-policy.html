@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kebijakan Privasi - Aistim Tool</title>
+  <style>
+    :root { --text: #1f2933; --muted: #5b6770; --accent: #e5192d; --line: #e4e7eb; --bg: #ffffff; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) { --text: #e6e9ec; --muted: #a7b0b8; --accent: #ff5c6b; --line: #2e363d; --bg: #15191d; }
+    }
+    :root[data-theme="dark"] { --text: #e6e9ec; --muted: #a7b0b8; --accent: #ff5c6b; --line: #2e363d; --bg: #15191d; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 32px 16px 56px; }
+    h1 { font-size: 28px; margin: 0 0 4px; }
+    h1 span { color: var(--accent); }
+    h2 { font-size: 19px; margin: 32px 0 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+    p, li { margin: 8px 0; }
+    ul { padding-left: 22px; }
+    code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 14px; background: rgba(127,127,127,.12); padding: 1px 5px; border-radius: 4px; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 15px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; }
+    .muted { color: var(--muted); font-size: 14px; }
+    .catatan { border-left: 3px solid var(--accent); padding: 4px 12px; margin: 14px 0; color: var(--muted); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Kebijakan Privasi <span>Aistim Tool</span></h1>
+  <p class="muted">Berlaku untuk ekstensi Aistim Tool (Chrome, Edge, dan browser berbasis Chromium). Terakhir diperbarui: 4 November 2026.</p>
+
+  <h2>1. Ringkasan</h2>
+  <p>Aistim Tool adalah ekstensi browser yang menjalankan script bantu di halaman ERZAP (<code>*.erzap.com</code>) dan CRM Aistim (<code>*.aistim.icu</code>). Ekstensi ini <strong>tidak mengumpulkan, menjual, atau membagikan data pribadi Anda</strong> ke server pengembang. Semua pengaturan disimpan di browser Anda sendiri.</p>
+
+  <h2>2. Data yang disimpan di perangkat Anda</h2>
+  <p>Ekstensi menyimpan data berikut di penyimpanan lokal browser (<code>chrome.storage.local</code>). Data ini tidak dikirim ke pengembang:</p>
+  <table>
+    <tr><th>Data</th><th>Untuk apa</th></tr>
+    <tr><td>Daftar script dan status aktif/nonaktif</td><td>Menampilkan dan menyimpan pilihan Anda di popup.</td></tr>
+    <tr><td>Salinan kode script dan ETag dari GitHub</td><td>Supaya script tidak diunduh ulang setiap menit, dan tetap berjalan saat offline.</td></tr>
+    <tr><td>Daftar file dan daftar hapus</td><td>Mengetahui script mana yang harus dijalankan atau dihapus.</td></tr>
+    <tr><td>Waktu dan hasil sinkronisasi terakhir</td><td>Ditampilkan di popup.</td></tr>
+    <tr><td>Waktu pemeriksaan versi ekstensi terbaru</td><td>Agar pemeriksaan tidak berulang terlalu sering.</td></tr>
+  </table>
+  <p>Script yang Anda jalankan di halaman ERZAP atau CRM dapat menyimpan data sendiri di browser (misalnya di <code>sessionStorage</code>) untuk kebutuhan halaman itu. Data tersebut tetap berada di browser Anda.</p>
+
+  <h2>3. Data yang tidak kami kumpulkan</h2>
+  <ul>
+    <li>Nama, alamat email, nomor telepon, atau identitas lain yang dikumpulkan ekstensi untuk pengembang.</li>
+    <li>Kata sandi, token, atau cookie ERZAP. Ekstensi tidak membacanya untuk dikirim ke mana pun.</li>
+    <li>Riwayat penjelajahan di luar halaman ERZAP dan CRM Aistim.</li>
+    <li>Data analitik atau pelacakan. Ekstensi tidak memuat layanan analitik.</li>
+  </ul>
+
+  <h2>4. Koneksi jaringan yang dilakukan ekstensi</h2>
+  <p>Ekstensi melakukan permintaan jaringan berikut:</p>
+  <table>
+    <tr><th>Tujuan</th><th>Isi permintaan</th><th>Alasan</th></tr>
+    <tr><td><code>raw.githubusercontent.com</code> dan <code>api.github.com</code> (repositori Aistim-dev)</td><td>Permintaan untuk mengambil daftar dan kode script, serta pemeriksaan versi rilis. Permintaan ini membawa alamat IP dan data standar browser, seperti pada setiap kunjungan web.</td><td>Sinkronisasi script dan pemeriksaan pembaruan.</td></tr>
+    <tr><td>Halaman <code>*.erzap.com</code> yang sedang Anda buka</td><td>Permintaan yang dibuat script di halaman itu, dengan sesi login Anda sendiri, sama seperti jika Anda melakukannya secara manual.</td><td>Fitur kerja di ERZAP, misalnya mengisi atau menyimpan koreksi stok.</td></tr>
+    <tr><td><code>partdistro.com</code></td><td>Hanya permintaan dari halaman ERZAP yang lewat jembatan <code>x-fetch</code>. Ekstensi tidak mengirim permintaan ke host lain.</td><td>Mengambil data nota dari web untuk ditampilkan di ERZAP.</td></tr>
+    <tr><td><code>*.aistim.icu</code> (CRM Aistim)</td><td>Permintaan yang dibuat script CRM saat Anda memakai halamannya.</td><td>Fitur di situs CRM. Izin ke situs ini diminta secara terpisah lewat popup dan bersifat opsional.</td></tr>
+  </table>
+  <p>Ekstensi tidak membawa data pribadi Anda dalam permintaan ke layanan pengembang selain yang Anda kirim sendiri lewat halaman tersebut.</p>
+
+  <h2>5. Fitur rekam (devtool)</h2>
+  <p>Script <em>devtool</em> (<code>rekam.js</code>) tidak aktif secara default. Fitur ini hanya menyala jika Anda membuka halaman ERZAP dengan parameter <code>?rekam=1</code>, dan dimatikan dengan <code>?rekam=0</code>.</p>
+  <p>Saat aktif, fitur ini mencatat klik dan permintaan jaringan di halaman ERZAP untuk membantu analisis masalah. Token, cookie, dan kolom kata sandi disamarkan atau tidak ikut dicatat. Hasil rekaman <strong>hanya disalin ke clipboard</strong> oleh Anda sendiri. Ekstensi tidak mengirimkannya secara otomatis ke pengembang. Anda yang memutuskan apakah akan membagikannya, dan sebelum membagikan, periksa isinya terlebih dahulu.</p>
+
+  <h2>6. Izin yang diminta ekstensi</h2>
+  <table>
+    <tr><th>Izin</th><th>Alasan</th></tr>
+    <tr><td><code>storage</code></td><td>Menyimpan pengaturan dan cache script di browser Anda.</td></tr>
+    <tr><td><code>userScripts</code></td><td>Menjalankan script bantu di halaman yang cocok dengan aturan masing-masing script.</td></tr>
+    <tr><td><code>alarms</code></td><td>Menjalankan sinkronisasi script secara berkala (sekitar 1 menit).</td></tr>
+    <tr><td>Akses ke <code>*.erzap.com</code></td><td>Script bantu bekerja di halaman ERZAP.</td></tr>
+    <tr><td>Akses ke <code>*.aistim.icu</code> (opsional)</td><td>Hanya diminta jika Anda ingin memakai fitur CRM. Anda bisa menolak.</td></tr>
+  </table>
+
+  <h2>7. Kode script dari luar paket</h2>
+  <p>Ekstensi mengambil kode script dari repositori GitHub proyek ini dan menjalankannya di halaman yang cocok. Kode itu dapat berubah tanpa rilis ulang ekstensi. Script yang dijalankan dapat dilihat di repositori, dan dapat dinonaktifkan satu per satu dari popup.</p>
+
+  <h2>8. Berbagi data dengan pihak lain</h2>
+  <p>Kami tidak menjual, menyewakan, atau membagikan data pengguna kepada pihak ketiga untuk tujuan iklan atau pelacakan. Layanan yang menerima permintaan jaringan di poin 4 (GitHub, situs ERZAP, partdistro.com, dan situs CRM) memproses permintaan itu menurut kebijakan mereka sendiri.</p>
+
+  <h2>9. Anak-anak</h2>
+  <p>Ekstensi ini ditujukan untuk pengguna dewasa yang bekerja di ERZAP. Kami tidak sengaja mengumpulkan data dari anak di bawah 13 tahun.</p>
+
+  <h2>10. Menghapus data</h2>
+  <p>Anda dapat menghapus semua data ekstensi dengan menghapus Aistim Tool dari <code>chrome://extensions</code>, atau menghapus data situs ERZAP dan CRM dari pengaturan browser.</p>
+
+  <h2>11. Perubahan kebijakan</h2>
+  <p>Jika kebijakan ini berubah, tanggal "terakhir diperbarui" di atas akan diganti dan versi terbaru akan dipublikasikan di halaman ini.</p>
+
+  <h2>12. Kontak</h2>
+  <p>Pertanyaan tentang kebijakan ini dapat dikirim ke <strong>[NAMA PENGEMBANG]</strong> melalui <strong>[ALAMAT KONTAK]</strong>.</p>
+  <p class="catatan">Isi [NAMA PENGEMBANG] dan [ALAMAT KONTAK] sebelum dipublikasikan. Chrome Web Store meminta alamat kontak yang bisa dihubungi.</p>
+</main>
+</body>
+</html>
