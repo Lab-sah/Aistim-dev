@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.4
+// @version      1.13.5
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -261,6 +261,15 @@
     });
   }
 
+  // Ambil nilai kolom dari daftar kemungkinan judul (urutan prioritas)
+  function getCellAny(row, names) {
+    for (const n of names) {
+      const v = getCell(row, n);
+      if (v) return v;
+    }
+    return '';
+  }
+
   // Isi Pelanggan lewat autocomplete bawaan form (jQuery UI). Kalau autocomplete belum siap, ditunggu dulu.
   // Kalau nama tidak ditemukan di hasil autocomplete, nilainya tetap diisi langsung.
   async function isiPelanggan(nama) {
@@ -376,7 +385,7 @@
   async function ambilUnitDariRow(row, sn) {
     // Nota bisa berupa nota_penerimaan (tanda terima) atau nota_tutup_servis
     const link = row.querySelector('a[href*="/nota_"]');
-    if (!link) return '';
+    if (!link) return getCellAny(row, ['Unit', 'Nama Barang', 'Barang']);
     const html = await (await fetch(link.getAttribute('href'), { credentials: 'same-origin' })).text();
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const target = (sn || '').replace(/\s+/g, '').toUpperCase();
@@ -435,8 +444,10 @@
       return;
     }
 
-    const pelanggan = getCell(row, 'Pelanggan');
-    const sn = getCell(row, 'SN');
+    const namaCari = modal.querySelector('#pencarian_nama_pelanggan');
+    const pelanggan = getCellAny(row, ['Pelanggan', 'Nama Pelanggan', 'Nama']) ||
+      (namaCari ? namaCari.value.trim() : '');
+    const sn = getCellAny(row, ['SN', 'Serial Number', 'Serial No', 'No Seri']);
 
     // Tutup jendela Lacak Servis dulu
     const closeBtn = [...modal.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Tutup');
