@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.19
+// @version      1.13.20
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -426,20 +426,31 @@
     return { alamat: alamat, telp: telp };
   }
 
-  // Tampilkan telp dan alamat di atas tabel jendela Lacak Servis (sebelum tabel)
+  // Tampilkan telp dan alamat di bawah kolom Serial Number (jendela Lacak Servis), satu baris per data:
+  // Telp dulu, lalu Alamat di bawahnya. Kalau kolom SN tidak ketemu, ditaruh di atas tabel.
   function tampilKontak(modal, kontak) {
+    const sn = modal.querySelector('#pencarian_serial_number') || modal.querySelector('input[name="pencarian[serial_number]"]');
     const tabel = modal.querySelector('table');
-    if (!tabel || !tabel.parentElement) return;
     let box = modal.querySelector('#tm-kontak-nota');
     if (!box) {
       box = document.createElement('div');
       box.id = 'tm-kontak-nota';
-      box.style.cssText = 'margin:8px 0;padding:8px 10px;border:1px solid #cfd8e3;border-radius:6px;background:#f5f8fb;font-size:14px;line-height:1.5';
-      tabel.parentElement.insertBefore(box, tabel);
+      box.style.cssText = 'margin:6px 0 10px;font-size:14px;line-height:1.6;color:#1f2933';
+      const baris = (teks) => {
+        const d = document.createElement('div');
+        d.className = 'tm-kontak-baris';
+        d.textContent = teks;
+        return d;
+      };
+      box.appendChild(baris(''));
+      box.appendChild(baris(''));
+      if (sn && sn.parentElement) sn.parentElement.insertAdjacentElement('afterend', box);
+      else if (tabel && tabel.parentElement) tabel.parentElement.insertBefore(box, tabel);
+      else return;
     }
-    const telp = kontak && kontak.telp ? kontak.telp : '-';
-    const alamat = kontak && kontak.alamat ? kontak.alamat : '-';
-    box.textContent = 'Telp: ' + telp + '  |  Alamat: ' + alamat;
+    const [telpEl, alamatEl] = box.querySelectorAll('.tm-kontak-baris');
+    telpEl.textContent = 'Telp: ' + (kontak && kontak.telp ? kontak.telp : '-');
+    alamatEl.textContent = 'Alamat: ' + (kontak && kontak.alamat ? kontak.alamat : '-');
   }
 
   // Ambil dari nota servis: nama barang (kolom Unit / Nama Barang), SN bila di Lacak Servis kosong,
