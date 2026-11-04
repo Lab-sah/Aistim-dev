@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.12
+// @version      1.13.13
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -436,10 +436,14 @@
 
   // Cek dan pasang ulang Termin, Tipe Penjualan, dan Outlet. Mengembalikan hasil tiap pengaturan.
   function pastikanPengaturanNota() {
+    // Jenis Servis = Rawat Inap (radio), sama seperti di alur Buat Member
+    const rawat = document.getElementById('servis_elektronik_is_rawat_inap_true');
+    if (rawat && !rawat.checked) rawat.click();
     return {
       okTermin: pastikanOpsi('servis_elektronik_idtermin', 'Tunai'),
       okTipe: pastikanOpsi('servis_elektronik_idtipe_penjualan', 'SERVICE'),
       okOutlet: pastikanOpsi('servis_elektronik_idoutlet_own', 'OTOTECH JOMBANG'),
+      okRawat: !!(rawat && rawat.checked),
     };
   }
 
@@ -494,14 +498,15 @@
       hasil = pastikanPengaturanNota();
     }
 
-    if (!okPelanggan || !okSn || !okUnit || !hasil.okTermin || !hasil.okTipe || !hasil.okOutlet) {
+    if (!okPelanggan || !okSn || !okUnit || !hasil.okTermin || !hasil.okTipe || !hasil.okOutlet || !hasil.okRawat) {
       alert(
         'Sebagian data belum terisi. Pelanggan: ' + (okPelanggan ? 'OK' : 'gagal') +
         ', Serial Number: ' + (okSn ? 'OK' : 'gagal') +
         ', Nama Barang: ' + (okUnit ? 'OK' : 'gagal') +
         ', Termin: ' + (hasil.okTermin ? 'OK' : 'gagal') +
         ', Tipe Penjualan: ' + (hasil.okTipe ? 'OK' : 'gagal') +
-        ', Outlet: ' + (hasil.okOutlet ? 'OK' : 'gagal')
+        ', Outlet: ' + (hasil.okOutlet ? 'OK' : 'gagal') +
+        ', Jenis Servis (Rawat Inap): ' + (hasil.okRawat ? 'OK' : 'gagal')
       );
     }
   }
