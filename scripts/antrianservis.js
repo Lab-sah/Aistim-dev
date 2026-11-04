@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.20
+// @version      1.13.21
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -257,6 +257,17 @@
       isi(['#pencarian_unit', 'input[name="pencarian[unit]"]'], info.unit);
       if (!sn && info.sn) isi(['#pencarian_serial_number', 'input[name="pencarian[serial_number]"]'], info.sn);
     } catch (err) { /* nama barang tetap kosong */ }
+  }
+
+  // Hasil pencarian yang baru muncul: baris pertama langsung dipilih (sama seperti diklik),
+  // supaya kolom pencarian dan telp/alamat ikut terisi. Satu kali per hasil yang sama.
+  function autoPilihBaris(modal) {
+    const tr = modal.querySelector('tbody tr');
+    if (!tr || tr.querySelectorAll('td').length < 3) return;
+    const sig = tr.textContent.replace(/\s+/g, ' ').trim();
+    if (!sig || modal.dataset.tmAutoSig === sig) return;
+    modal.dataset.tmAutoSig = sig;
+    tr.click();
   }
 
   // Klik baris tabel untuk memilih servis (klik link di dalam baris tidak mengubah pilihan)
@@ -623,6 +634,7 @@
     const modal = findModal();
     if (!modal) return;
     bindRowSelection(modal);
+    autoPilihBaris(modal);
     // Saat Lacak Servis dibuka, Jenis Servis langsung Rawat Inap (sekali per jendela)
     if (!modal.dataset.tmRawat) {
       modal.dataset.tmRawat = '1';
