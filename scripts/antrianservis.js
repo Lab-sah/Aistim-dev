@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.5
+// @version      1.13.6
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -383,8 +383,8 @@
 
   // Ambil nama unit dari halaman nota servis (kolom Unit pada tabel, dicocokkan dengan SN)
   async function ambilUnitDariRow(row, sn) {
-    // Nota bisa berupa nota_penerimaan (tanda terima) atau nota_tutup_servis
-    const link = row.querySelector('a[href*="/nota_"]');
+    // Nota penutupan servis (nota_tutup_servis) yang memuat kolom Unit; tautan nota lain (mis. penerimaan) tidak dipakai
+    const link = row.querySelector('a[href*="nota_tutup_servis"]');
     if (!link) return getCellAny(row, ['Unit', 'Nama Barang', 'Barang']);
     const html = await (await fetch(link.getAttribute('href'), { credentials: 'same-origin' })).text();
     const doc = new DOMParser().parseFromString(html, 'text/html');
