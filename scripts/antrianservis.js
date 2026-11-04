@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.9
+// @version      1.13.10
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -198,39 +198,6 @@
         }
       }
     }, 500);
-  }
-
-  function getSnSearchInput(modal) {
-    return modal.querySelector('#pencarian_serial_number') ||
-      modal.querySelector('input[name*="serial_number"]');
-  }
-
-  function bindSearchValidation(modal) {
-    if (modal.dataset.tmSearchBound) return;
-    modal.dataset.tmSearchBound = '1';
-
-    const tolak = (e, input) => {
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-      alert('Serial Number harus diisi');
-      if (input) input.focus();
-    };
-
-    // Tombol Pencarian (capture: dicek sebelum handler bawaan halaman)
-    modal.addEventListener('click', (e) => {
-      const btn = e.target.closest('button');
-      if (!btn || btn.textContent.trim() !== 'Pencarian') return;
-      const input = getSnSearchInput(modal);
-      if (input && !input.value.trim()) tolak(e, input);
-    }, true);
-
-    // Tekan Enter di kolom Serial Number juga dicek
-    modal.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter') return;
-      const input = getSnSearchInput(modal);
-      if (input && e.target === input && !input.value.trim()) tolak(e, input);
-    }, true);
   }
 
   function normHeader(x) {
@@ -546,7 +513,6 @@
     const modal = findModal();
     if (!modal) return;
     bindRowSelection(modal);
-    bindSearchValidation(modal);
 
     const closeBtn = [...modal.querySelectorAll('button')].find(
       (b) => b.textContent.trim() === 'Tutup'
