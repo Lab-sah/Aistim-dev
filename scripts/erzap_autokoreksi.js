@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Erzap - Auto Koreksi
 // @namespace    http://tampermonkey.net/
-// @version      1.12.1
-// @updateURL    https://raw.githubusercontent.com/devtim-lab/Aistim-dev/main/scripts/erzap_autokoreksi.js
-// @downloadURL  https://raw.githubusercontent.com/devtim-lab/Aistim-dev/main/scripts/erzap_autokoreksi.js
+// @version      1.12.2
+// @updateURL    https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
+// @downloadURL  https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
 // @description  [v1.12.1] Hanya lanjut otomatis kalau halaman dibuka oleh script sendiri (maks 1 menit) - buka halaman koreksi manual tidak pernah auto jalan. Ganti ID SO = mulai dari awal (isi pengkoreksi & tanggal lagi, tidak auto jalan). Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI, stop & refresh halaman. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
 // @author       You
 // @match        https://*.erzap.com/stok_opnams/proses_koreksi_so/*
