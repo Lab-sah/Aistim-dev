@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.10
+// @version      1.13.11
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -369,11 +369,13 @@
     }, 300);
   }
 
-  // Ambil nama unit dari halaman nota servis (kolom Unit pada tabel, dicocokkan dengan SN)
-  async function ambilUnitDariRow(row, sn) {
-    // Nota penutupan servis (nota_tutup_servis) yang memuat kolom Unit; tautan nota lain (mis. penerimaan) tidak dipakai
-    const link = row.querySelector('a[href*="nota_tutup_servis"]');
-    if (!link) return getCellAny(row, ['Unit', 'Nama Barang', 'Barang']);
+  // Ambil nama barang (kolom Unit / Nama Barang) dan, bila SN kosong di Lacak Servis, SN dari halaman nota.
+  // Nota penutupan (nota_tutup_servis) dipakai lebih dulu; kalau belum ditutup, nota penerimaan (nota_penerimaan).
+  // Kalau SN diisi: baris dicocokkan dengan SN. Kalau SN kosong: hanya dipakai bila nota memuat tepat satu baris barang.
+  async function ambilDariNota(row, sn) {
+    const kosong = { unit: '', sn: '' };
+    const link = row.querySelector('a[href*="nota_tutup_servis"]') || row.querySelector('a[href*="nota_penerimaan"]');
+    if (!link) return { unit: getCellAny(row, ['Unit', 'Nama Barang', 'Barang']), sn: '' };
     const html = await (await fetch(link.getAttribute('href'), { credentials: 'same-origin' })).text();
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const target = (sn || '').replace(/\s+/g, '').toUpperCase();
@@ -381,18 +383,28 @@
       const headers = [...t.querySelectorAll('thead th, thead td, tr:first-child th, tr:first-child td')].map((h) => h.textContent.trim().toUpperCase());
       const iUnit = headers.findIndex((h) => h === 'UNIT' || h === 'NAMA BARANG');
       const iSn = headers.findIndex((h) => h === 'SN' || h === 'SERIAL NUMBER');
-      if (iUnit < 0 || iSn < 0) continue;
-      const rows = [...t.querySelectorAll('tbody tr')];
-      // Hanya baris yang SN-nya cocok. Tidak diambil baris pertama sebagai cadangan, supaya nama barang tidak salah.
-      const match = rows.find((r) => {
-        const c = r.querySelectorAll('td');
-        return c[iSn] && c[iSn].textContent.replace(/\s+/g, '').toUpperCase() === target;
-      });
-      if (!match) return '';
-      const c = match.querySelectorAll('td');
-      return c[iUnit] ? c[iUnit].textContent.trim() : '';
+      if (iUnit < 0) continue;
+      const rows = [...t.querySelectorAll('tbody tr')].filter((r) => r.querySelectorAll('td').length > 0);
+      let match = null;
+      if (target) {
+        // Hanya baris yang SN-nya cocok. Tidak diambil baris pertama sebagai cadangan, supaya nama barang tidak salah.
+        match = iSn >= 0 ? rows.find((r) => {
+          const c = r.querySelectorAll('td');
+          return c[iSn] && c[iSn].textContent.replace(/\s+/g, '').toUpperCase() === target;
+        }) : null;
+        if (!match) return kosong;
+        return { unit: cellText(match, iUnit), sn: '' };
+      }
+      // SN kosong di Lacak Servis: ambil dari nota, hanya kalau jelas satu barang
+      if (rows.length !== 1) return kosong;
+      return { unit: cellText(rows[0], iUnit), sn: iSn >= 0 ? cellText(rows[0], iSn) : '' };
     }
-    return '';
+    return kosong;
+  }
+
+  function cellText(tr, idx) {
+    const c = tr.querySelectorAll('td');
+    return c[idx] ? c[idx].textContent.trim() : '';
   }
 
   // Isi Nama Barang (unit) di form
@@ -462,14 +474,16 @@
     if (closeBtn) closeBtn.click();
 
     const okPelanggan = pelanggan ? await isiPelanggan(pelanggan) : false;
-    const okSn = sn ? isiSerialNumber(sn) : false;
-    let okUnit = false;
+    let unit = '';
     try {
-      const unit = await ambilUnitDariRow(row, sn);
-      okUnit = unit ? isiNamaBarang(unit) : false;
+      const info = await ambilDariNota(row, sn);
+      unit = info.unit;
+      if (!sn && info.sn) sn = info.sn;
     } catch (err) {
-      okUnit = false;
+      unit = '';
     }
+    const okSn = sn ? isiSerialNumber(sn) : false;
+    const okUnit = unit ? isiNamaBarang(unit) : false;
 
     // Termin, Tipe, dan Outlet diisi terakhir, setelah semua ajax dari Pelanggan selesai,
     // karena bisa ter-reset oleh halaman. Dicek ulang beberapa kali supaya tidak hilang.
