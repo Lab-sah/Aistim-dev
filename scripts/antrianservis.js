@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.14
+// @version      1.13.15
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -369,38 +369,57 @@
     }, 300);
   }
 
-  // Ambil nama barang (kolom Unit / Nama Barang) dan, bila SN kosong di Lacak Servis, SN dari halaman nota.
-  // Nota penutupan (nota_tutup_servis) dipakai lebih dulu; kalau belum ditutup, nota penerimaan (nota_penerimaan).
+  // Nama pelanggan dari "Kepada Yth:" di nota. Bisa di teks yang sama ("Kepada Yth: PAK JONI"),
+  // atau di elemen sesudah label (mis. div berikutnya).
+  function ambilKepadaYth(doc) {
+    const rapi = (t) => (t || '').replace(/\s+/g, ' ').trim();
+    const label = [...doc.body.querySelectorAll('*')].find((el) =>
+      /^kepada\s*yth\b/i.test(rapi(el.textContent)) &&
+      ![...el.children].some((c) => /^kepada\s*yth\b/i.test(rapi(c.textContent))));
+    if (!label) return '';
+    // Teks setelah label dalam elemen yang sama
+    const isi = rapi(label.textContent).replace(/^kepada\s*yth\.?\s*:?/i, '').replace(/^:\s*/, '').trim();
+    if (isi && /[a-z]/i.test(isi) && isi.length <= 60) return isi;
+    // Elemen sesudah label: naik ke induk sampai ketemu saudara berikutnya
+    let node = label;
+    while (node && !node.nextElementSibling) node = node.parentElement;
+    if (!node || !node.nextElementSibling) return '';
+    return rapi(node.nextElementSibling.textContent);
+  }
+
+  // Ambil dari nota servis: nama pelanggan ("Kepada Yth"), nama barang (kolom Unit / Nama Barang),
+  // dan SN bila di Lacak Servis kosong. Nota penutupan (nota_tutup_servis) dipakai lebih dulu,
+  // kalau belum ditutup nota penerimaan (nota_penerimaan).
   // Kalau SN diisi: baris dicocokkan dengan SN. Kalau SN kosong: hanya dipakai bila nota memuat tepat satu baris barang.
   async function ambilDariNota(row, sn) {
-    const kosong = { unit: '', sn: '' };
     const link = row.querySelector('a[href*="nota_tutup_servis"]') || row.querySelector('a[href*="nota_penerimaan"]');
-    if (!link) return { unit: getCellAny(row, ['Unit', 'Nama Barang', 'Barang']), sn: '' };
+    if (!link) return { unit: getCellAny(row, ['Unit', 'Nama Barang', 'Barang']), sn: '', pelanggan: '' };
     const html = await (await fetch(link.getAttribute('href'), { credentials: 'same-origin' })).text();
     const doc = new DOMParser().parseFromString(html, 'text/html');
+    const pelanggan = ambilKepadaYth(doc);
+    const kosong = { unit: '', sn: '', pelanggan: pelanggan };
     const target = (sn || '').replace(/\s+/g, '').toUpperCase();
+    const norm = (t) => (t || '').replace(/\s+/g, '').toUpperCase();
     for (const t of doc.querySelectorAll('table')) {
       const headers = [...t.querySelectorAll('thead th, thead td, tr:first-child th, tr:first-child td')].map((h) => h.textContent.trim().toUpperCase());
       const iUnit = headers.findIndex((h) => h === 'UNIT' || h === 'NAMA BARANG');
       const iSn = headers.findIndex((h) => h === 'SN' || h === 'SERIAL NUMBER');
       if (iUnit < 0) continue;
       const rows = [...t.querySelectorAll('tbody tr')].filter((r) => r.querySelectorAll('td').length > 0);
-      let match = null;
       if (target) {
         // Hanya baris yang punya nilai SN sama (di kolom SN, atau di kolom mana pun bila judul kolomnya beda,
         // mis. Nopol). Tidak diambil baris pertama sebagai cadangan, supaya nama barang tidak salah.
-        const norm = (t) => (t || '').replace(/\s+/g, '').toUpperCase();
-        match = rows.find((r) => {
+        const match = rows.find((r) => {
           const c = [...r.querySelectorAll('td')];
           if (iSn >= 0) return c[iSn] && norm(c[iSn].textContent) === target;
           return c.some((x) => norm(x.textContent) === target);
-        }) || null;
+        });
         if (!match) return kosong;
-        return { unit: cellText(match, iUnit), sn: '' };
+        return { unit: cellText(match, iUnit), sn: '', pelanggan: pelanggan };
       }
       // SN kosong di Lacak Servis: ambil dari nota, hanya kalau jelas satu barang
       if (rows.length !== 1) return kosong;
-      return { unit: cellText(rows[0], iUnit), sn: iSn >= 0 ? cellText(rows[0], iSn) : '' };
+      return { unit: cellText(rows[0], iUnit), sn: iSn >= 0 ? cellText(rows[0], iSn) : '', pelanggan: pelanggan };
     }
     return kosong;
   }
@@ -476,19 +495,22 @@
       console.warn('[antrianservis] judul kolom Pelanggan tidak terbaca. Judul:', getHeaders(row), 'Pelanggan dipakai:', pelanggan);
     }
 
+    // Data dari nota (Kepada Yth = pelanggan, Nama Barang, SN). Diambil sebelum jendela Lacak Servis ditutup.
+    let info = { unit: '', sn: '', pelanggan: '' };
+    try {
+      info = await ambilDariNota(row, sn);
+    } catch (err) {
+      info = { unit: '', sn: '', pelanggan: '' };
+    }
+    if (info.pelanggan) pelanggan = info.pelanggan;
+    if (!sn && info.sn) sn = info.sn;
+    const unit = info.unit;
+
     // Tutup jendela Lacak Servis dulu
     const closeBtn = [...modal.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Tutup');
     if (closeBtn) closeBtn.click();
 
     const okPelanggan = pelanggan ? await isiPelanggan(pelanggan) : false;
-    let unit = '';
-    try {
-      const info = await ambilDariNota(row, sn);
-      unit = info.unit;
-      if (!sn && info.sn) sn = info.sn;
-    } catch (err) {
-      unit = '';
-    }
     const okSn = sn ? isiSerialNumber(sn) : false;
     const okUnit = unit ? isiNamaBarang(unit) : false;
 
