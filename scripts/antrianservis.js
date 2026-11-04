@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.11
+// @version      1.13.12
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -255,8 +255,8 @@
   }
 
   // Isi Pelanggan lewat autocomplete bawaan form (jQuery UI). Kalau autocomplete belum siap, ditunggu dulu.
-  // Hanya nama yang persis sama dengan hasil autocomplete yang dipilih (supaya tidak salah pelanggan).
-  // Kalau tidak ditemukan, nilai nama tetap diisi sebagai teks dan hasilnya dilaporkan gagal.
+  // Nama diambil dari kolom Pelanggan di tabel Lacak Servis. Kalau persis sama dengan hasil autocomplete,
+  // dipilih lewat autocomplete (id pelanggan ikut terisi). Kalau tidak, nama tetap diisi sebagai teks.
   async function isiPelanggan(nama) {
     const $ = window.jQuery;
     const el = $ ? $('#' + PELANGGAN_ID) : null;
@@ -270,7 +270,7 @@
     const inst = el.data('ui-autocomplete');
     if (!inst) {
       el.val(nama).trigger('change');
-      return false;
+      return true;
     }
 
     el.val('');
@@ -296,7 +296,7 @@
       el.val(nama).trigger('change');
     }
     el.autocomplete('close');
-    return !!item;
+    return true;
   }
 
   // Isi Serial Number dan picu event supaya form ikut membaca nilainya
