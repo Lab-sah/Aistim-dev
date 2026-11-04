@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.15
+// @version      1.13.16
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -369,35 +369,16 @@
     }, 300);
   }
 
-  // Nama pelanggan dari "Kepada Yth:" di nota. Bisa di teks yang sama ("Kepada Yth: PAK JONI"),
-  // atau di elemen sesudah label (mis. div berikutnya).
-  function ambilKepadaYth(doc) {
-    const rapi = (t) => (t || '').replace(/\s+/g, ' ').trim();
-    const label = [...doc.body.querySelectorAll('*')].find((el) =>
-      /^kepada\s*yth\b/i.test(rapi(el.textContent)) &&
-      ![...el.children].some((c) => /^kepada\s*yth\b/i.test(rapi(c.textContent))));
-    if (!label) return '';
-    // Teks setelah label dalam elemen yang sama
-    const isi = rapi(label.textContent).replace(/^kepada\s*yth\.?\s*:?/i, '').replace(/^:\s*/, '').trim();
-    if (isi && /[a-z]/i.test(isi) && isi.length <= 60) return isi;
-    // Elemen sesudah label: naik ke induk sampai ketemu saudara berikutnya
-    let node = label;
-    while (node && !node.nextElementSibling) node = node.parentElement;
-    if (!node || !node.nextElementSibling) return '';
-    return rapi(node.nextElementSibling.textContent);
-  }
-
-  // Ambil dari nota servis: nama pelanggan ("Kepada Yth"), nama barang (kolom Unit / Nama Barang),
+  // Ambil dari nota servis: nama barang (kolom Unit / Nama Barang),
   // dan SN bila di Lacak Servis kosong. Nota penutupan (nota_tutup_servis) dipakai lebih dulu,
   // kalau belum ditutup nota penerimaan (nota_penerimaan).
   // Kalau SN diisi: baris dicocokkan dengan SN. Kalau SN kosong: hanya dipakai bila nota memuat tepat satu baris barang.
   async function ambilDariNota(row, sn) {
     const link = row.querySelector('a[href*="nota_tutup_servis"]') || row.querySelector('a[href*="nota_penerimaan"]');
-    if (!link) return { unit: getCellAny(row, ['Unit', 'Nama Barang', 'Barang']), sn: '', pelanggan: '' };
+    if (!link) return { unit: getCellAny(row, ['Unit', 'Nama Barang', 'Barang']), sn: '' };
     const html = await (await fetch(link.getAttribute('href'), { credentials: 'same-origin' })).text();
     const doc = new DOMParser().parseFromString(html, 'text/html');
-    const pelanggan = ambilKepadaYth(doc);
-    const kosong = { unit: '', sn: '', pelanggan: pelanggan };
+    const kosong = { unit: '', sn: '' };
     const target = (sn || '').replace(/\s+/g, '').toUpperCase();
     const norm = (t) => (t || '').replace(/\s+/g, '').toUpperCase();
     for (const t of doc.querySelectorAll('table')) {
@@ -415,11 +396,11 @@
           return c.some((x) => norm(x.textContent) === target);
         });
         if (!match) return kosong;
-        return { unit: cellText(match, iUnit), sn: '', pelanggan: pelanggan };
+        return { unit: cellText(match, iUnit), sn: '' };
       }
       // SN kosong di Lacak Servis: ambil dari nota, hanya kalau jelas satu barang
       if (rows.length !== 1) return kosong;
-      return { unit: cellText(rows[0], iUnit), sn: iSn >= 0 ? cellText(rows[0], iSn) : '', pelanggan: pelanggan };
+      return { unit: cellText(rows[0], iUnit), sn: iSn >= 0 ? cellText(rows[0], iSn) : '' };
     }
     return kosong;
   }
@@ -495,14 +476,13 @@
       console.warn('[antrianservis] judul kolom Pelanggan tidak terbaca. Judul:', getHeaders(row), 'Pelanggan dipakai:', pelanggan);
     }
 
-    // Data dari nota (Kepada Yth = pelanggan, Nama Barang, SN). Diambil sebelum jendela Lacak Servis ditutup.
-    let info = { unit: '', sn: '', pelanggan: '' };
+    // Data dari nota (Nama Barang dan SN). Diambil sebelum jendela Lacak Servis ditutup.
+    let info = { unit: '', sn: '' };
     try {
       info = await ambilDariNota(row, sn);
     } catch (err) {
-      info = { unit: '', sn: '', pelanggan: '' };
+      info = { unit: '', sn: '' };
     }
-    if (info.pelanggan) pelanggan = info.pelanggan;
     if (!sn && info.sn) sn = info.sn;
     const unit = info.unit;
 
