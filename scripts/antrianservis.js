@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.7
+// @version      1.13.8
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -462,12 +462,18 @@
     }
 
     const namaCari = modal.querySelector('#pencarian_nama_pelanggan');
+    const sel = row.querySelectorAll('td');
+    const teksSel = (td) => (td ? (td.innerText || td.textContent || '').trim() : '');
+
+    // Pelanggan: dari judul kolom. Kalau judul tidak terbaca, dipakai kolom ke-3 (urutan tabel Lacak Servis:
+    // Tanggal, Kode Servis, Pelanggan, SN, ...), lalu kolom pencarian Pelanggan. Pemakaian cadangan dicatat di console.
     let pelanggan = getCellAny(row, ['Pelanggan', 'Nama Pelanggan', 'Nama']);
-    if (!pelanggan && namaCari) {
-      pelanggan = namaCari.value.trim();
-      console.warn('[antrianservis] judul kolom Pelanggan tidak terbaca. Judul:', getHeaders(row), 'dipakai dari kolom pencarian:', pelanggan);
+    let sn = getCellAny(row, ['SN', 'Serial Number', 'Serial No', 'No Seri']);
+    if (!pelanggan || !sn) {
+      console.warn('[antrianservis] judul kolom tidak terbaca. Judul:', getHeaders(row), 'Isi baris:', [...sel].map(teksSel));
     }
-    const sn = getCellAny(row, ['SN', 'Serial Number', 'Serial No', 'No Seri']);
+    if (!pelanggan) pelanggan = teksSel(sel[2]) || (namaCari ? namaCari.value.trim() : '');
+    if (!sn) sn = teksSel(sel[3]);
 
     // Tutup jendela Lacak Servis dulu
     const closeBtn = [...modal.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Tutup');
