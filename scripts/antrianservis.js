@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.0
+// @version      1.13.2
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -203,6 +203,39 @@
     }, 500);
   }
 
+  function getSnSearchInput(modal) {
+    return modal.querySelector('#pencarian_serial_number') ||
+      modal.querySelector('input[name*="serial_number"]');
+  }
+
+  function bindSearchValidation(modal) {
+    if (modal.dataset.tmSearchBound) return;
+    modal.dataset.tmSearchBound = '1';
+
+    const tolak = (e, input) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      alert('Serial Number harus diisi');
+      if (input) input.focus();
+    };
+
+    // Tombol Pencarian (capture: dicek sebelum handler bawaan halaman)
+    modal.addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn || btn.textContent.trim() !== 'Pencarian') return;
+      const input = getSnSearchInput(modal);
+      if (input && !input.value.trim()) tolak(e, input);
+    }, true);
+
+    // Tekan Enter di kolom Serial Number juga dicek
+    modal.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      const input = getSnSearchInput(modal);
+      if (input && e.target === input && !input.value.trim()) tolak(e, input);
+    }, true);
+  }
+
   // Ambil nilai kolom berdasarkan judul header (Pelanggan, SN, ...)
   function getCell(row, headerName) {
     const table = row.closest('table');
@@ -401,25 +434,24 @@
     } catch (err) {
       okUnit = false;
     }
-    // Termin, Tipe Penjualan, Jenis Servis (Rawat Inap), dan Outlet dipasang lalu dijaga
-    // selama form masih memproses ajax dari Pelanggan, supaya tidak ter-reset
-    await tungguAjax();
-    jagaPengaturan(6000);
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    const okTermin = cekOpsi('servis_elektronik_idtermin', 'Tunai');
-    const okTipe = cekOpsi('servis_elektronik_idtipe_penjualan', 'SERVICE');
-    const rawat = document.getElementById('servis_elektronik_is_rawat_inap_true');
-    const okRawat = !!rawat && rawat.checked;
-    const okOutlet = cekOpsi('servis_elektronik_idoutlet_own', 'OTOTECH JOMBANG');
+    const okTermin = pilihOpsi('servis_elektronik_idtermin', 'Tunai');
+    const okTipe = pilihOpsi('servis_elektronik_idtipe_penjualan', 'SERVICE');
 
-    if (!okPelanggan || !okSn || !okUnit || !okTermin || !okTipe || !okRawat || !okOutlet) {
+    // Outlet diisi terakhir, setelah semua ajax dari Pelanggan selesai, karena bisa ter-reset oleh halaman
+    await tungguAjax();
+    let okOutlet = pilihOpsi('servis_elektronik_idoutlet_own', 'OTOTECH JOMBANG');
+    if (okOutlet) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      okOutlet = pilihOpsi('servis_elektronik_idoutlet_own', 'OTOTECH JOMBANG');
+    }
+
+    if (!okPelanggan || !okSn || !okUnit || !okTermin || !okTipe || !okOutlet) {
       alert(
         'Sebagian data belum terisi. Pelanggan: ' + (okPelanggan ? 'OK' : 'gagal') +
         ', Serial Number: ' + (okSn ? 'OK' : 'gagal') +
         ', Nama Barang: ' + (okUnit ? 'OK' : 'gagal') +
         ', Termin: ' + (okTermin ? 'OK' : 'gagal') +
         ', Tipe Penjualan: ' + (okTipe ? 'OK' : 'gagal') +
-        ', Rawat Inap: ' + (okRawat ? 'OK' : 'gagal') +
         ', Outlet: ' + (okOutlet ? 'OK' : 'gagal')
       );
     }
@@ -446,6 +478,7 @@
     const modal = findModal();
     if (!modal) return;
     bindRowSelection(modal);
+    bindSearchValidation(modal);
 
     const closeBtn = [...modal.querySelectorAll('button')].find(
       (b) => b.textContent.trim() === 'Tutup'
