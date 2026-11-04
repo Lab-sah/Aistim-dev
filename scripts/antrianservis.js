@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.13
+// @version      1.13.14
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -387,11 +387,14 @@
       const rows = [...t.querySelectorAll('tbody tr')].filter((r) => r.querySelectorAll('td').length > 0);
       let match = null;
       if (target) {
-        // Hanya baris yang SN-nya cocok. Tidak diambil baris pertama sebagai cadangan, supaya nama barang tidak salah.
-        match = iSn >= 0 ? rows.find((r) => {
-          const c = r.querySelectorAll('td');
-          return c[iSn] && c[iSn].textContent.replace(/\s+/g, '').toUpperCase() === target;
-        }) : null;
+        // Hanya baris yang punya nilai SN sama (di kolom SN, atau di kolom mana pun bila judul kolomnya beda,
+        // mis. Nopol). Tidak diambil baris pertama sebagai cadangan, supaya nama barang tidak salah.
+        const norm = (t) => (t || '').replace(/\s+/g, '').toUpperCase();
+        match = rows.find((r) => {
+          const c = [...r.querySelectorAll('td')];
+          if (iSn >= 0) return c[iSn] && norm(c[iSn].textContent) === target;
+          return c.some((x) => norm(x.textContent) === target);
+        }) || null;
         if (!match) return kosong;
         return { unit: cellText(match, iUnit), sn: '' };
       }
