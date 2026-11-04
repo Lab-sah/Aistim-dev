@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.6
+// @version      1.13.7
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -233,19 +233,36 @@
   }
 
   // Ambil nilai kolom berdasarkan judul header (Pelanggan, SN, ...)
+  function normHeader(x) {
+    return (x || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
+  // Ambil daftar judul kolom untuk baris ini. Judul bisa ada di <thead> tabel yang sama, atau di tabel
+  // header terpisah (tabel dengan scroll horizontal) sehingga dicari juga di dalam jendela Lacak Servis.
+  // Yang dipilih adalah baris judul yang jumlah kolomnya sama dengan jumlah sel pada baris data.
+  function getHeaders(row) {
+    const nCell = row.querySelectorAll('td').length;
+    const table = row.closest('table');
+    const scope = row.closest('.modal, [role="dialog"]') || document;
+    const cari = (root) => [...root.querySelectorAll('thead tr')].find(
+      (tr) => tr.querySelectorAll('th, td').length === nCell
+    );
+    const tr = (table && cari(table)) || cari(scope) || scope.querySelector('thead tr');
+    if (!tr) return [];
+    return [...tr.querySelectorAll('th, td')].map((th) => normHeader(th.innerText || th.textContent));
+  }
+
   // Ambil nilai kolom berdasarkan judul header (Pelanggan, SN, ...). Judul dicocokkan tanpa membedakan
   // huruf besar/kecil dan spasi; kalau tidak persis sama, dipakai judul yang memuat kata tersebut.
   function getCell(row, headerName) {
-    const table = row.closest('table');
-    if (!table) return '';
-    const norm = (x) => x.replace(/\s+/g, ' ').trim().toLowerCase();
-    const headers = [...table.querySelectorAll('thead th, thead td')].map((th) => norm(th.innerText));
-    const target = norm(headerName);
+    const headers = getHeaders(row);
+    const target = normHeader(headerName);
     let idx = headers.indexOf(target);
     if (idx < 0) idx = headers.findIndex((h) => h.includes(target));
     if (idx < 0) return '';
     const cells = row.querySelectorAll('td');
-    return cells[idx] ? cells[idx].innerText.trim() : '';
+    if (!cells[idx]) return '';
+    return (cells[idx].innerText || cells[idx].textContent || '').trim();
   }
 
   // Klik baris tabel untuk memilih servis (klik link di dalam baris tidak mengubah pilihan)
@@ -445,8 +462,11 @@
     }
 
     const namaCari = modal.querySelector('#pencarian_nama_pelanggan');
-    const pelanggan = getCellAny(row, ['Pelanggan', 'Nama Pelanggan', 'Nama']) ||
-      (namaCari ? namaCari.value.trim() : '');
+    let pelanggan = getCellAny(row, ['Pelanggan', 'Nama Pelanggan', 'Nama']);
+    if (!pelanggan && namaCari) {
+      pelanggan = namaCari.value.trim();
+      console.warn('[antrianservis] judul kolom Pelanggan tidak terbaca. Judul:', getHeaders(row), 'dipakai dari kolom pencarian:', pelanggan);
+    }
     const sn = getCellAny(row, ['SN', 'Serial Number', 'Serial No', 'No Seri']);
 
     // Tutup jendela Lacak Servis dulu
