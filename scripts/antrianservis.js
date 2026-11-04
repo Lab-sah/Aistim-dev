@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.2
+// @version      1.13.3
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -237,10 +237,16 @@
   }
 
   // Ambil nilai kolom berdasarkan judul header (Pelanggan, SN, ...)
+  // Ambil nilai kolom berdasarkan judul header (Pelanggan, SN, ...). Judul dicocokkan tanpa membedakan
+  // huruf besar/kecil dan spasi; kalau tidak persis sama, dipakai judul yang memuat kata tersebut.
   function getCell(row, headerName) {
     const table = row.closest('table');
-    const headers = [...table.querySelectorAll('thead th, thead td')].map((th) => th.innerText.trim());
-    const idx = headers.indexOf(headerName);
+    if (!table) return '';
+    const norm = (x) => x.replace(/\s+/g, ' ').trim().toLowerCase();
+    const headers = [...table.querySelectorAll('thead th, thead td')].map((th) => norm(th.innerText));
+    const target = norm(headerName);
+    let idx = headers.indexOf(target);
+    if (idx < 0) idx = headers.findIndex((h) => h.includes(target));
     if (idx < 0) return '';
     const cells = row.querySelectorAll('td');
     return cells[idx] ? cells[idx].innerText.trim() : '';
@@ -259,30 +265,45 @@
     });
   }
 
-  // Isi Pelanggan lewat autocomplete bawaan form (jQuery UI)
-  function isiPelanggan(nama) {
-    return new Promise((resolve) => {
-      const $ = window.jQuery;
-      const el = $ && $('#' + PELANGGAN_ID);
-      if (!el || !el.length || !el.data('ui-autocomplete')) {
-        resolve(false);
-        return;
-      }
-      const opt = el.autocomplete('option');
-      el.val('');
-      opt.source({ term: nama }, (items) => {
-        const target = nama.trim().toUpperCase();
-        const item = items.find((i) => (i.nama || '').toUpperCase() === target) || items[0];
-        if (!item) {
-          resolve(false);
-          return;
-        }
-        el.val(item.nama);
-        if (typeof opt.select === 'function') opt.select.call(el[0], null, { item });
-        el.autocomplete('close');
-        resolve(true);
-      });
+  // Isi Pelanggan lewat autocomplete bawaan form (jQuery UI). Kalau autocomplete belum siap, ditunggu dulu.
+  // Kalau nama tidak ditemukan di hasil autocomplete, nilainya tetap diisi langsung.
+  async function isiPelanggan(nama) {
+    const $ = window.jQuery;
+    const el = $ ? $('#' + PELANGGAN_ID) : null;
+    if (!el || !el.length) return false;
+
+    const t0 = Date.now();
+    while (!el.data('ui-autocomplete') && Date.now() - t0 < 3000) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    if (!el.data('ui-autocomplete')) {
+      el.val(nama).trigger('change');
+      return true;
+    }
+
+    const opt = el.autocomplete('option');
+    el.val('');
+    const items = await new Promise((resolve) => {
+      let selesai = false;
+      const fin = (list) => {
+        if (selesai) return;
+        selesai = true;
+        resolve(Array.isArray(list) ? list : []);
+      };
+      try { opt.source({ term: nama }, fin); } catch (err) { fin([]); }
+      setTimeout(() => fin([]), 3000);
     });
+
+    const target = nama.trim().toUpperCase();
+    const item = items.find((i) => (i.nama || '').toUpperCase() === target) || items[0];
+    if (item) {
+      el.val(item.nama);
+      if (typeof opt.select === 'function') opt.select.call(el[0], null, { item });
+    } else {
+      el.val(nama).trigger('change');
+    }
+    el.autocomplete('close');
+    return true;
   }
 
   // Isi Serial Number dan picu event supaya form ikut membaca nilainya
