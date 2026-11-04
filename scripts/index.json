@@ -38,7 +38,8 @@
     "deposit.js",
     "pembatalan.js",
     "searchable_select.js",
-    "crmrak.js"
+    "crmrak.js",
+    "antrianservis.js"
   ],
   "hapus": [
     "pemindahan.js",
