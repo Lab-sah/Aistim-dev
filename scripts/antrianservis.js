@@ -79,10 +79,11 @@
     return getComputedStyle(el).display !== 'none';
   }
 
-  // Cari jendela "Lacak Servis" yang sedang tampil
+  // Cari jendela "Lacak Servis" yang sedang tampil.
+  // Memakai textContent (bukan innerText) agar tidak memaksa reflow setiap ada perubahan DOM.
   function findModal() {
     return [...document.querySelectorAll('.modal, [role="dialog"]')].find(
-      (m) => isVisible(m) && m.innerText.includes('Lacak Servis')
+      (m) => isVisible(m) && m.textContent.includes('Lacak Servis')
     ) || null;
   }
 
@@ -176,7 +177,7 @@
         if (outlet && !outlet.checked) outlet.click();
 
         // Serial Number di Data Servis = sama dengan yang diinput saat Buat Member
-        const snField = document.getElementById('servis_elektronik_detail1_serial_number');
+        const snField = document.getElementById(SN_ID);
         if (snField) {
           const $ = window.jQuery;
           if ($) {
@@ -232,7 +233,6 @@
     }, true);
   }
 
-  // Ambil nilai kolom berdasarkan judul header (Pelanggan, SN, ...)
   function normHeader(x) {
     return (x || '').replace(/\s+/g, ' ').trim().toLowerCase();
   }
@@ -247,7 +247,7 @@
     const cari = (root) => [...root.querySelectorAll('thead tr')].find(
       (tr) => tr.querySelectorAll('th, td').length === nCell
     );
-    const tr = (table && cari(table)) || cari(scope) || scope.querySelector('thead tr');
+    let tr = (table && cari(table)) || cari(scope) || scope.querySelector('thead tr');
     if (!tr) return [];
     return [...tr.querySelectorAll('th, td')].map((th) => normHeader(th.innerText || th.textContent));
   }
@@ -288,7 +288,8 @@
   }
 
   // Isi Pelanggan lewat autocomplete bawaan form (jQuery UI). Kalau autocomplete belum siap, ditunggu dulu.
-  // Kalau nama tidak ditemukan di hasil autocomplete, nilainya tetap diisi langsung.
+  // Hanya nama yang persis sama dengan hasil autocomplete yang dipilih (supaya tidak salah pelanggan).
+  // Kalau tidak ditemukan, nilai nama tetap diisi sebagai teks dan hasilnya dilaporkan gagal.
   async function isiPelanggan(nama) {
     const $ = window.jQuery;
     const el = $ ? $('#' + PELANGGAN_ID) : null;
@@ -298,12 +299,13 @@
     while (!el.data('ui-autocomplete') && Date.now() - t0 < 3000) {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
-    if (!el.data('ui-autocomplete')) {
+    // Instance widget (bukan opsi). Fungsi source ada di instance: inst.source
+    const inst = el.data('ui-autocomplete');
+    if (!inst) {
       el.val(nama).trigger('change');
-      return true;
+      return false;
     }
 
-    const opt = el.autocomplete('option');
     el.val('');
     const items = await new Promise((resolve) => {
       let selesai = false;
@@ -312,20 +314,22 @@
         selesai = true;
         resolve(Array.isArray(list) ? list : []);
       };
-      try { opt.source({ term: nama }, fin); } catch (err) { fin([]); }
+      try { inst.source.call(inst, { term: nama }, fin); } catch (err) { fin([]); }
       setTimeout(() => fin([]), 3000);
     });
 
     const target = nama.trim().toUpperCase();
-    const item = items.find((i) => (i.nama || '').toUpperCase() === target) || items[0];
+    const item = items.find((i) => (i.nama || '').trim().toUpperCase() === target);
     if (item) {
       el.val(item.nama);
-      if (typeof opt.select === 'function') opt.select.call(el[0], null, { item });
+      // Jalankan event select bawaan autocomplete supaya id pelanggan ikut terisi
+      if (typeof inst._trigger === 'function') inst._trigger('select', null, { item });
+      else if (inst.options && typeof inst.options.select === 'function') inst.options.select.call(el[0], null, { item });
     } else {
       el.val(nama).trigger('change');
     }
     el.autocomplete('close');
-    return true;
+    return !!item;
   }
 
   // Isi Serial Number dan picu event supaya form ikut membaca nilainya
@@ -412,10 +416,11 @@
       const iSn = headers.findIndex((h) => h === 'SN' || h === 'SERIAL NUMBER');
       if (iUnit < 0 || iSn < 0) continue;
       const rows = [...t.querySelectorAll('tbody tr')];
+      // Hanya baris yang SN-nya cocok. Tidak diambil baris pertama sebagai cadangan, supaya nama barang tidak salah.
       const match = rows.find((r) => {
         const c = r.querySelectorAll('td');
         return c[iSn] && c[iSn].textContent.replace(/\s+/g, '').toUpperCase() === target;
-      }) || rows[0];
+      });
       if (!match) return '';
       const c = match.querySelectorAll('td');
       return c[iUnit] ? c[iUnit].textContent.trim() : '';
@@ -450,6 +455,15 @@
     });
   }
 
+  // Cek dan pasang ulang Termin, Tipe Penjualan, dan Outlet. Mengembalikan hasil tiap pengaturan.
+  function pastikanPengaturanNota() {
+    return {
+      okTermin: pastikanOpsi('servis_elektronik_idtermin', 'Tunai'),
+      okTipe: pastikanOpsi('servis_elektronik_idtipe_penjualan', 'SERVICE'),
+      okOutlet: pastikanOpsi('servis_elektronik_idoutlet_own', 'OTOTECH JOMBANG'),
+    };
+  }
+
   async function buatNota(modal) {
     let row = selectedRow && selectedRow.isConnected && modal.contains(selectedRow) ? selectedRow : null;
     if (!row) {
@@ -463,17 +477,18 @@
 
     const namaCari = modal.querySelector('#pencarian_nama_pelanggan');
     const sel = row.querySelectorAll('td');
-    const teksSel = (td) => (td ? (td.innerText || td.textContent || '').trim() : '');
-
-    // Pelanggan: dari judul kolom. Kalau judul tidak terbaca, dipakai kolom ke-3 (urutan tabel Lacak Servis:
-    // Tanggal, Kode Servis, Pelanggan, SN, ...), lalu kolom pencarian Pelanggan. Pemakaian cadangan dicatat di console.
+    // Pelanggan: dari judul kolom "Pelanggan". Kalau judul tidak terbaca, pakai kolom ke-3 (urutan tabel
+    // Lacak Servis: Tanggal, Kode Servis, Pelanggan, SN, ...), lalu kolom pencarian Pelanggan.
     let pelanggan = getCellAny(row, ['Pelanggan', 'Nama Pelanggan', 'Nama']);
+    if (!pelanggan && sel[2]) pelanggan = (sel[2].innerText || sel[2].textContent || '').trim();
+    if (!pelanggan && namaCari) pelanggan = namaCari.value.trim();
+    // SN: dari judul kolom "SN". Kalau judul tidak terbaca, pakai kolom ke-4 (SN).
     let sn = getCellAny(row, ['SN', 'Serial Number', 'Serial No', 'No Seri']);
-    if (!pelanggan || !sn) {
-      console.warn('[antrianservis] judul kolom tidak terbaca. Judul:', getHeaders(row), 'Isi baris:', [...sel].map(teksSel));
+    if (!sn && sel[3]) sn = (sel[3].innerText || sel[3].textContent || '').trim();
+
+    if (!getCellAny(row, ['Pelanggan', 'Nama Pelanggan', 'Nama'])) {
+      console.warn('[antrianservis] judul kolom Pelanggan tidak terbaca. Judul:', getHeaders(row), 'Pelanggan dipakai:', pelanggan);
     }
-    if (!pelanggan) pelanggan = teksSel(sel[2]) || (namaCari ? namaCari.value.trim() : '');
-    if (!sn) sn = teksSel(sel[3]);
 
     // Tutup jendela Lacak Servis dulu
     const closeBtn = [...modal.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Tutup');
@@ -488,25 +503,24 @@
     } catch (err) {
       okUnit = false;
     }
-    const okTermin = pilihOpsi('servis_elektronik_idtermin', 'Tunai');
-    const okTipe = pilihOpsi('servis_elektronik_idtipe_penjualan', 'SERVICE');
 
-    // Outlet diisi terakhir, setelah semua ajax dari Pelanggan selesai, karena bisa ter-reset oleh halaman
+    // Termin, Tipe, dan Outlet diisi terakhir, setelah semua ajax dari Pelanggan selesai,
+    // karena bisa ter-reset oleh halaman. Dicek ulang beberapa kali supaya tidak hilang.
     await tungguAjax();
-    let okOutlet = pilihOpsi('servis_elektronik_idoutlet_own', 'OTOTECH JOMBANG');
-    if (okOutlet) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      okOutlet = pilihOpsi('servis_elektronik_idoutlet_own', 'OTOTECH JOMBANG');
+    let hasil = pastikanPengaturanNota();
+    for (let i = 0; i < 5; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      hasil = pastikanPengaturanNota();
     }
 
-    if (!okPelanggan || !okSn || !okUnit || !okTermin || !okTipe || !okOutlet) {
+    if (!okPelanggan || !okSn || !okUnit || !hasil.okTermin || !hasil.okTipe || !hasil.okOutlet) {
       alert(
         'Sebagian data belum terisi. Pelanggan: ' + (okPelanggan ? 'OK' : 'gagal') +
         ', Serial Number: ' + (okSn ? 'OK' : 'gagal') +
         ', Nama Barang: ' + (okUnit ? 'OK' : 'gagal') +
-        ', Termin: ' + (okTermin ? 'OK' : 'gagal') +
-        ', Tipe Penjualan: ' + (okTipe ? 'OK' : 'gagal') +
-        ', Outlet: ' + (okOutlet ? 'OK' : 'gagal')
+        ', Termin: ' + (hasil.okTermin ? 'OK' : 'gagal') +
+        ', Tipe Penjualan: ' + (hasil.okTipe ? 'OK' : 'gagal') +
+        ', Outlet: ' + (hasil.okOutlet ? 'OK' : 'gagal')
       );
     }
   }
@@ -562,7 +576,16 @@
   style.textContent = '.' + SEL_CLASS + ' td { background: #fff3b0 !important; }';
   document.head.appendChild(style);
 
-  const observer = new MutationObserver(ensureButton);
+  // Panggilan ensureButton digabung per frame supaya tidak dijalankan ratusan kali saat DOM berubah banyak
+  let ensureQueued = false;
+  const observer = new MutationObserver(() => {
+    if (ensureQueued) return;
+    ensureQueued = true;
+    requestAnimationFrame(() => {
+      ensureQueued = false;
+      ensureButton();
+    });
+  });
   observer.observe(document.body, { childList: true, subtree: true });
   ensureButton();
 })();
