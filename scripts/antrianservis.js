@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.18
+// @version      1.13.19
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -253,6 +253,7 @@
     isi(['#pencarian_serial_number', 'input[name="pencarian[serial_number]"]'], sn);
     try {
       const info = await ambilDariNota(tr, sn);
+      tampilKontak(modal, info.kontak);
       isi(['#pencarian_unit', 'input[name="pencarian[unit]"]'], info.unit);
       if (!sn && info.sn) isi(['#pencarian_serial_number', 'input[name="pencarian[serial_number]"]'], info.sn);
     } catch (err) { /* nama barang tetap kosong */ }
@@ -396,16 +397,63 @@
     }, 300);
   }
 
-  // Ambil dari nota servis: nama barang (kolom Unit / Nama Barang),
-  // dan SN bila di Lacak Servis kosong. Nota penutupan (nota_tutup_servis) dipakai lebih dulu,
-  // kalau belum ditutup nota penerimaan (nota_penerimaan).
+  // Telp dan alamat pelanggan dari blok "Kepada Yth" di nota: alamat = baris setelah nama, telp = baris "Telp.".
+  function ambilKontakNota(doc) {
+    const rapi = (t) => (t || '').replace(/\s+/g, ' ').trim();
+    const label = [...doc.body.querySelectorAll('*')].find((el) =>
+      /^kepada\s*yth\b/i.test(rapi(el.textContent)) &&
+      ![...el.children].some((c) => /^kepada\s*yth\b/i.test(rapi(c.textContent))));
+    if (!label) return { alamat: '', telp: '' };
+    const teks = [];
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    let aktif = false;
+    let n;
+    while ((n = walker.nextNode()) && teks.length < 6) {
+      if (!aktif) { if (label.contains(n)) aktif = true; continue; }
+      if (label.contains(n)) continue;
+      const t = rapi(n.textContent);
+      if (t) teks.push(t);
+    }
+    const iTelp = teks.findIndex((t) => /^telp/i.test(t));
+    // Nilai telp: sisa teks di baris "Telp." itu sendiri, atau teks berikutnya bila terpisah (":" lalu nomor)
+    let telp = '';
+    if (iTelp >= 0) {
+      telp = teks[iTelp].replace(/^telp\.?\s*:?\s*/i, '').replace(/^:\s*/, '').trim();
+      if (!telp && teks[iTelp + 1]) telp = teks[iTelp + 1].replace(/^:\s*/, '').trim();
+      if (!/\d/.test(telp)) telp = '';
+    }
+    const alamat = teks.slice(1, iTelp > 0 ? iTelp : 2).join(' ').trim();
+    return { alamat: alamat, telp: telp };
+  }
+
+  // Tampilkan telp dan alamat di atas tabel jendela Lacak Servis (sebelum tabel)
+  function tampilKontak(modal, kontak) {
+    const tabel = modal.querySelector('table');
+    if (!tabel || !tabel.parentElement) return;
+    let box = modal.querySelector('#tm-kontak-nota');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'tm-kontak-nota';
+      box.style.cssText = 'margin:8px 0;padding:8px 10px;border:1px solid #cfd8e3;border-radius:6px;background:#f5f8fb;font-size:14px;line-height:1.5';
+      tabel.parentElement.insertBefore(box, tabel);
+    }
+    const telp = kontak && kontak.telp ? kontak.telp : '-';
+    const alamat = kontak && kontak.alamat ? kontak.alamat : '-';
+    box.textContent = 'Telp: ' + telp + '  |  Alamat: ' + alamat;
+  }
+
+  // Ambil dari nota servis: nama barang (kolom Unit / Nama Barang), SN bila di Lacak Servis kosong,
+  // dan telp + alamat pelanggan. Nota penutupan (nota_tutup_servis) dipakai lebih dulu, kalau belum
+  // ditutup nota penerimaan (nota_penerimaan).
   // Kalau SN diisi: baris dicocokkan dengan SN. Kalau SN kosong: hanya dipakai bila nota memuat tepat satu baris barang.
   async function ambilDariNota(row, sn) {
+    const kosongKontak = { alamat: '', telp: '' };
     const link = row.querySelector('a[href*="nota_tutup_servis"]') || row.querySelector('a[href*="nota_penerimaan"]');
-    if (!link) return { unit: getCellAny(row, ['Unit', 'Nama Barang', 'Barang']), sn: '' };
+    if (!link) return { unit: getCellAny(row, ['Unit', 'Nama Barang', 'Barang']), sn: '', kontak: kosongKontak };
     const html = await (await fetch(link.getAttribute('href'), { credentials: 'same-origin' })).text();
     const doc = new DOMParser().parseFromString(html, 'text/html');
-    const kosong = { unit: '', sn: '' };
+    const kontak = ambilKontakNota(doc);
+    const kosong = { unit: '', sn: '', kontak: kontak };
     const target = (sn || '').replace(/\s+/g, '').toUpperCase();
     const norm = (t) => (t || '').replace(/\s+/g, '').toUpperCase();
     for (const t of doc.querySelectorAll('table')) {
@@ -423,11 +471,11 @@
           return c.some((x) => norm(x.textContent) === target);
         });
         if (!match) return kosong;
-        return { unit: cellText(match, iUnit), sn: '' };
+        return { unit: cellText(match, iUnit), sn: '', kontak: kontak };
       }
       // SN kosong di Lacak Servis: ambil dari nota, hanya kalau jelas satu barang
       if (rows.length !== 1) return kosong;
-      return { unit: cellText(rows[0], iUnit), sn: iSn >= 0 ? cellText(rows[0], iSn) : '' };
+      return { unit: cellText(rows[0], iUnit), sn: iSn >= 0 ? cellText(rows[0], iSn) : '', kontak: kontak };
     }
     return kosong;
   }
