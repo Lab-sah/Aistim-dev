@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.17
+// @version      1.13.18
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -232,6 +232,32 @@
     return (cells[idx].innerText || cells[idx].textContent || '').trim();
   }
 
+  // Isi kolom pencarian di atas jendela Lacak Servis dari baris yang dipilih:
+  // Pelanggan, Kode Servis, Serial Number dari tabel; Nama Barang (dan SN bila kosong) dari nota.
+  async function isiPencarianDariBaris(modal, tr) {
+    const isi = (pilihan, val) => {
+      if (!val) return;
+      for (const q of pilihan) {
+        const el = modal.querySelector(q);
+        if (!el) continue;
+        const $ = window.jQuery;
+        if ($) $(el).val(val); else el.value = val;
+        return;
+      }
+    };
+    const pelanggan = getCellAny(tr, ['Pelanggan', 'Nama Pelanggan', 'Nama']) || cellText(tr, 2);
+    const kode = getCellAny(tr, ['Kode Servis', 'Kode']) || cellText(tr, 1);
+    let sn = getCellAny(tr, ['SN', 'Serial Number', 'Serial No', 'No Seri']) || cellText(tr, 3);
+    isi(['#pencarian_nama_pelanggan', 'input[name="pencarian[nama_pelanggan]"]'], pelanggan);
+    isi(['#pencarian_kode', 'input[name="pencarian[kode]"]'], kode);
+    isi(['#pencarian_serial_number', 'input[name="pencarian[serial_number]"]'], sn);
+    try {
+      const info = await ambilDariNota(tr, sn);
+      isi(['#pencarian_unit', 'input[name="pencarian[unit]"]'], info.unit);
+      if (!sn && info.sn) isi(['#pencarian_serial_number', 'input[name="pencarian[serial_number]"]'], info.sn);
+    } catch (err) { /* nama barang tetap kosong */ }
+  }
+
   // Klik baris tabel untuk memilih servis (klik link di dalam baris tidak mengubah pilihan)
   function bindRowSelection(modal) {
     if (modal.dataset.tmBound) return;
@@ -242,6 +268,7 @@
       modal.querySelectorAll('.' + SEL_CLASS).forEach((r) => r.classList.remove(SEL_CLASS));
       tr.classList.add(SEL_CLASS);
       selectedRow = tr;
+      isiPencarianDariBaris(modal, tr);
     });
   }
 
