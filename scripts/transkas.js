@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Transfer Kas/Bank (Dropdown Cari & Format Nominal)
 // @namespace    http://tampermonkey.net/
-// @version      1.4.0
+// @version      1.4.1
 // @description  Halaman Transfer Kas/Bank: kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); saldo sesudah Kas Asal dihitung dan Simpan diblokir bila minus; tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/jurnals/form_transfer_kas_bank*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -118,7 +118,6 @@
 
   // Kirim angka mentah saat form disubmit, tombol Simpan, atau tombol Rekam ditekan
   function stripForSubmit() {
-    if (simpanDiblokir()) return;
     const el = nominalEl();
     if (el && bolehFitur('formatNominal')) el.value = el.dataset.raw || '';
   }
