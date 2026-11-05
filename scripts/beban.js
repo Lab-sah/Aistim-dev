@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Transaksi Beban (Format Rp Jumlah & Wajib Keterangan)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Halaman Transaksi Beban: kolom Jumlah berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -82,7 +82,7 @@
     function parts(text) {
       const t = String(text == null ? '' : text).replace(/Rp/gi, '').replace(/\s+/g, '').replace(/,/g, '');
       const i = t.indexOf('.');
-      const ip = (i >= 0 ? t.slice(0, i) : t).replace(/\D/g, '');
+      const ip = (i >= 0 ? t.slice(0, i) : t).replace(/\D/g, '').slice(0, 15); // 15 digit: aman dari pembulatan parseInt
       const dp = i >= 0 ? t.slice(i + 1).replace(/\D/g, '').slice(0, 2) : null;
       return { ip, dp };
     }
@@ -102,14 +102,34 @@
     }
     function caretEnd(el) { const n = el.value.length; try { el.setSelectionRange(n, n); } catch (_) {} }
 
+    // Nama field yang dikirim ke server. Diambil dari name asli input (apa pun polanya), lalu pola itu dipakai
+    // untuk baris baru yang name-nya sudah dicopot. Cadangan terakhir: jurnal_detailN[debit].
+    let polaNama = null; // mis. "jurnal_detail{n}[debit]"
+    const nomorBaris = el => (el.id.match(/^jurnal_detail(\d+)_debit$/) || [])[1] || '';
+    function namaHidden(el) {
+      const n = nomorBaris(el);
+      const asli = el.getAttribute('name');
+      if (asli) {
+        if (n) polaNama = asli.replace(new RegExp('(?<![0-9])' + n + '(?![0-9])'), '{n}');
+        return asli;
+      }
+      if (polaNama && n && polaNama.indexOf('{n}') !== -1) return polaNama.replace('{n}', n);
+      return el.id.replace(/^(jurnal_detail\d+)_debit$/, '$1[debit]');
+    }
+
     // Ganti input tampilan (tanpa name) dengan hidden berisi angka mentah yang ikut dikirim ke server
     function setup(el) {
-      if (hiddenOf(el)) return;
+      const ada = hiddenOf(el);
+      if (ada) {
+        // Baris hasil salinan baris lain: hidden ikut tersalin dengan name baris asal, samakan dengan baris ini
+        if (!el.getAttribute('name')) { const nm = namaHidden(el); if (ada.name !== nm) ada.name = nm; }
+        return;
+      }
       const p = parts(el.value);
       const h = document.createElement('input');
       h.type = 'hidden';
       h.className = 'rp_raw_jumlah';
-      h.name = el.id.replace(/^(jurnal_detail\d+)_debit$/, '$1[debit]');
+      h.name = namaHidden(el);
       h.value = raw(p);
       el.removeAttribute('name');
       el.after(h);
@@ -132,7 +152,10 @@
     document.addEventListener('focusin', e => {
       if (!isJ(e.target) || !aktif()) return;
       const el = e.target, h = hiddenOf(el); if (!h) return;
-      el.value = fmt(parts(h.value));
+      // Dibaca dari kolom tampilan (bukan hidden), supaya nilai yang baru diisi script halaman tidak tertimpa nilai lama
+      const p = parts(el.value);
+      h.value = raw(p);
+      el.value = fmt(p);
       setTimeout(() => caretEnd(el), 0);
     }, true);
     // Saat keluar fokus: titik tanpa angka dibuang, lalu simpan angka mentah
