@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.23.5
+// @version      1.23.6
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -1163,11 +1163,14 @@ function rkBoleh(fitur) {
                 return;
             }
             // Script berjalan di dunia terpisah, jadi jQuery halaman tidak terlihat. DataTables sendiri menyesuaikan
-            // kolom saat jendela di-resize, maka event resize dikirim. Dibatasi 3 kali (jeda 1 detik) supaya tidak berulang.
+            // kolom saat jendela di-resize, maka event resize dikirim. Dibatasi 3 kali berturut-turut (jeda 1 detik) dan
+            // 20 kali seumur halaman, supaya tidak berulang kalau kolom tidak bisa disejajarkan.
             const n = +(table.dataset.rkAdj || 0);
             const t = +(table.dataset.rkAdjT || 0);
-            if (n >= 3 || Date.now() - t < 1000) return;
+            const total = +(table.dataset.rkAdjTot || 0);
+            if (n >= 3 || total >= 20 || Date.now() - t < 1000) return;
             table.dataset.rkAdj = String(n + 1);
+            table.dataset.rkAdjTot = String(total + 1);
             table.dataset.rkAdjT = String(Date.now());
             window.dispatchEvent(new Event('resize'));
         } catch (err) {
@@ -1803,7 +1806,10 @@ function rkBoleh(fitur) {
         return Array.prototype.slice.call(D().querySelectorAll('ul.ui-autocomplete li')).filter(function (x) { return x.offsetParent !== null; })[0];
       }, 8000);
       if (li) { var t = li.querySelector('.ui-menu-item-wrapper') || li; t.dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true })); t.click(); }
-    })().catch(function (err) { gagalOtomatis(err && err.message ? err.message : 'halaman Penentuan Rak berubah'); });
+    })().catch(function (err) {
+      console.warn('[Penentuan Rak] galat otomatisasi:', err);
+      gagalOtomatis('halaman Penentuan Rak berubah');
+    });
   }
 
   function onClick(e) {
