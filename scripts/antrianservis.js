@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.63
+// @version      1.13.64
 // @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG. Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @run-at       document-idle
+// @world        main
 // @grant        none
 // ==/UserScript==
 
@@ -896,6 +897,6 @@
     const modal = findModal();
     if (modal && bolehFitur('lacakOtomatis')) sejajarkanKontak(modal);
   });
-  console.log('[antrianservis.js] v1.13.63 aktif');
+  console.log('[antrianservis.js] v1.13.64 aktif');
   ensureButton();
 })();
