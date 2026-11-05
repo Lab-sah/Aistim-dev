@@ -168,34 +168,6 @@
     tr.click();
   }
 
-  // Ketik Serial Number di popup: kalau SN itu ada di hasil pencarian, kolom Pelanggan ikut terisi.
-  function bindSnLookup(modal) {
-    if (modal.dataset.tmSnLookup) return;
-    modal.dataset.tmSnLookup = '1';
-    let timer = null;
-    const norm = (t) => (t || '').replace(/\s+/g, '').toUpperCase();
-    modal.addEventListener('input', (e) => {
-      const el = e.target;
-      if (!(el.id === 'pencarian_serial_number' || el.name === 'pencarian[serial_number]')) return;
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        const cari = norm(el.value);
-        if (!cari) return;
-        const tr = [...modal.querySelectorAll('tbody tr')].find((r) => {
-          const sn = getCellAny(r, ['SN', 'Serial Number', 'Serial No', 'No Seri']) || cellText(r, 3);
-          return norm(sn) === cari;
-        });
-        if (!tr) return;
-        const pelanggan = getCellAny(tr, ['Pelanggan', 'Nama Pelanggan', 'Nama']) || cellText(tr, 2);
-        if (!pelanggan) return;
-        const p = modal.querySelector('#pencarian_nama_pelanggan') || modal.querySelector('input[name="pencarian[nama_pelanggan]"]');
-        if (!p) return;
-        const $ = window.jQuery;
-        if ($) $(p).val(pelanggan); else p.value = pelanggan;
-      }, 300);
-    });
-  }
-
   // Klik baris tabel untuk memilih servis (klik link di dalam baris tidak mengubah pilihan).
   // Pengisian kolom pencarian dan pembacaan nota hanya untuk yang punya fitur lacakOtomatis.
   function bindRowSelection(modal) {
