@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.23.7
+// @version      1.23.8
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -251,9 +251,14 @@ function rkBoleh(fitur) {
         const m = teks.match(/Penempatan Rak\s*:?\s*([\s\S]*?)(?:Tabel ini dibaca|Tanggal\s+Kode|$)/i);
         if (!m) {
             catatLog('RAK tidak ketemu di respons (' + teks.length + ' char): ' + teks.replace(/\s+/g, ' ').trim().slice(0, 150));
+            // Respons yang bukan halaman aktivitas stok (halaman login/galat dengan status 200) jangan dianggap
+            // "belum ada rak": dilempar sebagai galat supaya baris itu ditandai gagal, bukan salah masuk filter.
+            if (!/Tanggal\s*Kode|Tabel ini dibaca/i.test(teks)) throw new Error('respons aktivitas stok tidak valid');
             return '';
         }
-        return m[1].split(/\n+/).map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean).join(', ');
+        // Tanda strip / "belum ada" bukan nama rak
+        return m[1].split(/\n+/).map((s) => s.replace(/\s+/g, ' ').trim())
+            .filter((s) => s && !/^[-–—.]+$|^(n\/a|tidak ada|belum ada.*|kosong)$/i.test(s)).join(', ');
     }
 
     async function ambilRakProduk(idproduk, idoutlet, idgudangCell) {
