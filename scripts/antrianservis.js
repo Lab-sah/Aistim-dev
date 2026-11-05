@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.34
+// @version      1.13.35
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -268,6 +268,34 @@
     if (!sig || modal.dataset.tmAutoSig === sig) return;
     modal.dataset.tmAutoSig = sig;
     tr.click();
+  }
+
+  // Ketik Serial Number di popup: kalau SN itu ada di hasil pencarian, kolom Pelanggan ikut terisi.
+  function bindSnLookup(modal) {
+    if (modal.dataset.tmSnLookup) return;
+    modal.dataset.tmSnLookup = '1';
+    let timer = null;
+    const norm = (t) => (t || '').replace(/\s+/g, '').toUpperCase();
+    modal.addEventListener('input', (e) => {
+      const el = e.target;
+      if (!(el.id === 'pencarian_serial_number' || el.name === 'pencarian[serial_number]')) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const cari = norm(el.value);
+        if (!cari) return;
+        const tr = [...modal.querySelectorAll('tbody tr')].find((r) => {
+          const sn = getCellAny(r, ['SN', 'Serial Number', 'Serial No', 'No Seri']) || cellText(r, 3);
+          return norm(sn) === cari;
+        });
+        if (!tr) return;
+        const pelanggan = getCellAny(tr, ['Pelanggan', 'Nama Pelanggan', 'Nama']) || cellText(tr, 2);
+        if (!pelanggan) return;
+        const p = modal.querySelector('#pencarian_nama_pelanggan') || modal.querySelector('input[name="pencarian[nama_pelanggan]"]');
+        if (!p) return;
+        const $ = window.jQuery;
+        if ($) $(p).val(pelanggan); else p.value = pelanggan;
+      }, 300);
+    });
   }
 
   // Klik baris tabel untuk memilih servis (klik link di dalam baris tidak mengubah pilihan)
@@ -715,6 +743,7 @@
     if (!modal) return;
     modal.classList.add('tm-lacak');
     bindRowSelection(modal);
+    bindSnLookup(modal);
     autoPilihBaris(modal);
     // Saat Lacak Servis dibuka, Jenis Servis langsung Rawat Inap (sekali per jendela)
     if (!modal.dataset.tmRawat) {
