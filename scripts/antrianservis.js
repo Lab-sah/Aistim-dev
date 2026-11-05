@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.73
+// @version      1.13.74
 // @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG. Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -432,6 +432,19 @@
     if (btnCari) setTimeout(() => btnCari.click(), 0);
   }
 
+  // Panggil fungsi source autocomplete (jQuery UI) milik halaman dan tunggu hasilnya (maks. 3 detik)
+  function panggilSumber(inst, term, nama) {
+    return new Promise((resolve) => {
+      let selesai = false;
+      const fin = (list) => { if (!selesai) { selesai = true; resolve(Array.isArray(list) ? list : []); } };
+      try { inst.source.call(inst, { term: term }, fin); } catch (err) {
+        console.warn('[antrianservis] pencarian ' + nama + ' gagal:', err.message);
+        fin([]);
+      }
+      setTimeout(() => fin([]), 3000);
+    });
+  }
+
   // Kolom isian dengan daftar saran: ketik (min. 3 karakter), saran diambil dari sumber autocomplete milik
   // halaman (jQuery UI, fungsi source-nya dipanggil langsung). Klik saran atau Enter (memilih saran pertama).
   // opsi: { sumber(): instance autocomplete, label(item), pilih(item), placeholder, nama }
@@ -473,15 +486,7 @@
         return;
       }
       const saya = ++nomor;
-      const items = opsi.ambil ? await opsi.ambil(term) : await new Promise((resolve) => {
-        let selesai = false;
-        const fin = (list) => { if (!selesai) { selesai = true; resolve(Array.isArray(list) ? list : []); } };
-        try { inst.source.call(inst, { term: term }, fin); } catch (err) {
-          console.warn('[antrianservis] pencarian ' + opsi.nama + ' gagal:', err.message);
-          fin([]);
-        }
-        setTimeout(() => fin([]), 3000);
-      });
+      const items = opsi.ambil ? await opsi.ambil(term) : await panggilSumber(inst, term, opsi.nama);
       if (saya !== nomor) return;
       if (!logSekali && items.length) { logSekali = true; console.log('[antrianservis] contoh data autocomplete ' + opsi.nama + ':', items[0]); }
       saran = items;
@@ -506,23 +511,30 @@
     return null;
   };
 
-  // Kolom Telp: cari pelanggan lewat nomor telepon (sumber: autocomplete Pelanggan).
-  // Pilih saran: nama masuk ke kolom Pelanggan, lalu Pencarian dijalankan.
-  function pasangCariTelp(modal) {
+  const noTelpDari = (i) => String(i.telepon || i.telp || i.no_telp || i.no_telepon || i.hp || i.no_hp || '').trim();
+
+  // Pelanggan dipilih dari saran (Telp atau SN): nama masuk ke kolom Pelanggan, kolom lain dikosongkan,
+  // lalu Pencarian dijalankan (tabel menampilkan servis pelanggan ini dan baris pertama terpilih otomatis).
+  function pilihPelanggan(modal, item) {
+    isiTanpaEvent(modal.querySelector('#pencarian_nama_pelanggan'), item.nama || '');
     const telp = document.getElementById('tm-kontak-telp');
-    const noTelp = (i) => String(i.telepon || i.telp || i.no_telp || i.no_telepon || i.hp || i.no_hp || '').trim();
-    pasangSaran(telp, {
+    if (telp && noTelpDari(item)) telp.value = noTelpDari(item);
+    const al = document.getElementById('tm-kontak-alamat');
+    if (al) al.value = item.alamat || '';
+    jalankanPencarian(modal, ['#pencarian_kode', '#pencarian_unit', '#pencarian_serial_number']);
+  }
+
+  const sumberPelanggan = () => autocompleteDari('#pencarian_nama_pelanggan', '#' + PELANGGAN_ID);
+  const labelPelanggan = (item) => (item.nama || '(tanpa nama)') + (noTelpDari(item) ? ' - ' + noTelpDari(item) : '');
+
+  // Kolom Telp: cari pelanggan lewat nomor telepon (sumber: autocomplete Pelanggan).
+  function pasangCariTelp(modal) {
+    pasangSaran(document.getElementById('tm-kontak-telp'), {
       nama: 'Pelanggan',
       placeholder: 'Ketik no. telp untuk cari pelanggan',
-      sumber: () => autocompleteDari('#pencarian_nama_pelanggan', '#' + PELANGGAN_ID),
-      label: (item) => (item.nama || '(tanpa nama)') + (noTelp(item) ? ' - ' + noTelp(item) : ''),
-      pilih: (item) => {
-        isiTanpaEvent(modal.querySelector('#pencarian_nama_pelanggan'), item.nama || '');
-        if (noTelp(item)) telp.value = noTelp(item);
-        const al = document.getElementById('tm-kontak-alamat');
-        if (al) al.value = item.alamat || '';
-        jalankanPencarian(modal, ['#pencarian_kode', '#pencarian_unit', '#pencarian_serial_number']);
-      },
+      sumber: sumberPelanggan,
+      label: labelPelanggan,
+      pilih: (item) => pilihPelanggan(modal, item),
     });
   }
 
@@ -577,17 +589,28 @@
     return items;
   }
 
-  // Kolom Serial Number: daftar saran seperti Telp. Ketik SN (min. 3 karakter): hasil Pencarian muncul sebagai
-  // saran "SN - Pelanggan - Kode Servis". Pilih saran: baris itu dipilih (kolom pencarian, Telp, Alamat ikut terisi).
+  // Kolom Serial Number: daftar saran seperti Telp. SN dicari lewat autocomplete Pelanggan (sama seperti Telp);
+  // kalau tidak ada pelanggan yang cocok, hasil Pencarian bawaan dipakai sebagai cadangan (saran "SN - Pelanggan - Kode").
   function pasangCariSn(modal) {
     const sn = modal.querySelector('#pencarian_serial_number');
     pasangSaran(sn, {
       nama: 'Serial Number',
       placeholder: 'Ketik SN untuk mencari',
-      ambil: (term) => ambilSaranSn(modal, term),
-      label: (item) => [item.sn, item.unit, item.pel, item.kode].filter(Boolean).join(' - ') || '(kosong)',
-      pilih: (item) => {
-        const tr = [...modal.querySelectorAll('table tbody tr')].find((r) => r.textContent.replace(/\s+/g, ' ').trim() === item.sig);
+      ambil: async (term) => {
+        const inst = sumberPelanggan();
+        if (inst) {
+          const pel = await panggilSumber(inst, term, 'Pelanggan');
+          if (pel.length) return pel.map((i) => ({ jenis: 'pel', item: i }));
+        }
+        const baris = await ambilSaranSn(modal, term);
+        return baris.map((b) => ({ jenis: 'baris', item: b }));
+      },
+      label: (x) => x.jenis === 'pel'
+        ? labelPelanggan(x.item)
+        : ([x.item.sn, x.item.unit, x.item.pel, x.item.kode].filter(Boolean).join(' - ') || '(kosong)'),
+      pilih: (x) => {
+        if (x.jenis === 'pel') { pilihPelanggan(modal, x.item); return; }
+        const tr = [...modal.querySelectorAll('table tbody tr')].find((r) => r.textContent.replace(/\s+/g, ' ').trim() === x.item.sig);
         if (tr) tr.click();
       },
     });
@@ -1129,6 +1152,6 @@
     const modal = findModal();
     if (modal && bolehFitur('lacakOtomatis')) sejajarkanKontak(modal);
   });
-  console.log('[antrianservis.js] v1.13.73 aktif');
+  console.log('[antrianservis.js] v1.13.74 aktif');
   ensureButton();
 })();
