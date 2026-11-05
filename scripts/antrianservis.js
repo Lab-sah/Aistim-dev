@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.75
+// @version      1.13.76
 // @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG. Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -599,6 +599,31 @@
     return items;
   }
 
+  // Cari Serial Number lengkap pada data pelanggan dari autocomplete. Nama kolomnya belum pasti, jadi dicoba
+  // beberapa nama umum dulu; kalau tidak ada, nilai teks lain yang memuat SN yang diketik dipakai.
+  function snDariItem(item, term) {
+    if (!item || typeof item !== 'object') return '';
+    for (const k of ['serial_number', 'sn', 'no_seri', 'serial', 'nomor_seri', 'no_serial', 'imei']) {
+      const v = item[k];
+      if (v != null && String(v).trim()) return String(v).trim();
+    }
+    const norm = (t) => String(t).replace(/\s+/g, '').toLowerCase();
+    const q = norm(term);
+    if (!q) return '';
+    const lewat = ['nama', 'alamat', 'telepon', 'telp', 'no_telp', 'no_telepon', 'hp', 'no_hp', 'email', 'id'];
+    for (const k of Object.keys(item)) {
+      const v = item[k];
+      if (lewat.indexOf(k) !== -1 || typeof v !== 'string' || !v.trim()) continue;
+      if (norm(v) === norm(item.nama || '')) continue;
+      if (norm(v).indexOf(q) === -1) continue;
+      // Teks gabungan (mis. "NAMA - SN - ..."): ambil potongan yang memuat SN
+      const bagian = v.split(/\s*(?:\||;|,|\(|\))\s*/).map((b) => b.trim()).filter(Boolean);
+      const cocok = bagian.find((b) => norm(b).indexOf(q) !== -1 && norm(b) !== norm(item.nama || ''));
+      return (cocok || v).trim();
+    }
+    return '';
+  }
+
   // Kolom Serial Number: daftar saran seperti Telp. SN dicari lewat autocomplete Pelanggan (sama seperti Telp);
   // kalau tidak ada pelanggan yang cocok, hasil Pencarian bawaan dipakai sebagai cadangan (saran "SN - Pelanggan - Kode").
   function pasangCariSn(modal) {
@@ -610,16 +635,25 @@
         const inst = sumberPelanggan();
         if (inst) {
           const pel = await panggilSumber(inst, term, 'Pelanggan');
-          if (pel.length) return pel.map((i) => ({ jenis: 'pel', item: i }));
+          if (pel.length) return pel.map((i) => ({ jenis: 'pel', item: i, sn: snDariItem(i, term) }));
         }
         const baris = await ambilSaranSn(modal, term);
         return baris.map((b) => ({ jenis: 'baris', item: b }));
       },
+      // Saran pelanggan: "NAMA (SN lengkap)"
       label: (x) => x.jenis === 'pel'
-        ? labelPelanggan(x.item)
+        ? (x.item.nama || '(tanpa nama)') + (x.sn ? ' (' + x.sn + ')' : '')
         : ([x.item.sn, x.item.unit, x.item.pel, x.item.kode].filter(Boolean).join(' - ') || '(kosong)'),
       pilih: (x) => {
-        if (x.jenis === 'pel') { pilihPelanggan(modal, x.item); return; }
+        if (x.jenis === 'pel') {
+          pilihPelanggan(modal, x.item);
+          // SN lengkap ikut diisi, supaya pencarian mengerucut ke pelanggan dan SN itu
+          if (x.sn) {
+            const kolom = modal.querySelector('#pencarian_serial_number');
+            isiTanpaEvent(kolom, x.sn);
+          }
+          return;
+        }
         const tr = [...modal.querySelectorAll('table tbody tr')].find((r) => r.textContent.replace(/\s+/g, ' ').trim() === x.item.sig);
         if (tr) tr.click();
       },
@@ -1164,6 +1198,6 @@
     const modal = findModal();
     if (modal && bolehFitur('lacakOtomatis')) sejajarkanKontak(modal);
   });
-  console.log('[antrianservis.js] v1.13.75 aktif');
+  console.log('[antrianservis.js] v1.13.76 aktif');
   ensureButton();
 })();
