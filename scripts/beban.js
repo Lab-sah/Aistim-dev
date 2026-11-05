@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         ERZAP - Format Rp
 // @namespace    http://tampermonkey.net/
-// @version      1.0.2
-// @description  Halaman Transaksi Beban: kolom Jumlah berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Fitur diatur lewat AKSES_JSON (public/private/role).
+// @version      1.1.0
+// @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
+// @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
+// @match        https://*.erzap.com/jurnals/form_transaksi_kas_keluar*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @run-at       document-idle
 // @world        main
@@ -16,7 +18,7 @@
   window.__erzapBebanInit = true;
 
   // ====== HAK AKSES & FITUR (JSON) ======
-  // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini. Nama fitur: formatJumlah, wajibKeterangan.
+  // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini. Nama fitur: formatJumlah (kolom Jumlah/Nominal), wajibKeterangan.
   // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua).
   // "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
   //              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
@@ -73,7 +75,8 @@
 
   /* ========== 1. Format Rp kolom Jumlah (seperti Nominal Transfer, izinkan .00) ========== */
   (function () {
-    const SEL = 'input[id^="jurnal_detail"][id$="_debit"]';
+    // Kolom Jumlah per baris (Transaksi Beban) dan kolom Nominal (Kas Masuk / Kas Keluar)
+    const SEL = 'input[id^="jurnal_detail"][id$="_debit"], #jurnal_nominal';
     const isJ = t => !!(t && t.matches && t.matches(SEL));
     const aktif = () => bolehFitur('formatJumlah');
     const hiddenOf = el => { const h = el.nextElementSibling; return h && h.classList.contains('rp_raw_jumlah') ? h : null; };
