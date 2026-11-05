@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.23.3
+// @version      1.23.4
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -943,8 +943,7 @@ function rkBoleh(fitur) {
         m.info('Memuat rak...');
 
         dataRak(td, true).then((data) => {
-            hapusStatusRak(td.dataset.prd);
-            if (aktifFilter()) terapkanFilter();
+            segarkanStatusRak(td, true);
             if (!document.body.contains(m.pop)) return;
             data = data || [];
             if (!data.some((x) => x.r)) return m.info('Produk ini belum punya penempatan rak.');
@@ -1192,21 +1191,43 @@ function rkBoleh(fitur) {
         });
     }
 
-    // Status rak sebuah produk berubah (rak baru disimpan): buang cache status "ada/kosong" produk itu
-    // supaya filter Status Rak memeriksa ulang (bukan memakai hasil lama sampai 30 menit).
-    function hapusStatusRak(prd) {
+    // Status rak sebuah produk berubah (rak baru disimpan atau popup Map rak dibuka): status "ada/kosong" di cache
+    // diperbarui DI TEMPAT (nilai lama tetap dipakai sampai nilai baru datang), jadi baris tidak sempat
+    // tersembunyi dan popup yang menempel di baris itu tidak berpindah posisi.
+    // sudahSegar: data rak produk ini baru saja diambil ulang (dataRak paksa).
+    function segarkanStatusRak(td, sudahSegar) {
+        const prd = td.dataset.prd;
         if (!prd) return;
-        const awal = prd + '|';
-        Object.keys(RAKF).forEach((k) => { if (k.indexOf(awal) === 0) delete RAKF[k]; });
-        simpanFilterCache();
+        const gdn = td.dataset.gdn || '';
+        const terapkan = () => { if (aktifFilter()) terapkanFilter(); };
+        if (gdn) {
+            rakGudang(prd, gdn, td.dataset.otl || '').then((rak) => {
+                RAKF[prd + '|' + gdn] = { t: Date.now(), ada: !!rak };
+                simpanFilterCache();
+                terapkan();
+            }).catch(() => { });
+        } else if (sudahSegar) {
+            terapkan();
+        } else {
+            dataRak(td, true).then(terapkan).catch(() => { });
+        }
     }
     document.addEventListener('rk:rakberubah', (e) => {
         const prd = e.detail && e.detail.prd;
         if (!prd) return;
-        hapusStatusRak(prd);
-        Object.keys(cache).forEach((k) => { if (k.indexOf(prd + '|') === 0) delete cache[k]; });
+        const awal = prd + '|';
+        const tampak = Array.from(document.querySelectorAll(STOK_SEL)).filter((td) => td.dataset.prd === prd);
+        const kunciRakf = {}, kunciCache = {};
+        tampak.forEach((td) => {
+            kunciRakf[prd + '|' + (td.dataset.gdn || '')] = 1;
+            kunciCache[prd + '|' + (td.dataset.otl || '')] = 1;
+            segarkanStatusRak(td, false);
+        });
+        // Entri produk ini yang tidak sedang tampil di tabel: dibuang saja (diambil ulang saat dibutuhkan)
+        Object.keys(RAKF).forEach((k) => { if (k.indexOf(awal) === 0 && !kunciRakf[k]) delete RAKF[k]; });
+        Object.keys(cache).forEach((k) => { if (k.indexOf(awal) === 0 && !kunciCache[k]) delete cache[k]; });
+        simpanFilterCache();
         saveCache();
-        terapkanFilter();
     });
 
     function statusRak(td) {
