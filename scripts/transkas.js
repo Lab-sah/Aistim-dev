@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ERZAP - Transfer Kas/Bank (Dropdown Cari & Format Nominal)
 // @namespace    http://tampermonkey.net/
-// @version      1.4.1
-// @description  Halaman Transfer Kas/Bank: kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); saldo sesudah Kas Asal dihitung dan Simpan diblokir bila minus; tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
+// @version      1.5.0
+// @description  Halaman Transfer Kas/Bank: kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); saldo sesudah Kas Asal (sebelum - nominal) dan Kas Tujuan (sebelum + nominal) dihitung, dengan info penambahan Kas Tujuan; Simpan dan Rekam diblokir bila saldo Kas Asal minus; tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/jurnals/form_transfer_kas_bank*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @run-at       document-idle
@@ -28,8 +28,8 @@
   // Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script dan muat ulang halaman ERZAP.
   const AKSES_JSON = `{
     "admin": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
-    "private": [],
-    "public": ["formatNominal", "responsive", "validasiSimpan", "cekSaldoMinus"]
+    "private": ["cekSaldoMinus"],
+    "public": ["formatNominal", "responsive", "validasiSimpan"]
   }`;
 
   function bacaAkses() {
@@ -118,6 +118,8 @@
 
   // Kirim angka mentah saat form disubmit, tombol Simpan, atau tombol Rekam ditekan
   function stripForSubmit() {
+    // Saat diblokir (saldo Kas Asal minus) tidak ada yang terkirim, jadi kolom Nominal tetap berformat
+    if (simpanDiblokir()) return;
     const el = nominalEl();
     if (el && bolehFitur('formatNominal')) el.value = el.dataset.raw || '';
   }
@@ -149,16 +151,53 @@
     }, true);
   });
 
-  /* ---------- Saldo sesudah Kas Asal (cek minus) ---------- */
-  // Saldo sesudah = saldo sebelum - nominal. Kalau hasilnya minus: angka dibuat merah, muncul peringatan,
-  // dan tombol Simpan (juga F2) dinonaktifkan. Kalau Kas Asal belum dipilih (saldo sebelum kosong), tidak dicek.
+  /* ---------- Saldo Kas Asal & Kas Tujuan ---------- */
+  // Kas Asal:   saldo sesudah = saldo sebelum - nominal. Kalau minus: merah, ada peringatan, dan Simpan
+  //             (klik, F2, Enter/submit) serta Rekam diblokir.
+  // Kas Tujuan: saldo sesudah = saldo sebelum + nominal. Hanya info penambahan; kalau masih minus cuma diberi
+  //             peringatan (transfer yang mengurangi minus tetap boleh disimpan).
+  // Dicek hanya kalau Nominal > 0 dan Kas-nya sudah dipilih (saldo sebelum terisi).
   const KAS = { sebelum: 'asal_sebelum', sesudah: 'asal_sesudah_tampil', simpan: 'bt_simpan' };
+  const TUJ = { sebelum: 'tujuan_sebelum', sesudah: 'tujuan_sesudah_tampil' };
   const KAS_WARNING_ID = 'kasupdate_warning';
+  const TUJ_BOX_ID = 'kastujuan_box';
 
   const byId = id => document.getElementById(id);
-  // "Rp 1,500.00" / "1500000.0" / "1.500.000" -> angka
-  const angka = t => parseFloat(String(t || '').replace(/[^0-9.\-]/g, '')) || 0;
+  // "Rp 1,500.00" / "1500000.0" / "-13000.0" -> angka (dibulatkan 2 desimal, menghindari selisih pecahan)
+  const angka = t => Math.round((parseFloat(String(t || '').replace(/[^0-9.\-]/g, '')) || 0) * 100) / 100;
   const rpFmt = n => 'Rp ' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const setTeks = (el, teks) => { if (el.textContent !== teks) el.textContent = teks; };
+
+  function nominalNum() {
+    const el = nominalEl();
+    if (!el) return 0;
+    return angka(el.dataset.raw != null && el.dataset.raw !== '' ? el.dataset.raw : el.value);
+  }
+
+  // Hasil hitung satu kas, atau null kalau kas belum dipilih atau Nominal belum > 0
+  function hitungKas(def, tanda) {
+    const s = byId(def.sebelum);
+    const nominal = nominalNum();
+    if (!s || !/\d/.test(s.textContent || '') || !(nominal > 0)) return null;
+    const sebelum = angka(s.textContent);
+    return { sebelum: sebelum, nominal: nominal, sesudah: Math.round((sebelum + tanda * nominal) * 100) / 100 };
+  }
+
+  const hitungAsal = () => hitungKas(KAS, -1);
+  const hitungTujuan = () => hitungKas(TUJ, 1);
+
+  // Dicek saat dipakai (bukan dari state tombol), supaya tidak tergantung urutan timer.
+  // Hanya Kas Asal yang memblokir.
+  function simpanDiblokir() {
+    if (!bolehFitur('cekSaldoMinus')) return false;
+    const r = hitungAsal();
+    return !!r && r.sesudah < 0;
+  }
+
+  function sisipSetelah(el, anchorEl) {
+    const anchor = anchorEl && (anchorEl.closest('table') || anchorEl.parentElement);
+    if (anchor) anchor.insertAdjacentElement('afterend', el);
+  }
 
   function kasWarning() {
     let w = byId(KAS_WARNING_ID);
@@ -168,64 +207,106 @@
       w.setAttribute('role', 'alert');
       w.style.cssText = 'display:none;margin:10px 0;padding:10px 14px;border:1px solid #b91c1c;' +
         'background:#fee2e2;color:#991b1b;border-radius:6px;font-weight:600;font-size:14px;';
-      const sesudah = byId(KAS.sesudah);
-      const anchor = sesudah && (sesudah.closest('table') || sesudah.parentElement);
-      if (anchor) anchor.insertAdjacentElement('afterend', w);
+      sisipSetelah(w, byId(KAS.sesudah));
     }
     return w;
   }
 
-  function setBlokSimpan(minus) {
-    const btn = byId(KAS.simpan);
-    if (btn) {
-      btn.dataset.kasupdateBlok = minus ? '1' : '';
-      btn.style.pointerEvents = minus ? 'none' : '';
-      btn.style.opacity = minus ? '0.35' : '';
-      btn.style.cursor = minus ? 'not-allowed' : '';
-      btn.title = minus ? 'Saldo sesudah minus, tidak bisa disimpan' : 'Simpan';
+  // Kotak info Kas Tujuan. Null kalau labelnya tidak ada di halaman (tidak membuat elemen sia-sia).
+  function tujuanBox() {
+    let b = byId(TUJ_BOX_ID);
+    if (!b) {
+      const lbl = byId(TUJ.sesudah);
+      if (!lbl) return null;
+      b = document.createElement('div');
+      b.id = TUJ_BOX_ID;
+      b.style.cssText = 'margin:10px 0;font-size:14px;';
+      sisipSetelah(b, lbl);
     }
+    return b;
+  }
+
+  function warnaLabel(lbl, minus) {
+    lbl.style.color = minus ? '#b91c1c' : '';
+    lbl.style.fontWeight = minus ? '700' : '';
+  }
+
+  function renderAsal() {
+    const r = hitungAsal();
     const w = byId(KAS_WARNING_ID);
-    if (w && !minus) w.style.display = 'none';
+    const lbl = byId(KAS.sesudah);
+    if (r && lbl) { setTeks(lbl, rpFmt(r.sesudah)); warnaLabel(lbl, r.sesudah < 0); }
+    if (r && r.sesudah < 0) {
+      const ww = kasWarning();
+      ww.style.display = 'block';
+      setTeks(ww, '⚠ Peringatan: saldo Kas Asal akan minus ' + rpFmt(r.sesudah) + '. Tombol Simpan dinonaktifkan.');
+    } else if (w) {
+      w.style.display = 'none';
+    }
+  }
+
+  // Isi kotak Kas Tujuan hanya dibangun ulang kalau isinya berubah (tidak berkedip, alert tidak dibacakan berulang)
+  function renderTujuan() {
+    const b = tujuanBox();
+    if (!b) return;
+    const r = hitungTujuan();
+    const kunci = r ? r.nominal + '|' + r.sesudah : '';
+    if (b.dataset.kunci === kunci) return;
+    b.dataset.kunci = kunci;
+    b.innerHTML = '';
+    if (!r) return;
+
+    const lbl = byId(TUJ.sesudah);
+    if (lbl) { setTeks(lbl, rpFmt(r.sesudah)); warnaLabel(lbl, r.sesudah < 0); }
+
+    const info = document.createElement('div');
+    info.textContent = 'ℹ Kas Tujuan bertambah +' + rpFmt(r.nominal);
+    info.style.cssText = 'color:#1d4ed8;font-weight:600;';
+    b.appendChild(info);
+    if (r.sesudah < 0) {
+      const w = document.createElement('div');
+      w.textContent = '⚠ Saldo Kas Tujuan masih minus ' + rpFmt(r.sesudah) + ' setelah transfer ini (Simpan tetap bisa).';
+      w.style.cssText = 'margin-top:6px;padding:10px 14px;border:1px solid #b45309;background:#fef3c7;color:#92400e;border-radius:6px;font-weight:600;';
+      b.appendChild(w);
+    }
+  }
+
+  function setBlokSimpan(blok) {
+    const btn = byId(KAS.simpan);
+    if (!btn) return;
+    btn.dataset.kasupdateBlok = blok ? '1' : '';
+    btn.style.pointerEvents = blok ? 'none' : '';
+    btn.style.opacity = blok ? '0.35' : '';
+    btn.style.cursor = blok ? 'not-allowed' : '';
+    btn.title = blok ? 'Saldo Kas Asal minus, tidak bisa disimpan' : 'Simpan';
   }
 
   function hitungSaldoKas() {
     if (!bolehFitur('cekSaldoMinus')) return;
-    const elSebelum = byId(KAS.sebelum);
-    const elNominal = nominalEl();
-    if (!elSebelum || !elNominal || !/\d/.test(elSebelum.textContent || '')) { setBlokSimpan(false); return; }
-    // Nominal dibaca dari angka mentah (sebelum diformat "Rp ..."), cadangannya dari teks kolom
-    const nominal = angka(elNominal.dataset.raw != null && elNominal.dataset.raw !== '' ? elNominal.dataset.raw : elNominal.value);
-    const sesudah = angka(elSebelum.textContent) - nominal;
-    const minus = sesudah < 0;
-
-    const lbl = byId(KAS.sesudah);
-    if (lbl) {
-      lbl.textContent = rpFmt(sesudah);
-      lbl.style.color = minus ? '#b91c1c' : '';
-      lbl.style.fontWeight = minus ? '700' : '';
-    }
-    setBlokSimpan(minus);
-    if (minus) {
-      const w = kasWarning();
-      w.style.display = 'block';
-      w.textContent = '⚠ Peringatan: saldo Kas Asal akan minus ' + rpFmt(sesudah) + '. Tombol Simpan dinonaktifkan.';
-    }
+    renderAsal();
+    renderTujuan();
+    setBlokSimpan(simpanDiblokir());
   }
 
-  function simpanDiblokir() {
-    const btn = byId(KAS.simpan);
-    return !!btn && btn.dataset.kasupdateBlok === '1' && bolehFitur('cekSaldoMinus');
-  }
-
-  // Cegah simpan lewat klik atau F2 saat saldo minus
+  // Cegah simpan lewat klik Simpan, tombol Rekam, F2, atau submit (Enter) saat saldo Kas Asal minus
   document.addEventListener('click', e => {
-    if (simpanDiblokir() && e.target.closest && e.target.closest('#' + KAS.simpan)) {
+    if (!e.target || !e.target.closest) return;
+    const saveBtn = e.target.closest(SAVE_SEL);
+    const btn = e.target.closest('button');
+    const isRekam = btn && /rekam/i.test(btn.textContent);
+    if ((saveBtn || isRekam) && simpanDiblokir()) {
       e.stopImmediatePropagation();
       e.preventDefault();
     }
   }, true);
   document.addEventListener('keydown', e => {
     if (e.key === 'F2' && simpanDiblokir()) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    }
+  }, true);
+  document.addEventListener('submit', e => {
+    if (simpanDiblokir()) {
       e.stopImmediatePropagation();
       e.preventDefault();
     }
