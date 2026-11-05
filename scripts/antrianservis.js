@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.30
+// @version      1.13.32
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -409,7 +409,42 @@
   }
 
   // Telp dan alamat pelanggan dari blok "Kepada Yth" di nota: alamat = baris setelah nama, telp = baris "Telp.".
+  // Nilai dari label di nota: "No. Telepon / HP : ...", "Alamat : ..." (nota tutup, berupa tabel label | : | isi),
+  // atau "Telp. : ..." di teks yang sama. Tidak mengambil teks dari label lain.
+  function ambilNilaiLabel(doc, pola) {
+    const rapi = (t) => (t || '').replace(/\s+/g, ' ').trim();
+    const el = [...doc.body.querySelectorAll('*')].find((e) => {
+      const t = rapi(e.textContent);
+      return pola.test(t) && t.length < 120 && ![...e.children].some((c) => pola.test(rapi(c.textContent)));
+    });
+    if (!el) return '';
+    const sama = rapi(el.textContent).replace(pola, '').replace(/^[:\s]+/, '').trim();
+    if (sama && /[a-z0-9]/i.test(sama) && sama.length <= 80) return sama;
+    const sel = el.closest('td, th');
+    if (sel) {
+      let nx = sel.nextElementSibling;
+      while (nx) {
+        const t = rapi(nx.textContent).replace(/^[:\s]+/, '');
+        if (t) return t;
+        nx = nx.nextElementSibling;
+      }
+      return '';
+    }
+    let node = el;
+    while (node && !node.nextElementSibling) node = node.parentElement;
+    return node && node.nextElementSibling ? rapi(node.nextElementSibling.textContent) : '';
+  }
+
+  // Telp dan alamat dari nota: label (nota tutup) lebih dulu, lalu blok "Kepada Yth" (nota penerimaan).
   function ambilKontakNota(doc) {
+    const kepada = ambilKontakKepadaYth(doc);
+    const telp = ambilNilaiLabel(doc, /^(no\.?\s*)?(telp|telepon)[^:]*:?/i) || kepada.telp;
+    const alamat = ambilNilaiLabel(doc, /^alamat[^:]*:?/i) || kepada.alamat;
+    return { telp: telp, alamat: alamat };
+  }
+
+  // Telp dan alamat dari blok "Kepada Yth" di nota penerimaan.
+  function ambilKontakKepadaYth(doc) {
     const rapi = (t) => (t || '').replace(/\s+/g, ' ').trim();
     const label = [...doc.body.querySelectorAll('*')].find((el) =>
       /^kepada\s*yth\b/i.test(rapi(el.textContent)) &&
@@ -462,9 +497,11 @@
     const kodeEl = modal.querySelector('#pencarian_kode') || modal.querySelector('input[name="pencarian[kode]"]');
     const snEl = modal.querySelector('#pencarian_serial_number') || modal.querySelector('input[name="pencarian[serial_number]"]');
     const tabel = modal.querySelector('table');
-    const grupPelanggan = pelangganEl && pelangganEl.parentElement ? pelangganEl.parentElement : null;
-    const grupKode = kodeEl && kodeEl.parentElement ? kodeEl.parentElement : null;
-    const grupSn = snEl && snEl.parentElement ? snEl.parentElement : null;
+    // Hanya wadah di dalam jendela yang dipakai (bukan jendela itu sendiri)
+    const dalam = (el) => (el && el !== modal && modal.contains(el) ? el : null);
+    const grupPelanggan = pelangganEl ? dalam(pelangganEl.parentElement) : null;
+    const grupKode = kodeEl ? dalam(kodeEl.parentElement) : null;
+    const grupSn = snEl ? dalam(snEl.parentElement) : null;
     const contohGrup = grupKode || grupSn || grupPelanggan;
     const contohLabel = contohGrup ? contohGrup.querySelector('label') : null;
     const contohInput = kodeEl || snEl || pelangganEl;
@@ -486,8 +523,8 @@
       return grup;
     };
 
-    let grupAlamat = modal.querySelector('#tm-kontak-alamat') ? modal.querySelector('#tm-kontak-alamat').parentElement : null;
-    let grupTelp = modal.querySelector('#tm-kontak-telp') ? modal.querySelector('#tm-kontak-telp').parentElement : null;
+    let grupAlamat = document.getElementById('tm-kontak-alamat') ? document.getElementById('tm-kontak-alamat').parentElement : null;
+    let grupTelp = document.getElementById('tm-kontak-telp') ? document.getElementById('tm-kontak-telp').parentElement : null;
     if (!grupAlamat || !grupTelp) {
       grupAlamat = bikin('Alamat', 'tm-kontak-alamat');
       // Alamat selalu satu baris penuh di bawah Pelanggan (tidak menyempitkan kolom Pelanggan)
@@ -503,8 +540,8 @@
       else return;
     }
     jadikanGridPencarian(modal);
-    modal.querySelector('#tm-kontak-telp').value = kontak && kontak.telp ? kontak.telp : '';
-    modal.querySelector('#tm-kontak-alamat').value = kontak && kontak.alamat ? kontak.alamat : '';
+    document.getElementById('tm-kontak-telp').value = kontak && kontak.telp ? kontak.telp : '';
+    document.getElementById('tm-kontak-alamat').value = kontak && kontak.alamat ? kontak.alamat : '';
   }
 
   // Ambil dari nota servis: nama barang (kolom Unit / Nama Barang), SN bila di Lacak Servis kosong,
