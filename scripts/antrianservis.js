@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.26
+// @version      1.13.27
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -692,7 +692,14 @@
   // Highlight untuk baris yang dipilih
   const style = document.createElement('style');
   style.textContent = '.' + SEL_CLASS + ' td { background: #fff3b0 !important; }' +
-    ' .tm-lacak table thead th, .tm-lacak table thead td { position: sticky; top: 0; z-index: 2; background: #e9ecef; }';
+    ' .tm-lacak table thead th, .tm-lacak table thead td { position: sticky; top: 0; z-index: 2; background: #e9ecef; }' +
+    ' .tm-lacak .modal-dialog { max-width: min(96vw, 980px); margin: 1rem auto; }' +
+    ' .tm-lacak .modal-content { max-height: 92vh; }' +
+    ' .tm-lacak .modal-body { max-height: calc(92vh - 130px); overflow: auto; }' +
+    ' .tm-lacak .modal-body .row { display: flex; flex-wrap: wrap; }' +
+    ' .tm-lacak .modal-body .row > [class*="col"] { flex: 1 1 200px; min-width: 0; max-width: 100%; }' +
+    ' .tm-lacak .modal-body input, .tm-lacak .modal-body select { max-width: 100%; }' +
+    ' .tm-lacak table { max-width: 100%; }';
   document.head.appendChild(style);
 
   // Panggilan ensureButton digabung per frame supaya tidak dijalankan ratusan kali saat DOM berubah banyak
