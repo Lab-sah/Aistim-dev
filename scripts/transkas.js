@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Transfer Kas/Bank (Dropdown Cari & Format Nominal)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.0
+// @version      1.5.1
 // @description  Halaman Transfer Kas/Bank: kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); saldo sesudah Kas Asal (sebelum - nominal) dan Kas Tujuan (sebelum + nominal) dihitung, dengan info penambahan Kas Tujuan; Simpan dan Rekam diblokir bila saldo Kas Asal minus; tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/jurnals/form_transfer_kas_bank*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -28,8 +28,8 @@
   // Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script dan muat ulang halaman ERZAP.
   const AKSES_JSON = `{
     "admin": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
-    "private": ["cekSaldoMinus"],
-    "public": ["formatNominal", "responsive", "validasiSimpan"]
+    "private": [],
+    "public": ["formatNominal", "responsive", "validasiSimpan", "cekSaldoMinus"]
   }`;
 
   function bacaAkses() {
@@ -281,8 +281,18 @@
     btn.title = blok ? 'Saldo Kas Asal minus, tidak bisa disimpan' : 'Simpan';
   }
 
+  // Sekali saja di console: elemen saldo yang tidak ditemukan di halaman (ID berbeda), supaya mudah dilacak
+  let sudahLapor = false;
+  function laporElemen() {
+    if (sudahLapor) return;
+    sudahLapor = true;
+    const hilang = [KAS.sebelum, KAS.sesudah, KAS.simpan, TUJ.sebelum, TUJ.sesudah, 'jurnal_nominal'].filter(id => !byId(id));
+    console.log('[transkas] v1.5.1 cekSaldoMinus aktif.' + (hilang.length ? ' Elemen tidak ditemukan: ' + hilang.join(', ') : ' Semua elemen saldo ditemukan.'));
+  }
+
   function hitungSaldoKas() {
     if (!bolehFitur('cekSaldoMinus')) return;
+    laporElemen();
     renderAsal();
     renderTujuan();
     setBlokSimpan(simpanDiblokir());
