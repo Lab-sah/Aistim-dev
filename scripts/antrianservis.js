@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.65
+// @version      1.13.66
 // @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG. Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -687,8 +687,8 @@
     if (gagal.length) alert('Sebagian data belum terisi: ' + gagal.join(', '));
   }
 
-  // Mengosongkan kolom pencarian (Pelanggan, Kode Servis, Nama Barang, Serial Number) beserta Telp dan Alamat.
-  // Tabel hasil dan tombol Pencarian tidak diubah.
+  // Mengosongkan kolom pencarian (Pelanggan, Kode Servis, Nama Barang, Serial Number) beserta Telp dan Alamat,
+  // lalu menyembunyikan tabel hasil. Tabel muncul lagi saat Pencarian diklik atau Enter ditekan di kolom pencarian.
   function resetPencarian(modal) {
     const $ = window.jQuery;
     ['#pencarian_nama_pelanggan', '#pencarian_kode', '#pencarian_unit', '#pencarian_serial_number', '#tm-kontak-telp', '#tm-kontak-alamat'].forEach((q) => {
@@ -698,6 +698,23 @@
     });
     modal.querySelectorAll('.' + SEL_CLASS).forEach((r) => r.classList.remove(SEL_CLASS));
     selectedRow = null;
+    modal.classList.add('tm-tabel-sembunyi');
+    ensureButton();
+  }
+
+  // Tabel hasil ditampilkan lagi (setelah Reset) begitu pencarian baru dijalankan
+  function bindTampilTabel(modal) {
+    if (modal.dataset.tmTampil) return;
+    modal.dataset.tmTampil = '1';
+    const tampil = () => {
+      if (!modal.classList.contains('tm-tabel-sembunyi')) return;
+      modal.classList.remove('tm-tabel-sembunyi');
+      delete modal.dataset.tmAutoSig; // hasil yang sama setelah Reset tetap dipilih otomatis
+    };
+    modal.addEventListener('click', (e) => { if (e.target.closest('#lacak_servis_cari')) tampil(); }, true);
+    modal.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.closest('input')) tampil();
+    }, true);
   }
 
   // Menandai kolom (lewat judul kolom) untuk pengaturan lebar, dan kolom opsional (Tindakan, Garansi)
@@ -706,6 +723,7 @@
     const t = [...modal.querySelectorAll('table')].find((tb) =>
       [...tb.querySelectorAll('thead th')].some((th) => th.textContent.trim().toUpperCase() === 'KELUHAN'));
     if (!t) return;
+    if (t.parentElement) t.parentElement.classList.add('tm-tabel-wadah');
     const kelas = {
       KELUHAN: ['tm-kol-keluhan'],
       TINDAKAN: ['tm-kol-tindakan', 'tm-kol-opsional'],
@@ -744,6 +762,7 @@
     }
     bindRowSelection(modal);
     if (otomatis) {
+      bindTampilTabel(modal);
       autoPilihBaris(modal);
       // Saat Lacak Servis dibuka, Jenis Servis langsung Rawat Inap (sekali per jendela)
       if (!modal.dataset.tmRawat) {
@@ -782,7 +801,7 @@
     if (!closeBtn) return;
 
     // Ada data servis: tampilkan Buat Nota. Tidak ada: tampilkan Buat Data.
-    const adaData = modal.querySelectorAll('table tbody tr').length > 0;
+    const adaData = modal.querySelectorAll('table tbody tr').length > 0 && !modal.classList.contains('tm-tabel-sembunyi');
     const btnNota = modal.querySelector('#' + BTN_ID);
     const btnDataAda = modal.querySelector('#' + BTN_DATA_ID);
 
@@ -842,6 +861,7 @@
     ' .tm-lacak .modal-body .row > [class*="col"] { flex: 1 1 200px; min-width: 0; max-width: 100%; }' +
     ' .tm-lacak .modal-body input, .tm-lacak .modal-body select { max-width: 100%; }' +
     ' .tm-lacak table { max-width: 100%; }' +
+    ' .tm-lacak.tm-tabel-sembunyi .tm-tabel-wadah, .tm-lacak.tm-tabel-sembunyi #tm-kolom-btn { display: none !important; }' +
     ' .tm-lacak .modal-body { overflow-x: hidden !important; overflow-y: auto !important; }' +
     ' .tm-lacak .modal-body table { width: 100%; border-collapse: collapse; }' +
     ' .tm-lacak .modal-body table th, .tm-lacak .modal-body table td { border: 1px solid #dee2e6 !important; }' +
@@ -902,6 +922,6 @@
     const modal = findModal();
     if (modal && bolehFitur('lacakOtomatis')) sejajarkanKontak(modal);
   });
-  console.log('[antrianservis.js] v1.13.65 aktif');
+  console.log('[antrianservis.js] v1.13.66 aktif');
   ensureButton();
 })();
