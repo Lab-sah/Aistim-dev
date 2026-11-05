@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.77
+// @version      1.13.79
 // @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG. Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -495,12 +495,36 @@
       const saya = ++nomor;
       // Ikon loading di dalam kolom selama mencari
       input.classList.add('tm-input-loading');
+      // Kolom tetap bisa diketik selama mencari: kalau halaman menonaktifkannya (disabled/readonly, mis. saat
+      // Pencarian berjalan), langsung diaktifkan lagi dan fokus dikembalikan supaya ketikan tidak terputus.
+      const punyaFokus = document.activeElement === input;
+      let sempatMati = false;
+      const kembalikanFokus = () => {
+        if (!punyaFokus || document.activeElement === input) return;
+        if (document.activeElement && document.activeElement !== document.body) return; // kamu pindah ke kolom lain
+        input.focus();
+        try { input.setSelectionRange(input.value.length, input.value.length); } catch (e) { /* tipe input tanpa seleksi */ }
+      };
+      const aktifkan = () => {
+        if (input.disabled || input.readOnly) {
+          sempatMati = true;
+          input.disabled = false;
+          input.readOnly = false;
+          kembalikanFokus(); // fokus ikut hilang saat dinonaktifkan: langsung dikembalikan agar ketikan tidak terputus
+        }
+      };
+      const jaga = window.MutationObserver ? new MutationObserver(aktifkan) : null;
+      if (jaga) jaga.observe(input, { attributes: true, attributeFilter: ['disabled', 'readonly'] });
+      aktifkan();
       let items = [];
       try {
         items = opsi.ambil ? await opsi.ambil(term) : await panggilSumber(inst, term, opsi.nama);
       } catch (err) {
         console.warn('[antrianservis] pencarian ' + opsi.nama + ' gagal:', err.message);
       }
+      aktifkan();
+      if (jaga) jaga.disconnect();
+      if (sempatMati) kembalikanFokus();
       if (saya === nomor) input.classList.remove('tm-input-loading');
       if (saya !== nomor) return;
       if (!logSekali && items.length) { logSekali = true; console.log('[antrianservis] contoh data autocomplete ' + opsi.nama + ':', items[0]); }
@@ -576,6 +600,7 @@
     });
     const btnCari = modal.querySelector('#lacak_servis_cari');
     if (!btnCari) return [];
+    const urut = (modal.__tmCariN = (modal.__tmCariN || 0) + 1);
     modal.dataset.tmTahan = '1';
     modal.classList.add('tm-cari-diam');
     const tbody = modal.querySelector('table tbody');
@@ -601,8 +626,11 @@
     const items = rows.map(dataBaris);
     // Hasil ini dianggap sudah "dipilih" supaya tidak ada pilih-otomatis yang menimpa kolom SN yang sedang diketik
     if (items[0]) modal.dataset.tmAutoSig = items[0].sig;
-    delete modal.dataset.tmTahan;
-    modal.classList.remove('tm-cari-diam');
+    // Kalau pencarian yang lebih baru sudah berjalan (kamu mengetik lagi), biarkan dia yang melepas penahan
+    if (urut === modal.__tmCariN) {
+      delete modal.dataset.tmTahan;
+      modal.classList.remove('tm-cari-diam');
+    }
     return items;
   }
 
@@ -1208,6 +1236,6 @@
     const modal = findModal();
     if (modal && bolehFitur('lacakOtomatis')) sejajarkanKontak(modal);
   });
-  console.log('[antrianservis.js] v1.13.77 aktif');
+  console.log('[antrianservis.js] v1.13.79 aktif');
   ensureButton();
 })();
