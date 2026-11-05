@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.29
+// @version      1.13.30
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -437,6 +437,23 @@
     return { alamat: alamat, telp: telp };
   }
 
+  // Kolom pencarian (Pelanggan, Kode Servis, Nama Barang, Serial Number) disusun grid yang menyesuaikan lebar layar:
+  // kolom baru otomatis turun ke baris berikutnya kalau layar sempit. Hanya untuk wadah yang tidak memuat tabel.
+  function jadikanGridPencarian(modal) {
+    if (modal.dataset.tmGrid) return;
+    const p = modal.querySelector('#pencarian_nama_pelanggan') || modal.querySelector('input[name="pencarian[nama_pelanggan]"]');
+    const q = modal.querySelector('#pencarian_serial_number') || modal.querySelector('input[name="pencarian[serial_number]"]');
+    if (!p || !q) return;
+    let c = p.parentElement;
+    while (c && c !== modal && !c.contains(q)) c = c.parentElement;
+    if (!c || c === modal || c.querySelector('table')) return;
+    c.style.display = 'grid';
+    c.style.gridTemplateColumns = 'repeat(auto-fit, minmax(200px, 1fr))';
+    c.style.gap = '6px 12px';
+    c.style.alignItems = 'end';
+    modal.dataset.tmGrid = '1';
+  }
+
   // Tampilkan telp dan alamat di jendela Lacak Servis, susunannya meniru kolom pencarian (label di atas,
   // kotak isian selebar kolom). Alamat diletakkan di bawah kolom Pelanggan, Telp di bawah kolom Kode Servis.
   // Kalau kolom itu tidak ketemu, ditaruh di bawah kolom Serial Number, lalu di atas tabel.
@@ -474,7 +491,7 @@
     if (!grupAlamat || !grupTelp) {
       grupAlamat = bikin('Alamat', 'tm-kontak-alamat');
       // Alamat selalu satu baris penuh di bawah Pelanggan (tidak menyempitkan kolom Pelanggan)
-      grupAlamat.style.cssText = 'flex:0 0 100%;width:100%;max-width:100%;';
+      grupAlamat.style.cssText = 'flex:0 0 100%;width:100%;max-width:100%;grid-column:1 / -1;';
       grupTelp = bikin('Telp', 'tm-kontak-telp');
       if (grupPelanggan) grupPelanggan.insertAdjacentElement('afterend', grupAlamat);
       else if (grupSn) grupSn.insertAdjacentElement('afterend', grupAlamat);
@@ -485,6 +502,7 @@
       else if (tabel && tabel.parentElement) tabel.parentElement.insertBefore(grupTelp, tabel);
       else return;
     }
+    jadikanGridPencarian(modal);
     modal.querySelector('#tm-kontak-telp').value = kontak && kontak.telp ? kontak.telp : '';
     modal.querySelector('#tm-kontak-alamat').value = kontak && kontak.alamat ? kontak.alamat : '';
   }
