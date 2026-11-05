@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.68
+// @version      1.13.69
 // @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG. Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -424,7 +424,19 @@
       const $ = window.jQuery;
       const pel = modal.querySelector('#pencarian_nama_pelanggan');
       if (pel) {
-        if ($) $(pel).val(item.nama || '').trigger('input').trigger('change'); else pel.value = item.nama || '';
+        // Hanya isi nilainya. Event input tidak dikirim, supaya autocomplete milik kolom Pelanggan tidak
+        // menjalankan pencarian sendiri (kolom jadi loading terus). Pencarian sisa dibatalkan dan ditutup.
+        if ($) {
+          const j = $(pel);
+          const w = j.data('ui-autocomplete');
+          if (w) { clearTimeout(w.searching); w.cancelSearch = true; }
+          j.val(item.nama || '');
+          if (w) j.autocomplete('close');
+          j.removeClass('ui-autocomplete-loading');
+          setTimeout(() => j.removeClass('ui-autocomplete-loading'), 500);
+        } else {
+          pel.value = item.nama || '';
+        }
       }
       if (noTelp(item)) telp.value = noTelp(item);
       if (item.alamat) {
@@ -1009,6 +1021,6 @@
     const modal = findModal();
     if (modal && bolehFitur('lacakOtomatis')) sejajarkanKontak(modal);
   });
-  console.log('[antrianservis.js] v1.13.68 aktif');
+  console.log('[antrianservis.js] v1.13.69 aktif');
   ensureButton();
 })();
