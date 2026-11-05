@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.23.2
+// @version      1.23.3
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -943,6 +943,8 @@ function rkBoleh(fitur) {
         m.info('Memuat rak...');
 
         dataRak(td, true).then((data) => {
+            hapusStatusRak(td.dataset.prd);
+            if (aktifFilter()) terapkanFilter();
             if (!document.body.contains(m.pop)) return;
             data = data || [];
             if (!data.some((x) => x.r)) return m.info('Produk ini belum punya penempatan rak.');
@@ -1189,6 +1191,23 @@ function rkBoleh(fitur) {
             return !!rak;
         });
     }
+
+    // Status rak sebuah produk berubah (rak baru disimpan): buang cache status "ada/kosong" produk itu
+    // supaya filter Status Rak memeriksa ulang (bukan memakai hasil lama sampai 30 menit).
+    function hapusStatusRak(prd) {
+        if (!prd) return;
+        const awal = prd + '|';
+        Object.keys(RAKF).forEach((k) => { if (k.indexOf(awal) === 0) delete RAKF[k]; });
+        simpanFilterCache();
+    }
+    document.addEventListener('rk:rakberubah', (e) => {
+        const prd = e.detail && e.detail.prd;
+        if (!prd) return;
+        hapusStatusRak(prd);
+        Object.keys(cache).forEach((k) => { if (k.indexOf(prd + '|') === 0) delete cache[k]; });
+        saveCache();
+        terapkanFilter();
+    });
 
     function statusRak(td) {
         const prd = td.dataset.prd;
@@ -1620,6 +1639,7 @@ function rkBoleh(fitur) {
         if (!r) { try { r = JSON.parse(xhr.responseText); } catch (e) { r = null; } }
         var msg = state.msg || (r && r.message) || '';
         if (r && String(r.status) === '1') {
+          try { document.dispatchEvent(new CustomEvent('rk:rakberubah', { detail: { prd: lastLihat && lastLihat.dataset ? lastLihat.dataset.prd : '' } })); } catch (e) { }
           closeOverlay();
           toast(msg || 'Rak tersimpan', 'ok');
           if (lastLihat && document.body.contains(lastLihat)) setTimeout(function () { lastLihat.click(); }, 50);
