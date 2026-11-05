@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.71
+// @version      1.13.72
 // @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG. Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -165,6 +165,34 @@
     if (!sig || modal.dataset.tmAutoSig === sig) return;
     modal.dataset.tmAutoSig = sig;
     tr.click();
+  }
+
+  // Ketik Serial Number di popup: kalau SN itu ada di hasil pencarian, kolom Pelanggan ikut terisi.
+  function bindSnLookup(modal) {
+    if (modal.dataset.tmSnLookup) return;
+    modal.dataset.tmSnLookup = '1';
+    let timer = null;
+    const norm = (t) => (t || '').replace(/\s+/g, '').toUpperCase();
+    modal.addEventListener('input', (e) => {
+      const el = e.target;
+      if (!(el.id === 'pencarian_serial_number' || el.name === 'pencarian[serial_number]')) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const cari = norm(el.value);
+        if (!cari) return;
+        const tr = [...modal.querySelectorAll('tbody tr')].find((r) => {
+          const sn = getCellAny(r, ['SN', 'Serial Number', 'Serial No', 'No Seri']) || cellText(r, 3);
+          return norm(sn) === cari;
+        });
+        if (!tr) return;
+        const pelanggan = getCellAny(tr, ['Pelanggan', 'Nama Pelanggan', 'Nama']) || cellText(tr, 2);
+        if (!pelanggan) return;
+        const p = modal.querySelector('#pencarian_nama_pelanggan') || modal.querySelector('input[name="pencarian[nama_pelanggan]"]');
+        if (!p) return;
+        const $ = window.jQuery;
+        if ($) $(p).val(pelanggan); else p.value = pelanggan;
+      }, 300);
+    });
   }
 
   // Klik baris tabel untuk memilih servis (klik link di dalam baris tidak mengubah pilihan).
@@ -865,6 +893,7 @@
     bindRowSelection(modal);
     if (otomatis) {
       bindTampilTabel(modal);
+      bindSnLookup(modal);
       // Kolom Telp / Alamat langsung ada sejak jendela dibuka (supaya Telp bisa dipakai mencari pelanggan)
       if (!document.getElementById('tm-kontak-wrap')) tampilKontak(modal, null);
       autoPilihBaris(modal);
