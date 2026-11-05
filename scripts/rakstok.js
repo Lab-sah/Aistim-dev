@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.23.6
+// @version      1.23.7
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -1583,13 +1583,45 @@ function rkBoleh(fitur) {
   }
   function onEsc(e) { if (e.key === 'Escape') closeOverlay(); }
 
+  // Semua tabel yang memuat daftar rak disembunyikan (digantikan combobox), bukan hanya tabel pertama.
+  function sembunyikanSemua(d) {
+    Array.prototype.forEach.call(d.querySelectorAll('.check_box_rak_barangs'), function (c) {
+      var t = c.closest('table');
+      if (t && t.style.display !== 'none') t.style.display = 'none';
+    });
+  }
+
+  // Kalau daftar rak berupa DataTables yang berhalaman (mis. 10 baris per halaman), baris di luar halaman aktif
+  // tidak ada di halaman sehingga combobox hanya memuat sebagian rak. Panjang halaman diubah ke "Semua".
+  function semuaBaris(d, jumlah) {
+    var sel = d.querySelector('.dataTables_length select, select[name$="_length"]');
+    var info = '[Penentuan Rak] rak terbaca: ' + jumlah + (sel ? ' (DataTables, panjang halaman ' + sel.value + ')' : ' (tanpa DataTables)');
+    if (sel && !sel.dataset.rkSemua) {
+      sel.dataset.rkSemua = '1';
+      var opts = Array.prototype.slice.call(sel.options);
+      var pil = opts.filter(function (o) { return o.value === '-1' || /all|semua/i.test(o.textContent); })[0];
+      if (!pil) pil = opts.slice().sort(function (a, b) { return (+b.value || 0) - (+a.value || 0); })[0];
+      if (pil && sel.value !== pil.value) {
+        sel.value = pil.value;
+        sel.dispatchEvent(new (d.defaultView.Event)('change', { bubbles: true }));
+        info += ' -> panjang halaman diubah ke ' + pil.value;
+      }
+    }
+    console.log(info);
+  }
+
   function buildCombo(d) {
     var first = d.querySelector('.check_box_rak_barangs'); if (!first) return;
     var table = first.closest('table'); if (!table) return;
+    sembunyikanSemua(d);
     if (table.dataset.rkc === '2' && d.getElementById('rk_combo')) return;
     d.querySelectorAll('#rk_combo').forEach(function (x) { x.remove(); });
     table.dataset.rkc = '2'; table.style.display = 'none';
-    var cbs = Array.prototype.slice.call(table.querySelectorAll('.check_box_rak_barangs'));
+    // Daftar rak dibaca ulang setiap kali ditampilkan (baris bisa bertambah setelah combobox dibuat, mis. saat
+    // DataTables menggambar ulang atau data dimuat belakangan), dan mencakup semua tabel rak di halaman.
+    var ambilCb = function () { return Array.prototype.slice.call(d.querySelectorAll('.check_box_rak_barangs')); };
+    var cbs = ambilCb();
+    semuaBaris(d, cbs.length);
     var label = function (cb) {
       var tr = cb.closest('tr'), td = tr.querySelector('td');
       return (td ? td.textContent : tr.textContent).replace(/\s+/g, ' ').trim();
@@ -1604,6 +1636,7 @@ function rkBoleh(fitur) {
     var hi = 0, shown = [];
 
     function renderChips() {
+      cbs = ambilCb();
       chips.innerHTML = '';
       cbs.filter(function (c) { return c.checked; }).forEach(function (c) {
         var s = d.createElement('span');
@@ -1616,6 +1649,7 @@ function rkBoleh(fitur) {
       });
     }
     function renderList() {
+      cbs = ambilCb();
       var q = inp.value.trim().toLowerCase();
       shown = cbs.filter(function (c) { return !c.checked && label(c).toLowerCase().indexOf(q) > -1; });
       if (hi >= shown.length) hi = Math.max(0, shown.length - 1);
@@ -1627,10 +1661,14 @@ function rkBoleh(fitur) {
       shown.forEach(function (c, i) {
         var it = d.createElement('div'); it.textContent = label(c);
         it.style.cssText = 'padding:8px 10px;cursor:pointer;font-size:15px;' + (i === hi ? 'background:#e7f1ff' : '');
-        it.onmouseenter = function () { hi = i; Array.prototype.forEach.call(list.children, function (ch, j) { ch.style.background = j === i ? '#e7f1ff' : ''; }); };
+        it.onmouseenter = function () { hi = i; Array.prototype.forEach.call(list.children, function (ch, j) { if (j < shown.length) ch.style.background = j === i ? '#e7f1ff' : ''; }); };
         it.onmousedown = function (ev) { ev.preventDefault(); pick(c); };
         list.appendChild(it);
       });
+      var ft = d.createElement('div');
+      ft.textContent = 'Menampilkan ' + shown.length + ' dari ' + cbs.length + ' rak' + (q ? ' (disaring)' : '');
+      ft.style.cssText = 'padding:6px 10px;font-size:11px;color:#888;border-top:1px solid #eee;background:#fafafa;position:sticky;bottom:0';
+      list.appendChild(ft);
     }
     function pick(c) { if (!c.checked) c.click(); inp.value = ''; hi = 0; renderChips(); renderList(); inp.focus(); }
     function open() { list.style.display = 'block'; renderList(); }
