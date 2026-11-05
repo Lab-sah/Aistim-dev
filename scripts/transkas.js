@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Transfer Kas/Bank (Dropdown Cari & Format Nominal)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.1
+// @version      1.5.2
 // @description  Halaman Transfer Kas/Bank: kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); saldo sesudah Kas Asal (sebelum - nominal) dan Kas Tujuan (sebelum + nominal) dihitung, dengan info penambahan Kas Tujuan; Simpan dan Rekam diblokir bila saldo Kas Asal minus; tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/jurnals/form_transfer_kas_bank*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -245,19 +245,34 @@
     }
   }
 
+  // Angka saldo sesudah Kas Tujuan di tabel. Script halaman ERZAP ikut menulis kolom ini dan bisa menimpanya,
+  // jadi ditulis tiap tick dan juga langsung ditulis ulang begitu kolomnya berubah (lihat pantauLabel).
+  function tulisLabelTujuan() {
+    const r = hitungTujuan();
+    const lbl = byId(TUJ.sesudah);
+    if (r && lbl) { setTeks(lbl, rpFmt(r.sesudah)); warnaLabel(lbl, r.sesudah < 0); }
+    return r;
+  }
+
+  let labelDipantau = null;
+  function pantauLabel() {
+    const lbl = byId(TUJ.sesudah);
+    if (!lbl || lbl === labelDipantau) return;
+    labelDipantau = lbl;
+    new MutationObserver(() => { if (bolehFitur('cekSaldoMinus')) tulisLabelTujuan(); })
+      .observe(lbl, { childList: true, characterData: true, subtree: true });
+  }
+
   // Isi kotak Kas Tujuan hanya dibangun ulang kalau isinya berubah (tidak berkedip, alert tidak dibacakan berulang)
   function renderTujuan() {
+    const r = tulisLabelTujuan();
     const b = tujuanBox();
     if (!b) return;
-    const r = hitungTujuan();
     const kunci = r ? r.nominal + '|' + r.sesudah : '';
     if (b.dataset.kunci === kunci) return;
     b.dataset.kunci = kunci;
     b.innerHTML = '';
     if (!r) return;
-
-    const lbl = byId(TUJ.sesudah);
-    if (lbl) { setTeks(lbl, rpFmt(r.sesudah)); warnaLabel(lbl, r.sesudah < 0); }
 
     const info = document.createElement('div');
     info.textContent = 'ℹ Kas Tujuan bertambah +' + rpFmt(r.nominal);
@@ -287,12 +302,13 @@
     if (sudahLapor) return;
     sudahLapor = true;
     const hilang = [KAS.sebelum, KAS.sesudah, KAS.simpan, TUJ.sebelum, TUJ.sesudah, 'jurnal_nominal'].filter(id => !byId(id));
-    console.log('[transkas] v1.5.1 cekSaldoMinus aktif.' + (hilang.length ? ' Elemen tidak ditemukan: ' + hilang.join(', ') : ' Semua elemen saldo ditemukan.'));
+    console.log('[transkas] v1.5.2 cekSaldoMinus aktif.' + (hilang.length ? ' Elemen tidak ditemukan: ' + hilang.join(', ') : ' Semua elemen saldo ditemukan.'));
   }
 
   function hitungSaldoKas() {
     if (!bolehFitur('cekSaldoMinus')) return;
     laporElemen();
+    pantauLabel();
     renderAsal();
     renderTujuan();
     setBlokSimpan(simpanDiblokir());
