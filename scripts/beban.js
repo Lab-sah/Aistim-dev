@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ERZAP - Format Rp
 // @namespace    http://tampermonkey.net/
-// @version      1.1.2
-// @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Fitur diatur lewat AKSES_JSON (public/private/role).
+// @version      1.2.0
+// @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: tabel Informasi Saldo Kas/Bank (saldo sebelum dan sesudah dipotong beban, di form Beban baru); kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_keluar*
@@ -18,7 +18,7 @@
   window.__erzapBebanInit = true;
 
   // ====== HAK AKSES & FITUR (JSON) ======
-  // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini. Nama fitur: formatJumlah (kolom Jumlah/Nominal), wajibKeterangan.
+  // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini. Nama fitur: formatJumlah (kolom Jumlah/Nominal), wajibKeterangan, infoSaldo (tabel Informasi Saldo Kas/Bank di form Beban baru).
   // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua).
   // "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
   //              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
@@ -27,7 +27,7 @@
   // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
   // Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script dan muat ulang halaman ERZAP.
   const AKSES_JSON = `{
-    "public": ["formatJumlah", "wajibKeterangan"],
+    "public": ["formatJumlah", "wajibKeterangan", "infoSaldo"],
     "private": [],
     "role": {
       "pusat": {
@@ -285,5 +285,164 @@
     ['input', 'focusout', 'keyup', 'change'].forEach(t => document.addEventListener(t, refresh, true));
     new MutationObserver(refresh).observe(document.body, { childList: true, subtree: true });
     refresh();
+  })();
+
+  /* ========== 3. Informasi Saldo Kas/Bank (form Beban baru) ========== */
+  // Tabel "Informasi Saldo Kas/Bank" di kiri kotak DPP: saldo Kas/Bank asal sebelum dan sesudah dipotong beban.
+  // Saldo diambil dari /perkiraans/saldo_perkiraan_per_outlet/new, total dari "Total Pembayaran" di kotak DPP.
+  (function () {
+    if (!/\/jurnals\/transaksi_beban(\/|$|\?)/.test(location.pathname)) return;
+    const aktif = () => bolehFitur('infoSaldo');
+    const WRAP_ID = 'info-saldo-kas-bank';
+    const STYLE_ID = 'info-saldo-kas-bank-style';
+
+    const fmtRp = n => 'Rp ' + (n < 0 ? '-' : '') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const num = t => parseFloat(String(t).replace(/Rp/g, '').replace(/,/g, '').trim()) || 0;
+
+    function addStyle() {
+      if (document.getElementById(STYLE_ID)) return;
+      const st = document.createElement('style');
+      st.id = STYLE_ID;
+      st.textContent =
+        '#' + WRAP_ID + ' { width: 100%; overflow-x: auto; }' +
+        '#' + WRAP_ID + ' .isk-title { font-size: 1.1rem; margin-bottom: 6px; color: #555; }' +
+        '#' + WRAP_ID + ' table { width: 100%; border-collapse: collapse; border: 1px solid #bbb; background: #fff; }' +
+        '#' + WRAP_ID + ' th, #' + WRAP_ID + ' td { border: 1px solid #bbb; padding: 5px 8px; line-height: 1.3; white-space: nowrap; }' +
+        '#' + WRAP_ID + ' th { background: #ececec; font-weight: bold; text-align: left; }' +
+        '@media (max-width: 767px) {' +
+        '  #' + WRAP_ID + ' .isk-title { font-size: 1rem; }' +
+        '  #' + WRAP_ID + ' table { font-size: 0.85rem; }' +
+        '}';
+      document.head.appendChild(st);
+    }
+
+    function findHost() {
+      const box = document.querySelector('.box_highlight');
+      if (!box || !box.parentElement) return null;
+      return box.parentElement.querySelector(':scope > .field.flex-grow-1');
+    }
+
+    function build(host) {
+      const old = document.getElementById(WRAP_ID);
+      if (old) old.remove();
+      const wrap = document.createElement('div');
+      wrap.id = WRAP_ID;
+      const title = document.createElement('div');
+      title.className = 'isk-title';
+      title.textContent = 'Informasi Saldo Kas/Bank';
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      const hr = document.createElement('tr');
+      ['', 'Sebelum', 'Sesudah dipotong beban'].forEach(t => {
+        const th = document.createElement('th');
+        th.textContent = t;
+        hr.appendChild(th);
+      });
+      thead.appendChild(hr);
+      const tbody = document.createElement('tbody');
+      const tr = document.createElement('tr');
+      const label = document.createElement('td');
+      label.textContent = 'Kas/Bank (Asal)';
+      const sebelum = document.createElement('td');
+      sebelum.textContent = '-';
+      const sesudah = document.createElement('td');
+      sesudah.textContent = '-';
+      tr.appendChild(label);
+      tr.appendChild(sebelum);
+      tr.appendChild(sesudah);
+      tbody.appendChild(tr);
+      table.appendChild(thead);
+      table.appendChild(tbody);
+      wrap.appendChild(title);
+      wrap.appendChild(table);
+      host.appendChild(wrap);
+      return { wrap: wrap, label: label, sebelum: sebelum, sesudah: sesudah };
+    }
+
+    function bacaForm() {
+      const o = document.getElementById('jurnal_idoutlet_own');
+      const k = document.getElementById('jurnal_idperkiraan_kas_bank');
+      const t = document.getElementById('jurnal_tanggal');
+      const tot = Array.prototype.find.call(
+        document.querySelectorAll('.box_highlight .field3'),
+        d => d.textContent.indexOf('Total Pembayaran') !== -1
+      );
+      return {
+        outlet: o ? o.value : '',
+        kas: k ? k.value : '',
+        kasName: k && k.selectedIndex >= 0 ? k.options[k.selectedIndex].text.trim() : '',
+        tanggal: t ? t.value : '',
+        total: tot ? num(tot.textContent.replace('Total Pembayaran', '')) : 0
+      };
+    }
+
+    function mulai(ui) {
+      let reqId = 0;
+      let lastKey = null;
+      const kosong = () => {
+        ui.sebelum.textContent = '-';
+        ui.sesudah.textContent = '-';
+        ui.sesudah.style.color = '';
+        ui.sesudah.style.fontWeight = '';
+      };
+
+      function update() {
+        const f = bacaForm();
+        const generik = !f.kasName || /Tentukan|Please|Silakan/i.test(f.kasName);
+        ui.label.textContent = (generik ? 'Kas/Bank' : f.kasName) + ' (Asal)';
+        if (!f.outlet || !f.kas) { kosong(); return; }
+
+        const bagian = f.tanggal.split('-');
+        const iso = bagian.length === 3 ? bagian[2] + '-' + bagian[1] + '-' + bagian[0] : '';
+        const id = ++reqId;
+        const url = '/perkiraans/saldo_perkiraan_per_outlet/new?idperkiraan=' + encodeURIComponent(f.kas) +
+          '&tanggal=' + encodeURIComponent(iso) +
+          '&idoutlet_own=' + encodeURIComponent(f.outlet) + '&idkasir=';
+
+        fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/html, */*; q=0.01' } })
+          .then(res => res.text())
+          .then(txt => {
+            if (id !== reqId) return;
+            const saldo = parseFloat(String(txt).trim());
+            if (isNaN(saldo)) { kosong(); return; }
+            const sesudah = saldo - f.total;
+            ui.sebelum.textContent = fmtRp(saldo);
+            ui.sesudah.textContent = fmtRp(sesudah);
+            ui.sesudah.style.color = sesudah < 0 ? '#b00020' : '';
+            ui.sesudah.style.fontWeight = sesudah < 0 ? 'bold' : 'normal';
+          })
+          .catch(() => { if (id === reqId) kosong(); });
+      }
+
+      const kunci = () => { const f = bacaForm(); return [f.outlet, f.kas, f.tanggal, f.total].join('|'); };
+      ['jurnal_idoutlet_own', 'jurnal_idperkiraan_kas_bank', 'jurnal_tanggal'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.addEventListener('change', update); el.addEventListener('blur', update); }
+      });
+      // Dicek tiap detik: total berubah saat Jumlah diketik. Berhenti sendiri kalau tabelnya sudah tidak ada.
+      const iv = setInterval(() => {
+        if (!document.body.contains(ui.wrap)) { clearInterval(iv); return; }
+        if (!aktif()) return;
+        const k = kunci();
+        if (k !== lastKey) { lastKey = k; update(); }
+      }, 1000);
+      lastKey = kunci();
+      update();
+    }
+
+    // Menunggu kotak DPP muncul (maks. 30 detik), lalu pasang tabelnya
+    let coba = 0;
+    const timer = setInterval(() => {
+      coba++;
+      if (!aktif()) { if (coba > 60) clearInterval(timer); return; }
+      const host = findHost();
+      if (host) {
+        clearInterval(timer);
+        addStyle();
+        mulai(build(host));
+      } else if (coba > 60) {
+        clearInterval(timer);
+      }
+    }, 500);
   })();
 })();
