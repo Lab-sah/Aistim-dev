@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.64
+// @version      1.13.65
 // @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG. Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -585,31 +585,36 @@
       return;
     }
 
-    const namaCari = modal.querySelector('#pencarian_nama_pelanggan');
-    const sel = row.querySelectorAll('td');
-    // Pelanggan: dari judul kolom "Pelanggan". Kalau judul tidak terbaca, pakai kolom ke-3 (urutan tabel
-    // Lacak Servis: Tanggal, Kode Servis, Pelanggan, SN, ...), lalu kolom pencarian Pelanggan.
-    let pelanggan = getCellAny(row, ['Pelanggan', 'Nama Pelanggan', 'Nama']);
-    // SN: dari judul kolom "SN". Kalau judul tidak terbaca, pakai kolom ke-4 (SN).
-    let sn = getCellAny(row, ['SN', 'Serial Number', 'Serial No', 'No Seri']);
-    if (!pelanggan || !sn) {
-      console.warn('[antrianservis] judul kolom tidak terbaca, dipakai urutan kolom. Judul:', getHeaders(row),
-        'Isi baris:', [...sel].map((td) => (td.textContent || '').trim()));
+    // Pelanggan, Serial Number, dan Nama Barang diambil dari kolom isian di popup Lacak Servis
+    // (kolom itu sudah terisi otomatis saat baris dipilih dan boleh diedit). Hanya yang kosong
+    // dicari dari tabel / nota servis.
+    const nilai = (q) => {
+      const el = modal.querySelector(q);
+      return el ? el.value.trim() : '';
+    };
+    let pelanggan = nilai('#pencarian_nama_pelanggan');
+    let sn = nilai('#pencarian_serial_number');
+    let unit = nilai('#pencarian_unit');
+    if (!pelanggan || !sn || !unit) {
+      const sel = row.querySelectorAll('td');
+      if (!pelanggan) {
+        pelanggan = getCellAny(row, ['Pelanggan', 'Nama Pelanggan', 'Nama']);
+        if (!pelanggan && sel[2]) pelanggan = (sel[2].innerText || sel[2].textContent || '').trim();
+      }
+      if (!sn) {
+        sn = getCellAny(row, ['SN', 'Serial Number', 'Serial No', 'No Seri']);
+        if (!sn && sel[3]) sn = (sel[3].innerText || sel[3].textContent || '').trim();
+      }
+      if (!unit) {
+        try {
+          const info = await ambilDariNota(row, sn);
+          unit = info.unit;
+          if (!sn && info.sn) sn = info.sn;
+        } catch (err) {
+          console.warn('[antrianservis] nota tidak bisa dibaca, Nama Barang tidak terisi:', err.message);
+        }
+      }
     }
-    if (!pelanggan && sel[2]) pelanggan = (sel[2].innerText || sel[2].textContent || '').trim();
-    if (!pelanggan && namaCari) pelanggan = namaCari.value.trim();
-    if (!sn && sel[3]) sn = (sel[3].innerText || sel[3].textContent || '').trim();
-
-    // Data dari nota (Nama Barang dan SN). Diambil sebelum jendela Lacak Servis ditutup.
-    let info = { unit: '', sn: '' };
-    try {
-      info = await ambilDariNota(row, sn);
-    } catch (err) {
-      console.warn('[antrianservis] nota tidak bisa dibaca, Nama Barang tidak terisi:', err.message);
-      info = { unit: '', sn: '' };
-    }
-    if (!sn && info.sn) sn = info.sn;
-    const unit = info.unit;
 
     // Tutup jendela Lacak Servis dulu
     const closeBtn = [...modal.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Tutup');
@@ -897,6 +902,6 @@
     const modal = findModal();
     if (modal && bolehFitur('lacakOtomatis')) sejajarkanKontak(modal);
   });
-  console.log('[antrianservis.js] v1.13.64 aktif');
+  console.log('[antrianservis.js] v1.13.65 aktif');
   ensureButton();
 })();
