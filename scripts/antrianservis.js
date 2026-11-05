@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.72
+// @version      1.13.73
 // @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG. Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -159,6 +159,7 @@
   // Hasil pencarian yang baru muncul: baris pertama langsung dipilih (sama seperti diklik),
   // supaya kolom pencarian dan telp/alamat ikut terisi. Satu kali per hasil yang sama.
   function autoPilihBaris(modal) {
+    if (modal.dataset.tmTahan) return;
     const tr = modal.querySelector('tbody tr');
     if (!tr || tr.querySelectorAll('td').length < 3) return;
     const sig = tr.textContent.replace(/\s+/g, ' ').trim();
@@ -466,13 +467,13 @@
     const cari = async () => {
       const term = input.value.trim();
       if (term.length < 3) { tutup(); return; }
-      const inst = opsi.sumber();
-      if (!inst) {
+      const inst = opsi.ambil ? null : opsi.sumber();
+      if (!opsi.ambil && !inst) {
         console.warn('[antrianservis] autocomplete ' + opsi.nama + ' tidak ditemukan: saran tidak bisa ditampilkan.');
         return;
       }
       const saya = ++nomor;
-      const items = await new Promise((resolve) => {
+      const items = opsi.ambil ? await opsi.ambil(term) : await new Promise((resolve) => {
         let selesai = false;
         const fin = (list) => { if (!selesai) { selesai = true; resolve(Array.isArray(list) ? list : []); } };
         try { inst.source.call(inst, { term: term }, fin); } catch (err) {
@@ -525,21 +526,69 @@
     });
   }
 
-  // Kolom Serial Number: cari lewat SN dengan daftar saran, seperti Telp (sumber: autocomplete Serial Number).
-  // Pilih saran: SN masuk ke kolom Serial Number, kolom lain dikosongkan, lalu Pencarian dijalankan.
+  // Baris tabel hasil -> data saran SN
+  function dataBaris(tr) {
+    const sn = getCellAny(tr, ['SN', 'Serial Number', 'Serial No', 'No Seri']) || cellText(tr, 3);
+    return {
+      sn: sn,
+      pel: getCellAny(tr, ['Pelanggan', 'Nama Pelanggan', 'Nama']) || cellText(tr, 2),
+      kode: getCellAny(tr, ['Kode Servis', 'Kode']) || cellText(tr, 1),
+      unit: getCellAny(tr, ['Unit', 'Nama Barang', 'Barang']),
+      sig: tr.textContent.replace(/\s+/g, ' ').trim(),
+    };
+  }
+
+  // Cari lewat Serial Number memakai Pencarian bawaan Lacak Servis: kolom lain dikosongkan, tombol Pencarian
+  // diklik, lalu baris tabel hasilnya dijadikan daftar saran. Pilih otomatis baris pertama ditahan selama itu,
+  // supaya kolom SN yang sedang diketik tidak tertimpa.
+  async function ambilSaranSn(modal, term) {
+    const $ = window.jQuery;
+    ['#pencarian_kode', '#pencarian_unit', '#pencarian_nama_pelanggan'].forEach((q) => {
+      const el = modal.querySelector(q);
+      if (el) { if ($) $(el).val(''); else el.value = ''; }
+    });
+    const btnCari = modal.querySelector('#lacak_servis_cari');
+    if (!btnCari) return [];
+    modal.dataset.tmTahan = '1';
+    const tbody = modal.querySelector('table tbody');
+    const sebelum = tbody ? tbody.innerHTML : '';
+    await new Promise((resolve) => {
+      let selesai = false;
+      let ob = null;
+      const fin = () => {
+        if (selesai) return;
+        selesai = true;
+        if (ob) ob.disconnect();
+        setTimeout(resolve, 150);
+      };
+      const tb = modal.querySelector('table tbody');
+      if (tb && window.MutationObserver) {
+        ob = new MutationObserver(() => { if (tb.innerHTML !== sebelum) fin(); });
+        ob.observe(tb, { childList: true, subtree: true, characterData: true });
+      }
+      btnCari.click();
+      setTimeout(fin, 4000);
+    });
+    const rows = [...modal.querySelectorAll('table tbody tr')].filter((r) => r.querySelectorAll('td').length >= 3);
+    const items = rows.map(dataBaris);
+    // Hasil ini dianggap sudah "dipilih" supaya tidak ada pilih-otomatis yang menimpa kolom SN yang sedang diketik
+    if (items[0]) modal.dataset.tmAutoSig = items[0].sig;
+    delete modal.dataset.tmTahan;
+    return items;
+  }
+
+  // Kolom Serial Number: daftar saran seperti Telp. Ketik SN (min. 3 karakter): hasil Pencarian muncul sebagai
+  // saran "SN - Pelanggan - Kode Servis". Pilih saran: baris itu dipilih (kolom pencarian, Telp, Alamat ikut terisi).
   function pasangCariSn(modal) {
     const sn = modal.querySelector('#pencarian_serial_number');
-    const snDari = (i) => String(i.serial_number || i.sn || i.no_seri || i.value || '').trim();
-    const unitDari = (i) => String(i.unit || i.nama_barang || i.barang || '').trim();
-    const pelDari = (i) => String(i.nama_pelanggan || i.pelanggan || '').trim();
     pasangSaran(sn, {
       nama: 'Serial Number',
       placeholder: 'Ketik SN untuk mencari',
-      sumber: () => autocompleteDari('#pencarian_serial_number', '#' + SN_ID),
-      label: (item) => [snDari(item), unitDari(item), pelDari(item)].filter(Boolean).join(' - ') || String(item.label || item.value || '(kosong)'),
+      ambil: (term) => ambilSaranSn(modal, term),
+      label: (item) => [item.sn, item.unit, item.pel, item.kode].filter(Boolean).join(' - ') || '(kosong)',
       pilih: (item) => {
-        isiTanpaEvent(sn, snDari(item) || String(item.label || ''));
-        jalankanPencarian(modal, ['#pencarian_kode', '#pencarian_unit', '#pencarian_nama_pelanggan']);
+        const tr = [...modal.querySelectorAll('table tbody tr')].find((r) => r.textContent.replace(/\s+/g, ' ').trim() === item.sig);
+        if (tr) tr.click();
       },
     });
   }
@@ -1080,6 +1129,6 @@
     const modal = findModal();
     if (modal && bolehFitur('lacakOtomatis')) sejajarkanKontak(modal);
   });
-  console.log('[antrianservis.js] v1.13.72 aktif');
+  console.log('[antrianservis.js] v1.13.73 aktif');
   ensureButton();
 })();
