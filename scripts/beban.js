@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         ERZAP - Transaksi Beban (Format Rp Jumlah & Wajib Keterangan)
+// @name         ERZAP - Format Rp
 // @namespace    http://tampermonkey.net/
-// @version      1.0.1
+// @version      1.0.2
 // @description  Halaman Transaksi Beban: kolom Jumlah berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
