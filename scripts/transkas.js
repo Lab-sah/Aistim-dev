@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ERZAP - Transfer Kas/Bank (Dropdown Cari & Format Nominal)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
-// @description  Halaman Transfer Kas/Bank: dropdown bisa dicari (ketik untuk filter) dan kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
+// @version      1.5.4
+// @description  Halaman Transfer Kas/Bank: kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); saldo sesudah Kas Asal (sebelum - nominal) dan Kas Tujuan (sebelum + nominal) dihitung, dengan info penambahan Kas Tujuan; Simpan dan Rekam diblokir bila saldo Kas Asal minus; tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/jurnals/form_transfer_kas_bank*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @run-at       document-idle
@@ -18,7 +18,7 @@
 
   // ====== HAK AKSES & FITUR (JSON) ======
   // "admin"   -> daftar nama yang SELALU bisa memakai SEMUA fitur (public maupun private).
-  // "private" -> nama fitur yang HANYA boleh dipakai "admin". Nama fitur: dropdownCari, formatNominal, responsive, validasiSimpan.
+  // "private" -> nama fitur yang HANYA boleh dipakai "admin". Nama fitur: formatNominal, responsive, validasiSimpan, cekSaldoMinus.
   // "public"  -> nama fitur yang boleh dipakai SEMUA user yang membuka halaman ini.
   // Fitur yang tidak disebut di keduanya dianggap private (hanya admin).
   // Nama di "admin" dibaca dari tulisan "NAMA (JABATAN)" di pojok kanan bawah ERZAP. Cukup sebagian nama
@@ -29,7 +29,7 @@
   const AKSES_JSON = `{
     "admin": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
     "private": [],
-    "public": ["dropdownCari", "formatNominal", "responsive", "validasiSimpan"]
+    "public": ["formatNominal", "responsive", "validasiSimpan", "cekSaldoMinus"]
   }`;
 
   function bacaAkses() {
@@ -58,30 +58,12 @@
 
   /* ---------- Util ---------- */
 
-  function norm(s) {
-    return (s || '').toString().toLowerCase().replace(/\s+/g, ' ').trim();
-  }
-
   function formatRupiah(digits) {
     if (!digits) return '';
     return 'Rp ' + digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   }
 
   /* ---------- CSS ---------- */
-
-  const CSS = `
-    .trk-pop {
-      position: fixed; z-index: 2147483000; background: #fff; color: #222;
-      border: 1px solid #bbb; border-radius: 4px;
-      box-shadow: 0 4px 12px rgba(0,0,0,.15); font-size: 13px;
-      display: flex; flex-direction: column; box-sizing: border-box;
-    }
-    .trk-pop input { margin: 4px; padding: 6px 8px; border: 1px solid #ccc; border-radius: 3px; box-sizing: border-box; font-size: 13px; }
-    .trk-pop ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
-    .trk-pop li { padding: 6px 10px; cursor: pointer; }
-    .trk-pop li.trk-active, .trk-pop li:hover { background: #2f80ed; color: #fff; }
-    .trk-pop li.trk-empty { cursor: default; color: #888; }
-  `;
 
   const CSS_RESPONSIVE = `
     @media (max-width: 768px) {
@@ -97,168 +79,9 @@
     if (document.getElementById('trk-style')) return;
     const st = document.createElement('style');
     st.id = 'trk-style';
-    st.textContent = CSS + (bolehFitur('responsive') ? CSS_RESPONSIVE : '');
+    st.textContent = bolehFitur('responsive') ? CSS_RESPONSIVE : '';
     document.head.appendChild(st);
   }
-
-  /* ---------- Dropdown pencarian (delegasi, tanpa membungkus select) ---------- */
-
-  let pop = null;        // elemen popup
-  let popSelect = null;  // select yang sedang dibuka
-  let suppressOpen = false; // cegah popup terbuka lagi karena fokus dikembalikan setelah pilih
-  let items = [];        // {value,label}
-  let activeIdx = -1;
-
-  function isTargetSelect(el) {
-    return el && el.tagName === 'SELECT' && !el.closest('.trk-pop') && bolehFitur('dropdownCari');
-  }
-
-  function openPopup(select) {
-    closePopup(false);
-    popSelect = select;
-    items = Array.from(select.options)
-      .filter(o => !o.disabled)
-      .map(o => ({ value: o.value, label: o.textContent.trim() }));
-
-    pop = document.createElement('div');
-    pop.className = 'trk-pop';
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = 'Ketik untuk mencari...';
-    input.autocomplete = 'off';
-    const list = document.createElement('ul');
-    pop.appendChild(input);
-    pop.appendChild(list);
-    document.body.appendChild(pop);
-
-    input.addEventListener('input', () => render(input.value, list));
-    input.addEventListener('keydown', onKey);
-    render('', list);
-    place();
-    input.focus();
-  }
-
-  function place() {
-    if (!pop || !popSelect) return;
-    const r = popSelect.getBoundingClientRect();
-    const vw = window.innerWidth, vh = window.innerHeight;
-    const width = Math.min(Math.max(r.width, 220), vw - 16);
-    let left = Math.max(8, Math.min(r.left, vw - width - 8));
-    pop.style.width = width + 'px';
-    pop.style.left = left + 'px';
-    const below = vh - r.bottom;
-    const maxH = Math.min(300, Math.max(120, below - 12));
-    pop.style.maxHeight = maxH + 'px';
-    if (below < 160 && r.top > 160) {
-      pop.style.top = '';
-      pop.style.bottom = (vh - r.top + 2) + 'px';
-    } else {
-      pop.style.bottom = '';
-      pop.style.top = (r.bottom + 2) + 'px';
-    }
-    const ul = pop.querySelector('ul');
-    if (ul) ul.style.maxHeight = (maxH - 40) + 'px';
-  }
-
-  function render(query, list) {
-    const q = norm(query);
-    const m = items.filter(it => q === '' || norm(it.label).includes(q));
-    list.innerHTML = '';
-    activeIdx = -1;
-    if (!m.length) {
-      const li = document.createElement('li');
-      li.className = 'trk-empty';
-      li.textContent = 'Tidak ada hasil';
-      list.appendChild(li);
-      return;
-    }
-    m.slice(0, 300).forEach(it => {
-      const li = document.createElement('li');
-      li.textContent = it.label;
-      li.dataset.value = it.value;
-      // pointerdown: berlaku untuk mouse maupun sentuhan (HP/tablet)
-      li.addEventListener('pointerdown', e => { e.preventDefault(); choose(it.value); });
-      list.appendChild(li);
-    });
-  }
-
-  function moveActive(d) {
-    const lis = Array.from(pop.querySelectorAll('li[data-value]'));
-    if (!lis.length) return;
-    activeIdx = (activeIdx + d + lis.length) % lis.length;
-    lis.forEach((li, i) => li.classList.toggle('trk-active', i === activeIdx));
-    lis[activeIdx].scrollIntoView({ block: 'nearest' });
-  }
-
-  function onKey(e) {
-    if (e.key === 'ArrowDown') { e.preventDefault(); moveActive(1); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); moveActive(-1); }
-    else if (e.key === 'Enter') {
-      const lis = Array.from(pop.querySelectorAll('li[data-value]'));
-      const t = lis[activeIdx] || lis[0] || null; // tanpa panah: pilih hasil pertama
-      if (t) { e.preventDefault(); choose(t.dataset.value); }
-    }
-    else if (e.key === 'Escape') { e.preventDefault(); closePopup(true); }
-    else if (e.key === 'Tab') { closePopup(false); }
-  }
-
-  function choose(value) {
-    const sel = popSelect;
-    if (sel) {
-      sel.value = value;
-      sel.dispatchEvent(new Event('change', { bubbles: true }));
-      if (window.jQuery) window.jQuery(sel).trigger('change');
-    }
-    closePopup(false);
-    // Tutup dulu, lalu buang klik susulan (touch/mouse) yang jatuh ke elemen di bawah daftar
-    suppressOpen = true;
-    const swallow = e => { e.stopPropagation(); e.preventDefault(); };
-    window.addEventListener('click', swallow, true);
-    setTimeout(() => {
-      window.removeEventListener('click', swallow, true);
-      suppressOpen = false;
-    }, 600);
-  }
-
-  function closePopup(refocus) {
-    const sel = popSelect;
-    if (pop) pop.remove();
-    pop = null;
-    popSelect = null;
-    if (refocus && sel && document.contains(sel)) {
-      suppressOpen = true;
-      try { sel.focus(); } catch (_) {}
-      setTimeout(() => { suppressOpen = false; }, 300);
-    }
-    if (document.activeElement && document.activeElement.closest && document.activeElement.closest('.trk-pop')) {
-      try { document.activeElement.blur(); } catch (_) {}
-    }
-  }
-
-  document.addEventListener('mousedown', e => {
-    const sel = e.target.closest && e.target.closest('select');
-    if (suppressOpen) {          // baru saja memilih: jangan buka lagi
-      if (isTargetSelect(sel)) e.preventDefault();
-      return;
-    }
-    if (isTargetSelect(sel)) {
-      e.preventDefault();          // cegah dropdown native
-      if (popSelect === sel && pop) { closePopup(true); return; }
-      sel.focus();
-      openPopup(sel);
-      return;
-    }
-    if (pop && !(e.target.closest && e.target.closest('.trk-pop'))) closePopup(false);
-  }, true);
-
-  document.addEventListener('focusin', e => {
-    if (suppressOpen) return;
-    if (isTargetSelect(e.target) && popSelect !== e.target) openPopup(e.target);
-  }, true);
-
-  // Pilihan select dari keyboard (Tab ke select) juga pakai popup; blur tidak mengubah nilai
-  window.addEventListener('scroll', () => { if (pop) place(); }, true);
-  window.addEventListener('resize', () => { if (pop) place(); });
 
   /* ---------- Nominal Rp ---------- */
 
@@ -286,6 +109,7 @@
   // tidak ikut mengubah nilai (itulah penyebab "Rp 300" berubah jadi "Rp 3.00")
   window.addEventListener('input', e => {
     if (e.target && e.target.id === 'jurnal_nominal' && bolehFitur('formatNominal')) { fmtNominal(e.target); e.stopImmediatePropagation(); }
+    if (e.target && e.target.id === 'jurnal_nominal') hitungSaldoKas();
   }, true);
 
   window.addEventListener('blur', e => {
@@ -294,6 +118,8 @@
 
   // Kirim angka mentah saat form disubmit, tombol Simpan, atau tombol Rekam ditekan
   function stripForSubmit() {
+    // Saat diblokir (saldo Kas Asal minus) tidak ada yang terkirim, jadi kolom Nominal tetap berformat
+    if (simpanDiblokir()) return;
     const el = nominalEl();
     if (el && bolehFitur('formatNominal')) el.value = el.dataset.raw || '';
   }
@@ -325,12 +151,208 @@
     }, true);
   });
 
+  /* ---------- Saldo Kas Asal & Kas Tujuan ---------- */
+  // Kas Asal:   saldo sesudah = saldo sebelum - nominal. Kalau minus: merah, ada peringatan, dan Simpan
+  //             (klik, F2, Enter/submit) serta Rekam diblokir.
+  // Kas Tujuan: saldo sesudah = saldo sebelum + nominal. Hanya info penambahan; kalau masih minus cuma diberi
+  //             peringatan (transfer yang mengurangi minus tetap boleh disimpan).
+  // Peringatan dan blokir hanya kalau Nominal > 0 dan Kas-nya sudah dipilih (saldo sebelum terisi).
+  // Di tabel Informasi Saldo hanya ANGKA di kolom "Sesudah" yang ditulis (struktur tabel dan kolom "Sebelum"
+  // tidak diubah). Angka itu dijaga stabil: script halaman ERZAP ikut menulis kolom ini, jadi setiap kali
+  // ditimpa langsung ditulis ulang sebelum layar digambar (tidak berkedip).
+  const KAS = { sebelum: 'asal_sebelum', sesudah: 'asal_sesudah_tampil', simpan: 'bt_simpan' };
+  const TUJ = { sebelum: 'tujuan_sebelum', sesudah: 'tujuan_sesudah_tampil' };
+  const KAS_WARNING_ID = 'kasupdate_warning';
+  const TUJ_BOX_ID = 'kastujuan_box';
+
+  const byId = id => document.getElementById(id);
+  // "Rp 1,500.00" / "1500000.0" / "-13000.0" -> angka (dibulatkan 2 desimal, menghindari selisih pecahan)
+  const angka = t => Math.round((parseFloat(String(t || '').replace(/[^0-9.\-]/g, '')) || 0) * 100) / 100;
+  const rpFmt = n => 'Rp ' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const setTeks = (el, teks) => { if (el.textContent !== teks) el.textContent = teks; };
+
+  function nominalNum() {
+    const el = nominalEl();
+    if (!el) return 0;
+    return angka(el.dataset.raw != null && el.dataset.raw !== '' ? el.dataset.raw : el.value);
+  }
+
+  // Hasil hitung satu kas, atau null kalau kas belum dipilih atau Nominal belum > 0
+  // semua=true: tetap dihitung walau Nominal kosong/0 (untuk angka di tabel; hasilnya sama dengan saldo sebelum)
+  function hitungKas(def, tanda, semua) {
+    const s = byId(def.sebelum);
+    const nominal = nominalNum();
+    if (!s || !/\d/.test(s.textContent || '') || (!semua && !(nominal > 0))) return null;
+    const sebelum = angka(s.textContent);
+    return { sebelum: sebelum, nominal: nominal, sesudah: Math.round((sebelum + tanda * nominal) * 100) / 100 };
+  }
+
+  const hitungAsal = () => hitungKas(KAS, -1);
+  const hitungTujuan = () => hitungKas(TUJ, 1);
+
+  // Dicek saat dipakai (bukan dari state tombol), supaya tidak tergantung urutan timer.
+  // Hanya Kas Asal yang memblokir.
+  function simpanDiblokir() {
+    if (!bolehFitur('cekSaldoMinus')) return false;
+    const r = hitungAsal();
+    return !!r && r.sesudah < 0;
+  }
+
+  function sisipSetelah(el, anchorEl) {
+    const anchor = anchorEl && (anchorEl.closest('table') || anchorEl.parentElement);
+    if (anchor) anchor.insertAdjacentElement('afterend', el);
+  }
+
+  function kasWarning() {
+    let w = byId(KAS_WARNING_ID);
+    if (!w) {
+      w = document.createElement('div');
+      w.id = KAS_WARNING_ID;
+      w.setAttribute('role', 'alert');
+      w.style.cssText = 'display:none;margin:10px 0;padding:10px 14px;border:1px solid #b91c1c;' +
+        'background:#fee2e2;color:#991b1b;border-radius:6px;font-weight:600;font-size:14px;';
+      sisipSetelah(w, byId(KAS.sesudah));
+    }
+    return w;
+  }
+
+  // Kotak info Kas Tujuan. Null kalau labelnya tidak ada di halaman (tidak membuat elemen sia-sia).
+  function tujuanBox() {
+    let b = byId(TUJ_BOX_ID);
+    if (!b) {
+      const lbl = byId(TUJ.sesudah);
+      if (!lbl) return null;
+      b = document.createElement('div');
+      b.id = TUJ_BOX_ID;
+      b.style.cssText = 'margin:10px 0;font-size:14px;';
+      sisipSetelah(b, lbl);
+    }
+    return b;
+  }
+
+  function warnaLabel(lbl, minus) {
+    lbl.style.color = minus ? '#b91c1c' : '';
+    lbl.style.fontWeight = minus ? '700' : '';
+  }
+
+  // Tulis angka "Sesudah" Kas Asal dan Kas Tujuan di tabel (hanya teks angkanya)
+  function tulisAngkaSesudah() {
+    [[KAS, -1], [TUJ, 1]].forEach(([def, tanda]) => {
+      const lbl = byId(def.sesudah);
+      const r = hitungKas(def, tanda, true);
+      if (lbl && r) { setTeks(lbl, rpFmt(r.sesudah)); warnaLabel(lbl, r.sesudah < 0); }
+    });
+  }
+
+  // Dipantau supaya kalau ERZAP menimpa angka Sesudah, langsung ditulis ulang (observer jalan sebelum layar digambar)
+  const labelDipantau = {};
+  function pantauLabel() {
+    [KAS.sesudah, TUJ.sesudah].forEach(id => {
+      const lbl = byId(id);
+      if (!lbl || labelDipantau[id] === lbl) return;
+      labelDipantau[id] = lbl;
+      new MutationObserver(() => { if (bolehFitur('cekSaldoMinus')) tulisAngkaSesudah(); })
+        .observe(lbl, { childList: true, characterData: true, subtree: true });
+    });
+  }
+
+  function renderAsal() {
+    const r = hitungAsal();
+    const w = byId(KAS_WARNING_ID);
+    if (r && r.sesudah < 0) {
+      const ww = kasWarning();
+      ww.style.display = 'block';
+      setTeks(ww, '⚠ Peringatan: saldo Kas Asal akan minus ' + rpFmt(r.sesudah) + '. Tombol Simpan dinonaktifkan.');
+    } else if (w) {
+      w.style.display = 'none';
+    }
+  }
+
+  // Isi kotak Kas Tujuan hanya dibangun ulang kalau isinya berubah (tidak berkedip, alert tidak dibacakan berulang)
+  function renderTujuan() {
+    const r = hitungTujuan();
+    const b = tujuanBox();
+    if (!b) return;
+    const kunci = r ? r.nominal + '|' + r.sesudah : '';
+    if (b.dataset.kunci === kunci) return;
+    b.dataset.kunci = kunci;
+    b.innerHTML = '';
+    if (!r) return;
+
+    const info = document.createElement('div');
+    info.textContent = 'ℹ Kas Tujuan bertambah +' + rpFmt(r.nominal);
+    info.style.cssText = 'color:#1d4ed8;font-weight:600;';
+    b.appendChild(info);
+    if (r.sesudah < 0) {
+      const w = document.createElement('div');
+      w.textContent = '⚠ Saldo Kas Tujuan masih minus ' + rpFmt(r.sesudah) + ' setelah transfer ini (Simpan tetap bisa).';
+      w.style.cssText = 'margin-top:6px;padding:10px 14px;border:1px solid #b45309;background:#fef3c7;color:#92400e;border-radius:6px;font-weight:600;';
+      b.appendChild(w);
+    }
+  }
+
+  function setBlokSimpan(blok) {
+    const btn = byId(KAS.simpan);
+    if (!btn) return;
+    btn.dataset.kasupdateBlok = blok ? '1' : '';
+    btn.style.pointerEvents = blok ? 'none' : '';
+    btn.style.opacity = blok ? '0.35' : '';
+    btn.style.cursor = blok ? 'not-allowed' : '';
+    btn.title = blok ? 'Saldo Kas Asal minus, tidak bisa disimpan' : 'Simpan';
+  }
+
+  // Sekali saja di console: elemen saldo yang tidak ditemukan di halaman (ID berbeda), supaya mudah dilacak
+  let sudahLapor = false;
+  function laporElemen() {
+    if (sudahLapor) return;
+    sudahLapor = true;
+    const hilang = [KAS.sebelum, KAS.sesudah, KAS.simpan, TUJ.sebelum, TUJ.sesudah, 'jurnal_nominal'].filter(id => !byId(id));
+    console.log('[transkas] v1.5.4 cekSaldoMinus aktif.' + (hilang.length ? ' Elemen tidak ditemukan: ' + hilang.join(', ') : ' Semua elemen saldo ditemukan.'));
+  }
+
+  function hitungSaldoKas() {
+    if (!bolehFitur('cekSaldoMinus')) return;
+    laporElemen();
+    pantauLabel();
+    tulisAngkaSesudah();
+    renderAsal();
+    renderTujuan();
+    setBlokSimpan(simpanDiblokir());
+  }
+
+  // Cegah simpan lewat klik Simpan, tombol Rekam, F2, atau submit (Enter) saat saldo Kas Asal minus
+  document.addEventListener('click', e => {
+    if (!e.target || !e.target.closest) return;
+    const saveBtn = e.target.closest(SAVE_SEL);
+    const btn = e.target.closest('button');
+    const isRekam = btn && /rekam/i.test(btn.textContent);
+    if ((saveBtn || isRekam) && simpanDiblokir()) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    }
+  }, true);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'F2' && simpanDiblokir()) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    }
+  }, true);
+  document.addEventListener('submit', e => {
+    if (simpanDiblokir()) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    }
+  }, true);
+
   /* ---------- Init ---------- */
 
   function init() {
     injectCss();
     const el = nominalEl();
     if (el && el.value && bolehFitur('formatNominal')) fmtNominal(el);
+    // Dihitung ulang berkala: saldo sebelum berubah saat Kas Asal dipilih, dan script halaman bisa menimpa tampilan
+    setInterval(hitungSaldoKas, 300);
+    hitungSaldoKas();
   }
 
   if (document.readyState === 'loading') {
