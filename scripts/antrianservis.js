@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.76
+// @version      1.13.77
 // @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG. Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -358,8 +358,8 @@
   }
 
   // Tampilkan Telp dan Alamat di jendela Lacak Servis.
-  // Susunan (desktop): Pelanggan, Kode Servis, Nama Barang, Serial Number dalam satu baris;
-  // di bawahnya Telp (selebar kolom Pelanggan) dan Alamat (dari kolom Kode Servis sampai Nama Barang).
+  // Susunan (desktop): Pelanggan, Serial Number, Kode Servis, Nama Barang dalam satu baris;
+  // di bawahnya Telp (selebar kolom Pelanggan), Alamat (dari kolom Serial Number sampai Kode Servis), dan tombol (di bawah Nama Barang).
   // Di layar kecil (<= 640 px) semua kolom ditumpuk satu per satu. Lebar dan susunan diatur lewat CSS
   // (class tm-kontak-*), bukan gaya inline, supaya responsif.
   function tampilKontak(modal, kontak) {
@@ -373,6 +373,13 @@
     while (row && row !== modal && !row.contains(grupSn)) row = row.parentElement;
     if (!row || row === modal) return;
     row.classList.add('tm-kontak-row');
+
+    // Kolom Serial Number dipindah ke sebelah kolom Pelanggan: Pelanggan, Serial Number, Kode Servis, Nama Barang
+    const kolomPel = [...row.children].find((c) => c.contains(pelInput));
+    const kolomSn = [...row.children].find((c) => c.contains(snInput));
+    if (kolomPel && kolomSn && kolomPel !== kolomSn && kolomPel.nextElementSibling !== kolomSn) {
+      row.insertBefore(kolomSn, kolomPel.nextSibling);
+    }
 
     if (!document.getElementById('tm-kontak-wrap')) {
       const contohLabel = grupSn.querySelector('label');
@@ -668,7 +675,8 @@
     const pel = modal.querySelector('#pencarian_nama_pelanggan');
     const kode = modal.querySelector('#pencarian_kode');
     const unit = modal.querySelector('#pencarian_unit');
-    if (!telp || !alamat || !pel || !kode) return;
+    const snKolom = modal.querySelector('#pencarian_serial_number');
+    if (!telp || !alamat || !pel || !kode || !snKolom) return;
     const tg = telp.parentElement;
     const ag = alamat.parentElement;
     if (window.matchMedia('(max-width: 640px)').matches || !unit) {
@@ -701,8 +709,10 @@
       return;
     }
     const pelW = Math.round(pel.getBoundingClientRect().width);
-    const kodeL = kode.getBoundingClientRect().left;
-    const unitR = unit.getBoundingClientRect().right;
+    // Urutan kolom: Pelanggan, Serial Number, Kode Servis, Nama Barang. Alamat dari kolom Serial Number sampai
+    // ujung kanan Kode Servis; tombol di bawah kolom Nama Barang.
+    const kodeL = snKolom.getBoundingClientRect().left;
+    const unitR = kode.getBoundingClientRect().right;
     tg.style.cssText = 'display:block;margin-left:0px;width:' + pelW + 'px;';
     ag.style.cssText = 'display:block;margin-left:0px;width:' + Math.round(unitR - kodeL) + 'px;';
     // Posisi diukur ulang dua kali, karena menggeser Telp ikut menggeser Alamat
@@ -712,15 +722,15 @@
       const dTelp = telp.getBoundingClientRect().left - pel.getBoundingClientRect().left;
       tg.style.marginLeft = (parseFloat(tg.style.marginLeft) - dTelp) + 'px';
       if (alamatSebaris()) {
-        const dAlamat = alamat.getBoundingClientRect().left - kode.getBoundingClientRect().left;
+        const dAlamat = alamat.getBoundingClientRect().left - snKolom.getBoundingClientRect().left;
         ag.style.marginLeft = (parseFloat(ag.style.marginLeft) - dAlamat) + 'px';
       }
     }
     if (!alamatSebaris()) ag.style.cssText = 'display:block;margin-left:0px;width:100%;';
     // Tombol Reset dan Pencarian dipindah ke baris Telp/Alamat, di kanan kotak Alamat,
-    // dengan ujung kanan sejajar Serial Number
+    // dengan ujung kanan sejajar Nama Barang (kolom paling kanan)
     const cari = modal.querySelector('#lacak_servis_cari');
-    const sn = modal.querySelector('#pencarian_serial_number');
+    const sn = unit; // lebar dan ujung kanan tombol mengikuti kolom paling kanan (Nama Barang)
     const wrap = document.getElementById('tm-kontak-wrap');
     if (cari && sn && wrap && cari.parentElement) {
       const grupTombol = cari.parentElement;
@@ -1198,6 +1208,6 @@
     const modal = findModal();
     if (modal && bolehFitur('lacakOtomatis')) sejajarkanKontak(modal);
   });
-  console.log('[antrianservis.js] v1.13.76 aktif');
+  console.log('[antrianservis.js] v1.13.77 aktif');
   ensureButton();
 })();
