@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.24
+// @version      1.13.25
 // @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -437,30 +437,38 @@
     return { alamat: alamat, telp: telp };
   }
 
-  // Tampilkan telp dan alamat di bawah kolom Serial Number (jendela Lacak Servis), keduanya kotak isian
-  // yang bisa diedit: Telp dulu, lalu Alamat. Kalau kolom SN tidak ketemu, ditaruh di atas tabel.
+  // Tampilkan telp dan alamat di bawah kolom Serial Number (jendela Lacak Servis). Susunannya meniru kolom SN:
+  // label di atas, kotak isian selebar kolom (menyesuaikan lebar layar). Telp dulu, lalu Alamat.
+  // Kalau kolom SN tidak ketemu, ditaruh di atas tabel.
   function tampilKontak(modal, kontak) {
     const sn = modal.querySelector('#pencarian_serial_number') || modal.querySelector('input[name="pencarian[serial_number]"]');
     const tabel = modal.querySelector('table');
     let box = modal.querySelector('#tm-kontak-nota');
     if (!box) {
-      box = document.createElement('div');
-      box.id = 'tm-kontak-nota';
-      box.style.cssText = 'margin:6px 0 10px;font-size:14px;line-height:1.6;color:#1f2933';
-      const baris = (label, id, lebar) => {
-        const wrap = document.createElement('div');
-        wrap.className = 'tm-kontak-baris';
-        wrap.appendChild(document.createTextNode(label + ' : '));
+      const grupSn = sn && sn.parentElement ? sn.parentElement : null;
+      const labelSn = grupSn ? grupSn.querySelector('label') : null;
+      const bikin = (label, id) => {
+        const grup = document.createElement('div');
+        grup.className = grupSn ? grupSn.className : '';
+        grup.classList.add('tm-kontak-baris');
+        const lbl = document.createElement('label');
+        lbl.className = labelSn ? labelSn.className : '';
+        lbl.textContent = label + ' :';
         const inp = document.createElement('input');
         inp.type = 'text';
         inp.id = id;
-        inp.style.cssText = 'font-size:14px;padding:2px 6px;border:1px solid #b8c4d0;border-radius:4px;width:' + lebar;
-        wrap.appendChild(inp);
-        return wrap;
+        inp.className = sn ? sn.className : '';
+        inp.style.cssText = 'width:100%;max-width:100%;box-sizing:border-box;';
+        grup.appendChild(lbl);
+        grup.appendChild(inp);
+        return grup;
       };
-      box.appendChild(baris('Telp', 'tm-kontak-telp', '180px'));
-      box.appendChild(baris('Alamat', 'tm-kontak-alamat', '240px'));
-      if (sn && sn.parentElement) sn.parentElement.insertAdjacentElement('afterend', box);
+      box = document.createElement('div');
+      box.id = 'tm-kontak-nota';
+      box.style.cssText = 'width:100%;margin:6px 0;';
+      box.appendChild(bikin('Telp', 'tm-kontak-telp'));
+      box.appendChild(bikin('Alamat', 'tm-kontak-alamat'));
+      if (grupSn) grupSn.insertAdjacentElement('afterend', box);
       else if (tabel && tabel.parentElement) tabel.parentElement.insertBefore(box, tabel);
       else return;
     }
