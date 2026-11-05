@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.70
+// @version      1.13.71
 // @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG. Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -1024,11 +1024,20 @@
     });
   });
   observer.observe(document.body, { childList: true, subtree: true });
+  // Jendela Lacak Servis muncul lewat animasi (perubahan class, bukan penambahan elemen), jadi tidak
+  // tertangkap observer di atas. Begitu tombol Lacak Servis diklik atau jendela dibuka, ensureButton
+  // dijalankan beberapa kali selama animasi supaya tampilan yang sudah dimodifikasi langsung muncul.
+  const jadwalkanEnsure = () => [0, 60, 150, 300, 600, 1000, 1600].forEach((ms) => setTimeout(ensureButton, ms));
+  document.addEventListener('click', (e) => {
+    const t = e.target && e.target.closest ? e.target.closest('a, button') : null;
+    if (t && /lacak\s*servis/i.test(t.textContent || '') && !t.closest('.modal, [role="dialog"]')) jadwalkanEnsure();
+  }, true);
+  if (window.jQuery) window.jQuery(document).on('show.bs.modal shown.bs.modal', jadwalkanEnsure);
   // Posisi Telp dan Alamat dihitung ulang saat ukuran layar berubah
   window.addEventListener('resize', () => {
     const modal = findModal();
     if (modal && bolehFitur('lacakOtomatis')) sejajarkanKontak(modal);
   });
-  console.log('[antrianservis.js] v1.13.70 aktif');
+  console.log('[antrianservis.js] v1.13.71 aktif');
   ensureButton();
 })();
