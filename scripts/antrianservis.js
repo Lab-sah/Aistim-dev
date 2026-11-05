@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.66
+// @version      1.13.67
 // @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG. Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -396,9 +396,91 @@
       wrap.appendChild(bikin('Alamat :', 'tm-kontak-alamat', 'tm-kontak-alamat-grup'));
       row.appendChild(wrap);
     }
+    pasangCariTelp(modal);
     document.getElementById('tm-kontak-telp').value = kontak && kontak.telp ? kontak.telp : '';
     document.getElementById('tm-kontak-alamat').value = kontak && kontak.alamat ? kontak.alamat : '';
     sejajarkanKontak(modal);
+  }
+
+  // Kolom Telp bisa dipakai mencari pelanggan: ketik nomor (min. 3 karakter), daftar saran muncul dari
+  // sumber autocomplete Pelanggan milik halaman (jQuery UI). Pilih salah satu: nama pelanggan masuk ke
+  // kolom Pelanggan, lalu klik Pencarian. Enter memilih saran pertama.
+  function pasangCariTelp(modal) {
+    const telp = document.getElementById('tm-kontak-telp');
+    if (!telp || telp.dataset.tmCari) return;
+    telp.dataset.tmCari = '1';
+    telp.autocomplete = 'off';
+    telp.placeholder = 'Ketik no. telp untuk cari pelanggan';
+    const daftar = document.createElement('div');
+    daftar.className = 'tm-telp-saran';
+    daftar.style.display = 'none';
+    document.body.appendChild(daftar);
+    let nomor = 0, timer = null, saran = [], logSekali = false;
+
+    const tutup = () => { daftar.style.display = 'none'; saran = []; };
+    const noTelp = (i) => String(i.telepon || i.telp || i.no_telp || i.no_telepon || i.hp || i.no_hp || '').trim();
+    const pilih = (item) => {
+      tutup();
+      const $ = window.jQuery;
+      const pel = modal.querySelector('#pencarian_nama_pelanggan');
+      if (pel) {
+        if ($) $(pel).val(item.nama || '').trigger('input').trigger('change'); else pel.value = item.nama || '';
+      }
+      if (noTelp(item)) telp.value = noTelp(item);
+      if (item.alamat) {
+        const al = document.getElementById('tm-kontak-alamat');
+        if (al) al.value = item.alamat;
+      }
+    };
+    const tampil = () => {
+      daftar.innerHTML = '';
+      if (!saran.length) { daftar.style.display = 'none'; return; }
+      saran.slice(0, 15).forEach((item) => {
+        const d = document.createElement('div');
+        d.className = 'tm-telp-item';
+        const t = noTelp(item);
+        d.textContent = (item.nama || '(tanpa nama)') + (t ? ' - ' + t : '');
+        d.addEventListener('mousedown', (e) => { e.preventDefault(); pilih(item); });
+        daftar.appendChild(d);
+      });
+      const r = telp.getBoundingClientRect();
+      daftar.style.left = r.left + 'px';
+      daftar.style.top = (r.bottom + 2) + 'px';
+      daftar.style.width = Math.max(r.width, 220) + 'px';
+      daftar.style.display = 'block';
+    };
+    const cari = async () => {
+      const term = telp.value.trim();
+      if (term.length < 3) { tutup(); return; }
+      const $ = window.jQuery;
+      const el = $ && ($('#pencarian_nama_pelanggan').data('ui-autocomplete') ? $('#pencarian_nama_pelanggan') : $('#' + PELANGGAN_ID));
+      const inst = el && el.data('ui-autocomplete');
+      if (!inst) {
+        console.warn('[antrianservis] autocomplete Pelanggan tidak ditemukan: cari lewat Telp tidak bisa.');
+        return;
+      }
+      const saya = ++nomor;
+      const items = await new Promise((resolve) => {
+        let selesai = false;
+        const fin = (list) => { if (!selesai) { selesai = true; resolve(Array.isArray(list) ? list : []); } };
+        try { inst.source.call(inst, { term: term }, fin); } catch (err) {
+          console.warn('[antrianservis] pencarian Telp gagal:', err.message);
+          fin([]);
+        }
+        setTimeout(() => fin([]), 3000);
+      });
+      if (saya !== nomor) return;
+      if (!logSekali && items.length) { logSekali = true; console.log('[antrianservis] contoh data autocomplete Pelanggan:', items[0]); }
+      saran = items;
+      tampil();
+    };
+
+    telp.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(cari, 300); });
+    telp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && saran.length) { e.preventDefault(); e.stopPropagation(); pilih(saran[0]); }
+      else if (e.key === 'Escape') tutup();
+    });
+    telp.addEventListener('blur', () => setTimeout(tutup, 150));
   }
 
   // Menyejajarkan Telp dan Alamat dengan kolom di atasnya: Telp selebar kolom Pelanggan, dan Alamat dimulai
@@ -861,6 +943,9 @@
     ' .tm-lacak .modal-body .row > [class*="col"] { flex: 1 1 200px; min-width: 0; max-width: 100%; }' +
     ' .tm-lacak .modal-body input, .tm-lacak .modal-body select { max-width: 100%; }' +
     ' .tm-lacak table { max-width: 100%; }' +
+    ' .tm-telp-saran { position: fixed; z-index: 2000; background: #fff; border: 1px solid #bbb; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,.15); max-height: 260px; overflow: auto; font-size: 13px; }' +
+    ' .tm-telp-item { padding: 6px 10px; cursor: pointer; }' +
+    ' .tm-telp-item:hover { background: #e8f0fe; }' +
     ' .tm-lacak.tm-tabel-sembunyi .tm-tabel-wadah, .tm-lacak.tm-tabel-sembunyi #tm-kolom-btn { display: none !important; }' +
     ' .tm-lacak .modal-body { overflow-x: hidden !important; overflow-y: auto !important; }' +
     ' .tm-lacak .modal-body table { width: 100%; border-collapse: collapse; }' +
@@ -922,6 +1007,6 @@
     const modal = findModal();
     if (modal && bolehFitur('lacakOtomatis')) sejajarkanKontak(modal);
   });
-  console.log('[antrianservis.js] v1.13.66 aktif');
+  console.log('[antrianservis.js] v1.13.67 aktif');
   ensureButton();
 })();
