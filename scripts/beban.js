@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Format Rp
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.1.2
 // @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
@@ -179,14 +179,24 @@
     new MutationObserver(scan).observe(document.body, { childList: true, subtree: true });
 
     // Agar perhitungan PPN/PPh/total dan validasi jQuery tetap membaca angka mentah
-    // (script ini jalan di @world main, jadi jQuery milik halaman bisa diakses)
-    if (window.jQuery) {
-      window.jQuery.valHooks.text = window.jQuery.valHooks.text || {};
-      const prev = window.jQuery.valHooks.text.get;
-      window.jQuery.valHooks.text.get = function (elem, name) {
+    // (script ini jalan di @world main, jadi jQuery milik halaman bisa diakses).
+    // Kalau jQuery halaman baru termuat belakangan, dicoba lagi tiap 300 ms (maks. 15 detik).
+    let hookTerpasang = false;
+    function pasangHook() {
+      const jq = window.jQuery;
+      if (hookTerpasang || !jq || !jq.valHooks) return hookTerpasang;
+      hookTerpasang = true;
+      jq.valHooks.text = jq.valHooks.text || {};
+      const prev = jq.valHooks.text.get;
+      jq.valHooks.text.get = function (elem, name) {
         if (isJ(elem) && aktif()) return raw(parts(elem.value));
         return prev ? prev.call(this, elem, name) : undefined;
       };
+      return true;
+    }
+    if (!pasangHook()) {
+      let coba = 0;
+      const iv = setInterval(() => { if (pasangHook() || ++coba > 50) clearInterval(iv); }, 300);
     }
     scan();
   })();
@@ -212,26 +222,28 @@
       return out;
     }
 
-    // Peringatan di bawah tabel
+    // Peringatan di bawah tabel yang memuat kolom Jumlah. Null bila halaman belum punya kolom itu
+    // (tidak membuat elemen yang tidak pernah dipasang).
     function warnEl() {
       let w = document.getElementById('ket_guard_warn');
-      if (!w) {
-        w = document.createElement('div');
-        w.id = 'ket_guard_warn';
-        w.setAttribute('role', 'alert');
-        w.style.cssText = 'display:none;margin:8px 0;padding:8px 12px;border:1px solid #f5c2c7;background:#f8d7da;color:#842029;border-radius:4px;font-size:14px;';
-        const table = document.querySelector('table');
-        if (table) table.insertAdjacentElement('afterend', w);
-      }
+      if (w) return w;
+      const d = document.querySelector(DEBIT_SEL);
+      const tabel = d && d.closest('table');
+      if (!tabel) return null;
+      w = document.createElement('div');
+      w.id = 'ket_guard_warn';
+      w.setAttribute('role', 'alert');
+      w.style.cssText = 'display:none;margin:8px 0;padding:8px 12px;border:1px solid #f5c2c7;background:#f8d7da;color:#842029;border-radius:4px;font-size:14px;';
+      tabel.insertAdjacentElement('afterend', w);
       return w;
     }
 
     function refresh() {
       const miss = missingRows();
-      const w = warnEl();
+      const w = miss.length ? warnEl() : document.getElementById('ket_guard_warn');
       const bt = document.getElementById('bt_simpan');
       const icon = document.getElementById('image_simpan');
-      if (miss.length) {
+      if (miss.length && w) {
         const msg = 'Isi keterangan biar bisa disimpan (baris ' + miss.map(m => m.n).join(', ') + ')';
         if (w.dataset.msg !== msg) {
           w.dataset.msg = msg;
@@ -243,7 +255,7 @@
           w.appendChild(document.createTextNode(msg));
         }
         w.style.display = 'block';
-      } else {
+      } else if (w) {
         w.style.display = 'none';
       }
       const dim = miss.length ? '0.4' : '';
@@ -265,7 +277,11 @@
     }
     document.addEventListener('click', e => { if (e.target.closest && e.target.closest(SAVE_SEL)) block(e); }, true);
     document.addEventListener('keydown', e => { if (e.key === 'F2' || e.keyCode === 113) block(e); }, true);
-    document.addEventListener('submit', e => block(e), true);
+    // Hanya form yang memuat kolom Jumlah (form lain di halaman, mis. pencarian, tidak ikut tertahan)
+    document.addEventListener('submit', e => {
+      const f = e.target;
+      if (f && f.querySelector && f.querySelector(DEBIT_SEL)) block(e);
+    }, true);
     ['input', 'focusout', 'keyup', 'change'].forEach(t => document.addEventListener(t, refresh, true));
     new MutationObserver(refresh).observe(document.body, { childList: true, subtree: true });
     refresh();
