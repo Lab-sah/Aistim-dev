@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ERZAP - Transfer Kas/Bank (Dropdown Cari & Format Nominal)
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
-// @description  Halaman Transfer Kas/Bank: kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
+// @version      1.4.0
+// @description  Halaman Transfer Kas/Bank: kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); saldo sesudah Kas Asal dihitung dan Simpan diblokir bila minus; tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/jurnals/form_transfer_kas_bank*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @run-at       document-idle
@@ -18,7 +18,7 @@
 
   // ====== HAK AKSES & FITUR (JSON) ======
   // "admin"   -> daftar nama yang SELALU bisa memakai SEMUA fitur (public maupun private).
-  // "private" -> nama fitur yang HANYA boleh dipakai "admin". Nama fitur: formatNominal, responsive, validasiSimpan.
+  // "private" -> nama fitur yang HANYA boleh dipakai "admin". Nama fitur: formatNominal, responsive, validasiSimpan, cekSaldoMinus.
   // "public"  -> nama fitur yang boleh dipakai SEMUA user yang membuka halaman ini.
   // Fitur yang tidak disebut di keduanya dianggap private (hanya admin).
   // Nama di "admin" dibaca dari tulisan "NAMA (JABATAN)" di pojok kanan bawah ERZAP. Cukup sebagian nama
@@ -29,7 +29,7 @@
   const AKSES_JSON = `{
     "admin": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
     "private": [],
-    "public": ["formatNominal", "responsive", "validasiSimpan"]
+    "public": ["formatNominal", "responsive", "validasiSimpan", "cekSaldoMinus"]
   }`;
 
   function bacaAkses() {
@@ -109,6 +109,7 @@
   // tidak ikut mengubah nilai (itulah penyebab "Rp 300" berubah jadi "Rp 3.00")
   window.addEventListener('input', e => {
     if (e.target && e.target.id === 'jurnal_nominal' && bolehFitur('formatNominal')) { fmtNominal(e.target); e.stopImmediatePropagation(); }
+    if (e.target && e.target.id === 'jurnal_nominal') hitungSaldoKas();
   }, true);
 
   window.addEventListener('blur', e => {
@@ -117,6 +118,7 @@
 
   // Kirim angka mentah saat form disubmit, tombol Simpan, atau tombol Rekam ditekan
   function stripForSubmit() {
+    if (simpanDiblokir()) return;
     const el = nominalEl();
     if (el && bolehFitur('formatNominal')) el.value = el.dataset.raw || '';
   }
@@ -148,12 +150,97 @@
     }, true);
   });
 
+  /* ---------- Saldo sesudah Kas Asal (cek minus) ---------- */
+  // Saldo sesudah = saldo sebelum - nominal. Kalau hasilnya minus: angka dibuat merah, muncul peringatan,
+  // dan tombol Simpan (juga F2) dinonaktifkan. Kalau Kas Asal belum dipilih (saldo sebelum kosong), tidak dicek.
+  const KAS = { sebelum: 'asal_sebelum', sesudah: 'asal_sesudah_tampil', simpan: 'bt_simpan' };
+  const KAS_WARNING_ID = 'kasupdate_warning';
+
+  const byId = id => document.getElementById(id);
+  // "Rp 1,500.00" / "1500000.0" / "1.500.000" -> angka
+  const angka = t => parseFloat(String(t || '').replace(/[^0-9.\-]/g, '')) || 0;
+  const rpFmt = n => 'Rp ' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  function kasWarning() {
+    let w = byId(KAS_WARNING_ID);
+    if (!w) {
+      w = document.createElement('div');
+      w.id = KAS_WARNING_ID;
+      w.setAttribute('role', 'alert');
+      w.style.cssText = 'display:none;margin:10px 0;padding:10px 14px;border:1px solid #b91c1c;' +
+        'background:#fee2e2;color:#991b1b;border-radius:6px;font-weight:600;font-size:14px;';
+      const sesudah = byId(KAS.sesudah);
+      const anchor = sesudah && (sesudah.closest('table') || sesudah.parentElement);
+      if (anchor) anchor.insertAdjacentElement('afterend', w);
+    }
+    return w;
+  }
+
+  function setBlokSimpan(minus) {
+    const btn = byId(KAS.simpan);
+    if (btn) {
+      btn.dataset.kasupdateBlok = minus ? '1' : '';
+      btn.style.pointerEvents = minus ? 'none' : '';
+      btn.style.opacity = minus ? '0.35' : '';
+      btn.style.cursor = minus ? 'not-allowed' : '';
+      btn.title = minus ? 'Saldo sesudah minus, tidak bisa disimpan' : 'Simpan';
+    }
+    const w = byId(KAS_WARNING_ID);
+    if (w && !minus) w.style.display = 'none';
+  }
+
+  function hitungSaldoKas() {
+    if (!bolehFitur('cekSaldoMinus')) return;
+    const elSebelum = byId(KAS.sebelum);
+    const elNominal = nominalEl();
+    if (!elSebelum || !elNominal || !/\d/.test(elSebelum.textContent || '')) { setBlokSimpan(false); return; }
+    // Nominal dibaca dari angka mentah (sebelum diformat "Rp ..."), cadangannya dari teks kolom
+    const nominal = angka(elNominal.dataset.raw != null && elNominal.dataset.raw !== '' ? elNominal.dataset.raw : elNominal.value);
+    const sesudah = angka(elSebelum.textContent) - nominal;
+    const minus = sesudah < 0;
+
+    const lbl = byId(KAS.sesudah);
+    if (lbl) {
+      lbl.textContent = rpFmt(sesudah);
+      lbl.style.color = minus ? '#b91c1c' : '';
+      lbl.style.fontWeight = minus ? '700' : '';
+    }
+    setBlokSimpan(minus);
+    if (minus) {
+      const w = kasWarning();
+      w.style.display = 'block';
+      w.textContent = '⚠ Peringatan: saldo Kas Asal akan minus ' + rpFmt(sesudah) + '. Tombol Simpan dinonaktifkan.';
+    }
+  }
+
+  function simpanDiblokir() {
+    const btn = byId(KAS.simpan);
+    return !!btn && btn.dataset.kasupdateBlok === '1' && bolehFitur('cekSaldoMinus');
+  }
+
+  // Cegah simpan lewat klik atau F2 saat saldo minus
+  document.addEventListener('click', e => {
+    if (simpanDiblokir() && e.target.closest && e.target.closest('#' + KAS.simpan)) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    }
+  }, true);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'F2' && simpanDiblokir()) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    }
+  }, true);
+
   /* ---------- Init ---------- */
 
   function init() {
     injectCss();
     const el = nominalEl();
     if (el && el.value && bolehFitur('formatNominal')) fmtNominal(el);
+    // Dihitung ulang berkala: saldo sebelum berubah saat Kas Asal dipilih, dan script halaman bisa menimpa tampilan
+    setInterval(hitungSaldoKas, 300);
+    hitungSaldoKas();
   }
 
   if (document.readyState === 'loading') {
