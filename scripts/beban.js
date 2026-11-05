@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Format Rp
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.1.1
 // @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
@@ -124,8 +124,13 @@
     function setup(el) {
       const ada = hiddenOf(el);
       if (ada) {
-        // Baris hasil salinan baris lain: hidden ikut tersalin dengan name baris asal, samakan dengan baris ini
-        if (!el.getAttribute('name')) { const nm = namaHidden(el); if (ada.name !== nm) ada.name = nm; }
+        // Baris hasil salinan baris lain: hidden ikut tersalin dengan name baris asal, samakan dengan baris ini.
+        // Hanya untuk baris bernomor dan bila polanya sudah dipelajari; name yang sudah benar tidak disentuh.
+        const n = nomorBaris(el);
+        if (!el.getAttribute('name') && n && polaNama && polaNama.indexOf('{n}') !== -1) {
+          const nm = polaNama.replace('{n}', n);
+          if (ada.name !== nm) ada.name = nm;
+        }
         return;
       }
       const p = parts(el.value);
