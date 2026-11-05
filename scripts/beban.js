@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Format Rp
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.2.1
 // @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: tabel Informasi Saldo Kas/Bank (saldo sebelum dan sesudah dipotong beban, di form Beban baru); kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
@@ -392,8 +392,9 @@
         ui.label.textContent = (generik ? 'Kas/Bank' : f.kasName) + ' (Asal)';
         if (!f.outlet || !f.kas) { kosong(); return; }
 
+        // Tanggal di form: DD-MM-YYYY (kalau sudah YYYY-MM-DD dipakai apa adanya)
         const bagian = f.tanggal.split('-');
-        const iso = bagian.length === 3 ? bagian[2] + '-' + bagian[1] + '-' + bagian[0] : '';
+        const iso = /^\d{4}-\d{2}-\d{2}$/.test(f.tanggal) ? f.tanggal : (bagian.length === 3 ? bagian[2] + '-' + bagian[1] + '-' + bagian[0] : '');
         const id = ++reqId;
         const url = '/perkiraans/saldo_perkiraan_per_outlet/new?idperkiraan=' + encodeURIComponent(f.kas) +
           '&tanggal=' + encodeURIComponent(iso) +
@@ -403,7 +404,10 @@
           .then(res => res.text())
           .then(txt => {
             if (id !== reqId) return;
-            const saldo = parseFloat(String(txt).trim());
+            // "1,500,000.00" (koma ribuan) dibaca utuh, bukan terpotong di koma pertama
+            let teksSaldo = String(txt).trim();
+            if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(teksSaldo)) teksSaldo = teksSaldo.replace(/,/g, '');
+            const saldo = parseFloat(teksSaldo);
             if (isNaN(saldo)) { kosong(); return; }
             const sesudah = saldo - f.total;
             ui.sebelum.textContent = fmtRp(saldo);
@@ -417,11 +421,17 @@
       const kunci = () => { const f = bacaForm(); return [f.outlet, f.kas, f.tanggal, f.total].join('|'); };
       ['jurnal_idoutlet_own', 'jurnal_idperkiraan_kas_bank', 'jurnal_tanggal'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) { el.addEventListener('change', update); el.addEventListener('blur', update); }
+        if (el && !el.dataset.iskTerpasang) {
+          el.dataset.iskTerpasang = '1';
+          // memakai tabel yang sedang aktif (ui bisa diganti saat tabel dibangun ulang)
+          el.addEventListener('change', () => { if (aktif() && ui.wrap.isConnected) update(); });
+          el.addEventListener('blur', () => { if (aktif() && ui.wrap.isConnected) update(); });
+        }
       });
-      // Dicek tiap detik: total berubah saat Jumlah diketik. Berhenti sendiri kalau tabelnya sudah tidak ada.
+      // Dicek tiap detik: total berubah saat Jumlah diketik. Kalau tabelnya hilang (halaman menggambar ulang
+      // area itu), pencarian tempat dipasang diulang dari awal.
       const iv = setInterval(() => {
-        if (!document.body.contains(ui.wrap)) { clearInterval(iv); return; }
+        if (!document.body.contains(ui.wrap)) { clearInterval(iv); pasang(); return; }
         if (!aktif()) return;
         const k = kunci();
         if (k !== lastKey) { lastKey = k; update(); }
@@ -431,18 +441,21 @@
     }
 
     // Menunggu kotak DPP muncul (maks. 30 detik), lalu pasang tabelnya
-    let coba = 0;
-    const timer = setInterval(() => {
-      coba++;
-      if (!aktif()) { if (coba > 60) clearInterval(timer); return; }
-      const host = findHost();
-      if (host) {
-        clearInterval(timer);
-        addStyle();
-        mulai(build(host));
-      } else if (coba > 60) {
-        clearInterval(timer);
-      }
-    }, 500);
+    function pasang() {
+      let coba = 0;
+      const timer = setInterval(() => {
+        coba++;
+        if (!aktif()) { if (coba > 60) clearInterval(timer); return; }
+        const host = findHost();
+        if (host) {
+          clearInterval(timer);
+          addStyle();
+          mulai(build(host));
+        } else if (coba > 60) {
+          clearInterval(timer);
+        }
+      }, 500);
+    }
+    pasang();
   })();
 })();
