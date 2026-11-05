@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.34
-// @description  Menambah tombol "Buat Nota" di sebelah tombol "Tutup" pada jendela Lacak Servis (jika ada data servis) atau "Buat Member" (jika tidak ada data, membuka form Tambah Pelanggan). Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG.
+// @version      1.13.63
+// @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG. Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @run-at       document-idle
@@ -13,8 +13,14 @@
   'use strict';
 
   // ====== HAK AKSES & FITUR (JSON) ======
-  // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini. Nama fitur: buatNota, buatMember.
+  // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini.
   // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua).
+  //              Nama fitur:
+  //                buatNota     = tombol Buat Nota (ada data servis)
+  //                buatData     = tombol Buat Data (tanpa data servis)
+  //                lacakOtomatis = perilaku otomatis di jendela Lacak Servis: tombol Reset, kolom pencarian terisi
+  //                                dari baris yang dipilih, baris pertama otomatis dipilih, Telp dan Alamat dari nota,
+  //                                Jenis Servis = Rawat Inap saat jendela dibuka, dan penyesuaian tampilan.
   // "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
   //              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
   // Fitur yang tidak disebut di "public" maupun "private" ditolak.
@@ -23,7 +29,7 @@
   // Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script dan muat ulang halaman ERZAP.
   const AKSES_JSON = `{
     "public": [],
-    "private": ["buatNota", "buatMember"],
+    "private": ["buatNota", "buatData", "lacakOtomatis"],
     "role": {
       "pusat": {
         "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT"],
@@ -69,7 +75,8 @@
   }
 
   const BTN_ID = 'tm-buat-nota-btn';
-  const BTN_MEMBER_ID = 'tm-buat-member-btn';
+  const BTN_RESET_ID = 'tm-reset-btn';
+  const BTN_DATA_ID = 'tm-buat-data-btn';
   const SEL_CLASS = 'tm-selected-row';
   const PELANGGAN_ID = 'servis_elektronik_nama_pelanggan';
   const SN_ID = 'servis_elektronik_detail1_serial_number';
@@ -87,119 +94,6 @@
     ) || null;
   }
 
-  // Tunggu elemen muncul dan terlihat (maksimal maxMs)
-  function tungguElemen(id, maxMs) {
-    return new Promise((resolve) => {
-      const t0 = Date.now();
-      const cek = () => {
-        const el = document.getElementById(id);
-        if (el && el.getClientRects().length > 0) return resolve(el);
-        if (Date.now() - t0 > maxMs) return resolve(null);
-        setTimeout(cek, 200);
-      };
-      cek();
-    });
-  }
-
-  // Kode diawali tanggal hari ini (DDMMYY, zona Asia/Jakarta)
-  function tanggalKode() {
-    const s = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Jakarta',
-      day: '2-digit',
-      month: '2-digit',
-      year: '2-digit',
-    }).format(new Date());
-    return s.replace(/\D/g, '');
-  }
-
-  // Salin nama ke kolom Pelanggan pada form servis (tanpa memicu pencarian autocomplete)
-  function salinNamaKePelanggan(nama) {
-    const el = document.getElementById(PELANGGAN_ID);
-    if (!el) return;
-    const $ = window.jQuery;
-    if ($) $(el).val(nama);
-    else el.value = nama;
-  }
-
-  // Isi Nama pelanggan di form Tambah Pelanggan (tanpa memicu pencarian autocomplete)
-  function isiNamaPelanggan(nama) {
-    const el = document.getElementById('pelanggan_nama');
-    if (!el) return;
-    const $ = window.jQuery;
-    if ($) {
-      const j = $(el);
-      j.val(nama).trigger('change');
-      if (j.data('ui-autocomplete')) j.autocomplete('close');
-    } else {
-      el.value = nama;
-    }
-    salinNamaKePelanggan(nama);
-  }
-
-  // Tutup Lacak Servis lalu buka form Tambah Pelanggan (tombol +)
-  function bukaTambahPelanggan(modal) {
-    // Serial Number di kolom pencarian wajib diisi sebelum Buat Member
-    const snInput = modal.querySelector('#pencarian_serial_number') ||
-      modal.querySelector('input[name*="serial_number"]');
-    const snRaw = snInput ? snInput.value.trim() : '';
-    if (!snRaw) {
-      alert('Serial Number harus diisi');
-      return;
-    }
-    const snText = snRaw.replace(/\s+/g, '').toUpperCase();
-    // Nama pelanggan = teks yang diketik di kolom Pelanggan pada Lacak Servis
-    const namaInput = modal.querySelector('#pencarian_nama_pelanggan');
-    const namaRaw = namaInput ? namaInput.value.trim() : '';
-
-    const closeBtn = [...modal.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Tutup');
-    if (closeBtn) closeBtn.click();
-    setTimeout(async () => {
-      const plus = document.getElementById('tambah_pelanggan');
-      if (!plus) {
-        alert('Tombol Tambah Pelanggan (+) tidak ditemukan.');
-        return;
-      }
-      plus.click();
-      // Termin, Tipe Penjualan, Jenis Servis, dan Outlet servis sudah diset sebelum data disimpan
-      jagaPengaturan(6000);
-      // Form pelanggan baru: Jenis Pelanggan = ECER, Outlet pelanggan = OTOTECH JOMBANG
-      const form = await tungguElemen('pelanggan_idjenis_pelanggan', 5000);
-      if (form) {
-        pilihOpsi('pelanggan_idjenis_pelanggan', 'ECER');
-        // Mengetik Nama di form pelanggan langsung menyalin ke kolom Pelanggan pada form servis
-        const namaField = document.getElementById('pelanggan_nama');
-        if (namaField && !namaField.dataset.tmMirror) {
-          namaField.dataset.tmMirror = '1';
-          namaField.addEventListener('input', () => salinNamaKePelanggan(namaField.value.trim()));
-        }
-        if (namaRaw) isiNamaPelanggan(namaRaw);
-        const outlet = document.getElementById('outlet1');
-        if (outlet && !outlet.checked) outlet.click();
-
-        // Serial Number di Data Servis = sama dengan yang diinput saat Buat Member
-        const snField = document.getElementById(SN_ID);
-        if (snField) {
-          const $ = window.jQuery;
-          if ($) {
-            $(snField).val(snRaw).trigger('input').trigger('change').trigger('blur');
-          } else {
-            snField.value = snRaw;
-          }
-        }
-
-        // Kode pelanggan: Serial Number tanpa spasi + tanggal hari ini (DDMMYY)
-        if (snText) {
-          const kode = document.getElementById('pelanggan_kode');
-          if (kode) {
-            kode.value = snText + tanggalKode();
-            const $ = window.jQuery;
-            if ($) $(kode).trigger('input').trigger('change');
-          }
-        }
-      }
-    }, 500);
-  }
-
   function normHeader(x) {
     return (x || '').replace(/\s+/g, ' ').trim().toLowerCase();
   }
@@ -214,7 +108,7 @@
     const cari = (root) => [...root.querySelectorAll('thead tr')].find(
       (tr) => tr.querySelectorAll('th, td').length === nCell
     );
-    let tr = (table && cari(table)) || cari(scope) || scope.querySelector('thead tr');
+    const tr = (table && cari(table)) || cari(scope) || scope.querySelector('thead tr');
     if (!tr) return [];
     return [...tr.querySelectorAll('th, td')].map((th) => normHeader(th.innerText || th.textContent));
   }
@@ -247,16 +141,18 @@
     };
     const pelanggan = getCellAny(tr, ['Pelanggan', 'Nama Pelanggan', 'Nama']) || cellText(tr, 2);
     const kode = getCellAny(tr, ['Kode Servis', 'Kode']) || cellText(tr, 1);
-    let sn = getCellAny(tr, ['SN', 'Serial Number', 'Serial No', 'No Seri']) || cellText(tr, 3);
+    const sn = getCellAny(tr, ['SN', 'Serial Number', 'Serial No', 'No Seri']) || cellText(tr, 3);
     isi(['#pencarian_nama_pelanggan', 'input[name="pencarian[nama_pelanggan]"]'], pelanggan);
     isi(['#pencarian_kode', 'input[name="pencarian[kode]"]'], kode);
     isi(['#pencarian_serial_number', 'input[name="pencarian[serial_number]"]'], sn);
     try {
       const info = await ambilDariNota(tr, sn);
+      // Baris lain sudah dipilih selama nota dibaca: hasil ini dibuang supaya tidak salah baris
+      if (selectedRow !== tr) return;
       tampilKontak(modal, info.kontak);
       isi(['#pencarian_unit', 'input[name="pencarian[unit]"]'], info.unit);
       if (!sn && info.sn) isi(['#pencarian_serial_number', 'input[name="pencarian[serial_number]"]'], info.sn);
-    } catch (err) { /* nama barang tetap kosong */ }
+    } catch (err) { console.warn('[antrianservis] nota tidak bisa dibaca:', err.message); }
   }
 
   // Hasil pencarian yang baru muncul: baris pertama langsung dipilih (sama seperti diklik),
@@ -270,7 +166,8 @@
     tr.click();
   }
 
-  // Klik baris tabel untuk memilih servis (klik link di dalam baris tidak mengubah pilihan)
+  // Klik baris tabel untuk memilih servis (klik link di dalam baris tidak mengubah pilihan).
+  // Pengisian kolom pencarian dan pembacaan nota hanya untuk yang punya fitur lacakOtomatis.
   function bindRowSelection(modal) {
     if (modal.dataset.tmBound) return;
     modal.dataset.tmBound = '1';
@@ -280,7 +177,7 @@
       modal.querySelectorAll('.' + SEL_CLASS).forEach((r) => r.classList.remove(SEL_CLASS));
       tr.classList.add(SEL_CLASS);
       selectedRow = tr;
-      isiPencarianDariBaris(modal, tr);
+      if (bolehFitur('lacakOtomatis')) isiPencarianDariBaris(modal, tr);
     });
   }
 
@@ -295,7 +192,9 @@
 
   // Isi Pelanggan lewat autocomplete bawaan form (jQuery UI). Kalau autocomplete belum siap, ditunggu dulu.
   // Nama diambil dari kolom Pelanggan di tabel Lacak Servis. Kalau persis sama dengan hasil autocomplete,
-  // dipilih lewat autocomplete (id pelanggan ikut terisi). Kalau tidak, nama tetap diisi sebagai teks.
+  // dipilih lewat autocomplete (id pelanggan ikut terisi). Kalau tidak, nama hanya diisi sebagai teks dan
+  // id pelanggan TIDAK terisi.
+  // Hasil: 'ok' = dipilih lewat autocomplete (id terisi), 'teks' = hanya teks, false = gagal.
   async function isiPelanggan(nama) {
     const $ = window.jQuery;
     const el = $ ? $('#' + PELANGGAN_ID) : null;
@@ -308,8 +207,9 @@
     // Instance widget (bukan opsi). Fungsi source ada di instance: inst.source
     const inst = el.data('ui-autocomplete');
     if (!inst) {
+      console.warn('[antrianservis] autocomplete Pelanggan belum siap: nama diisi sebagai teks, id tidak terisi.');
       el.val(nama).trigger('change');
-      return true;
+      return 'teks';
     }
 
     el.val('');
@@ -320,22 +220,28 @@
         selesai = true;
         resolve(Array.isArray(list) ? list : []);
       };
-      try { inst.source.call(inst, { term: nama }, fin); } catch (err) { fin([]); }
+      try { inst.source.call(inst, { term: nama }, fin); } catch (err) {
+        console.warn('[antrianservis] pencarian autocomplete Pelanggan gagal:', err.message);
+        fin([]);
+      }
       setTimeout(() => fin([]), 3000);
     });
 
     const target = nama.trim().toUpperCase();
     const item = items.find((i) => (i.nama || '').trim().toUpperCase() === target);
+    let hasil = 'teks';
     if (item) {
       el.val(item.nama);
       // Jalankan event select bawaan autocomplete supaya id pelanggan ikut terisi
       if (typeof inst._trigger === 'function') inst._trigger('select', null, { item });
       else if (inst.options && typeof inst.options.select === 'function') inst.options.select.call(el[0], null, { item });
+      hasil = 'ok';
     } else {
+      console.warn('[antrianservis] nama Pelanggan tidak ada di hasil autocomplete: diisi sebagai teks, id tidak terisi:', nama);
       el.val(nama).trigger('change');
     }
     el.autocomplete('close');
-    return true;
+    return hasil;
   }
 
   // Isi Serial Number dan picu event supaya form ikut membaca nilainya
@@ -384,33 +290,8 @@
     return pilihOpsi(selectId, teks);
   }
 
-  let timerJaga = null;
-
-  // Termin, Tipe Penjualan, Jenis Servis, dan Outlet kadang di-reset oleh form
-  // setelah Pelanggan terpilih (lewat ajax). Pantau dan pasang ulang selama durasiMs.
-  function jagaPengaturan(durasiMs) {
-    if (timerJaga) clearInterval(timerJaga);
-    const t0 = Date.now();
-    const terapkan = () => {
-      pastikanOpsi('servis_elektronik_idtermin', 'Tunai');
-      pastikanOpsi('servis_elektronik_idtipe_penjualan', 'SERVICE');
-      const rawat = document.getElementById('servis_elektronik_is_rawat_inap_true');
-      if (rawat && !rawat.checked) rawat.click();
-      pastikanOpsi('servis_elektronik_idoutlet_own', 'OTOTECH JOMBANG');
-    };
-    terapkan();
-    timerJaga = setInterval(() => {
-      terapkan();
-      if (Date.now() - t0 > durasiMs) {
-        clearInterval(timerJaga);
-        timerJaga = null;
-      }
-    }, 300);
-  }
-
-  // Telp dan alamat pelanggan dari blok "Kepada Yth" di nota: alamat = baris setelah nama, telp = baris "Telp.".
-  // Nilai dari label di nota: "No. Telepon / HP : ...", "Alamat : ..." (nota tutup, berupa tabel label | : | isi),
-  // atau "Telp. : ..." di teks yang sama. Tidak mengambil teks dari label lain.
+  // Telp dan alamat dari nota: label "Telp"/"Alamat" (nota tutup, berupa tabel label | : | isi),
+  // atau blok "Kepada Yth" (nota penerimaan). Nilai dibersihkan dari titik dua di depan.
   function ambilNilaiLabel(doc, pola) {
     const rapi = (t) => (t || '').replace(/\s+/g, ' ').trim();
     const el = [...doc.body.querySelectorAll('*')].find((e) => {
@@ -432,7 +313,7 @@
     }
     let node = el;
     while (node && !node.nextElementSibling) node = node.parentElement;
-    return node && node.nextElementSibling ? rapi(node.nextElementSibling.textContent) : '';
+    return node && node.nextElementSibling ? rapi(node.nextElementSibling.textContent).replace(/^[:\s]+/, '') : '';
   }
 
   // Telp dan alamat dari nota: label (nota tutup) lebih dulu, lalu blok "Kepada Yth" (nota penerimaan).
@@ -468,80 +349,135 @@
       if (!telp && teks[iTelp + 1]) telp = teks[iTelp + 1].replace(/^:\s*/, '').trim();
       if (!/\d/.test(telp)) telp = '';
     }
-    const alamat = teks.slice(1, iTelp > 0 ? iTelp : 2).join(' ').trim();
+    // Alamat hanya diambil bila ada label Telp sesudah nama. Tanpa label Telp, teks berikutnya
+    // biasanya nama barang (bukan alamat), jadi alamat dikosongkan.
+    const alamat = iTelp >= 2 ? teks.slice(1, iTelp).join(' ').trim() : '';
     return { alamat: alamat, telp: telp };
   }
 
-  // Kolom pencarian (Pelanggan, Kode Servis, Nama Barang, Serial Number) disusun grid yang menyesuaikan lebar layar:
-  // kolom baru otomatis turun ke baris berikutnya kalau layar sempit. Hanya untuk wadah yang tidak memuat tabel.
-  function jadikanGridPencarian(modal) {
-    if (modal.dataset.tmGrid) return;
-    const p = modal.querySelector('#pencarian_nama_pelanggan') || modal.querySelector('input[name="pencarian[nama_pelanggan]"]');
-    const q = modal.querySelector('#pencarian_serial_number') || modal.querySelector('input[name="pencarian[serial_number]"]');
-    if (!p || !q) return;
-    let c = p.parentElement;
-    while (c && c !== modal && !c.contains(q)) c = c.parentElement;
-    if (!c || c === modal || c.querySelector('table')) return;
-    c.style.display = 'grid';
-    c.style.gridTemplateColumns = 'repeat(auto-fit, minmax(200px, 1fr))';
-    c.style.gap = '6px 12px';
-    c.style.alignItems = 'end';
-    modal.dataset.tmGrid = '1';
-  }
-
-  // Tampilkan telp dan alamat di jendela Lacak Servis, susunannya meniru kolom pencarian (label di atas,
-  // kotak isian selebar kolom). Alamat diletakkan di bawah kolom Pelanggan, Telp di bawah kolom Kode Servis.
-  // Kalau kolom itu tidak ketemu, ditaruh di bawah kolom Serial Number, lalu di atas tabel.
+  // Tampilkan Telp dan Alamat di jendela Lacak Servis.
+  // Susunan (desktop): Pelanggan, Kode Servis, Nama Barang, Serial Number dalam satu baris;
+  // di bawahnya Telp (selebar kolom Pelanggan) dan Alamat (dari kolom Kode Servis sampai Nama Barang).
+  // Di layar kecil (<= 640 px) semua kolom ditumpuk satu per satu. Lebar dan susunan diatur lewat CSS
+  // (class tm-kontak-*), bukan gaya inline, supaya responsif.
   function tampilKontak(modal, kontak) {
-    const pelangganEl = modal.querySelector('#pencarian_nama_pelanggan') || modal.querySelector('input[name="pencarian[nama_pelanggan]"]');
-    const kodeEl = modal.querySelector('#pencarian_kode') || modal.querySelector('input[name="pencarian[kode]"]');
-    const snEl = modal.querySelector('#pencarian_serial_number') || modal.querySelector('input[name="pencarian[serial_number]"]');
-    const tabel = modal.querySelector('table');
-    // Hanya wadah di dalam jendela yang dipakai (bukan jendela itu sendiri)
-    const dalam = (el) => (el && el !== modal && modal.contains(el) ? el : null);
-    const grupPelanggan = pelangganEl ? dalam(pelangganEl.parentElement) : null;
-    const grupKode = kodeEl ? dalam(kodeEl.parentElement) : null;
-    const grupSn = snEl ? dalam(snEl.parentElement) : null;
-    const contohGrup = grupKode || grupSn || grupPelanggan;
-    const contohLabel = contohGrup ? contohGrup.querySelector('label') : null;
-    const contohInput = kodeEl || snEl || pelangganEl;
+    const pelInput = modal.querySelector('#pencarian_nama_pelanggan') || modal.querySelector('input[name="pencarian[nama_pelanggan]"]');
+    const snInput = modal.querySelector('#pencarian_serial_number') || modal.querySelector('input[name="pencarian[serial_number]"]');
+    if (!pelInput || !snInput) return;
+    const grupSn = snInput.parentElement;
 
-    const bikin = (label, id) => {
-      const grup = document.createElement('div');
-      grup.className = contohGrup ? contohGrup.className : '';
-      grup.classList.add('tm-kontak-baris');
-      const lbl = document.createElement('label');
-      lbl.className = contohLabel ? contohLabel.className : '';
-      lbl.textContent = label; // titik dua sudah dari gaya label ERZAP (sama seperti kolom lain)
-      const inp = document.createElement('input');
-      inp.type = 'text';
-      inp.id = id;
-      inp.className = contohInput ? contohInput.className : '';
-      inp.style.cssText = 'width:100%;max-width:100%;box-sizing:border-box;';
-      grup.appendChild(lbl);
-      grup.appendChild(inp);
-      return grup;
-    };
+    // Baris induk yang memuat semua kolom pencarian (Pelanggan sampai Serial Number)
+    let row = pelInput.parentElement.parentElement;
+    while (row && row !== modal && !row.contains(grupSn)) row = row.parentElement;
+    if (!row || row === modal) return;
+    row.classList.add('tm-kontak-row');
 
-    let grupAlamat = document.getElementById('tm-kontak-alamat') ? document.getElementById('tm-kontak-alamat').parentElement : null;
-    let grupTelp = document.getElementById('tm-kontak-telp') ? document.getElementById('tm-kontak-telp').parentElement : null;
-    if (!grupAlamat || !grupTelp) {
-      grupAlamat = bikin('Alamat', 'tm-kontak-alamat');
-      // Alamat selalu satu baris penuh di bawah Pelanggan (tidak menyempitkan kolom Pelanggan)
-      grupAlamat.style.cssText = 'flex:0 0 100%;width:100%;max-width:100%;grid-column:1 / -1;';
-      grupTelp = bikin('Telp', 'tm-kontak-telp');
-      if (grupPelanggan) grupPelanggan.insertAdjacentElement('afterend', grupAlamat);
-      else if (grupSn) grupSn.insertAdjacentElement('afterend', grupAlamat);
-      else if (tabel && tabel.parentElement) tabel.parentElement.insertBefore(grupAlamat, tabel);
-      else return;
-      if (grupKode) grupKode.insertAdjacentElement('afterend', grupTelp);
-      else if (grupSn) grupSn.insertAdjacentElement('afterend', grupTelp);
-      else if (tabel && tabel.parentElement) tabel.parentElement.insertBefore(grupTelp, tabel);
-      else return;
+    if (!document.getElementById('tm-kontak-wrap')) {
+      const contohLabel = grupSn.querySelector('label');
+      const bikin = (label, id, kelas) => {
+        const grup = document.createElement('div');
+        grup.className = 'tm-kontak-baris ' + kelas;
+        const lbl = document.createElement('label');
+        lbl.className = contohLabel ? contohLabel.className : '';
+        lbl.textContent = label;
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.id = id;
+        inp.className = snInput.className;
+        grup.appendChild(lbl);
+        grup.appendChild(inp);
+        return grup;
+      };
+      const wrap = document.createElement('div');
+      wrap.id = 'tm-kontak-wrap';
+      wrap.className = 'tm-kontak-wrap';
+      wrap.appendChild(bikin('Telp :', 'tm-kontak-telp', 'tm-kontak-telp-grup'));
+      wrap.appendChild(bikin('Alamat :', 'tm-kontak-alamat', 'tm-kontak-alamat-grup'));
+      row.appendChild(wrap);
     }
-    jadikanGridPencarian(modal);
     document.getElementById('tm-kontak-telp').value = kontak && kontak.telp ? kontak.telp : '';
     document.getElementById('tm-kontak-alamat').value = kontak && kontak.alamat ? kontak.alamat : '';
+    sejajarkanKontak(modal);
+  }
+
+  // Menyejajarkan Telp dan Alamat dengan kolom di atasnya: Telp selebar kolom Pelanggan, dan Alamat dimulai
+  // dari kolom Kode Servis sampai ujung kanan Nama Barang. Di layar kecil, posisi ini dilepas (susunan tumpuk).
+  function sejajarkanKontak(modal) {
+    const telp = document.getElementById('tm-kontak-telp');
+    const alamat = document.getElementById('tm-kontak-alamat');
+    const pel = modal.querySelector('#pencarian_nama_pelanggan');
+    const kode = modal.querySelector('#pencarian_kode');
+    const unit = modal.querySelector('#pencarian_unit');
+    if (!telp || !alamat || !pel || !kode) return;
+    const tg = telp.parentElement;
+    const ag = alamat.parentElement;
+    if (window.matchMedia('(max-width: 640px)').matches || !unit) {
+      tg.style.cssText = '';
+      ag.style.cssText = '';
+      const grupTombolReset = modal.querySelector('.tm-kontak-tombol');
+      if (grupTombolReset) grupTombolReset.style.cssText = '';
+      // Di layar kecil grup tombol juga dipindah ke baris Telp/Alamat (susunan tumpuk, diatur CSS)
+      const wrapKecil = document.getElementById('tm-kontak-wrap');
+      const cariKecil = modal.querySelector('#lacak_servis_cari');
+      if (wrapKecil && cariKecil && cariKecil.parentElement && cariKecil.parentElement.parentElement !== wrapKecil) {
+        cariKecil.parentElement.classList.add('tm-kontak-tombol');
+        wrapKecil.appendChild(cariKecil.parentElement);
+      }
+      return;
+    }
+    // Layar lebar < 1100 px: susunan bertumpuk (Telp, Alamat, tombol) rata kiri. Tidak diukur-ukur lagi,
+    // sehingga tidak berubah-ubah saat muncul/hilang scroll tabel.
+    if (window.innerWidth < 1100) {
+      tg.style.cssText = 'display:block;margin-left:0px;width:' + Math.round(pel.getBoundingClientRect().width) + 'px;';
+      ag.style.cssText = 'display:block;margin-left:0px;width:100%;';
+      const wrapBertumpuk = document.getElementById('tm-kontak-wrap');
+      const cariBertumpuk = modal.querySelector('#lacak_servis_cari');
+      if (wrapBertumpuk && cariBertumpuk && cariBertumpuk.parentElement) {
+        const grupBertumpuk = cariBertumpuk.parentElement;
+        grupBertumpuk.classList.add('tm-kontak-tombol', 'tm-tombol-baris');
+        wrapBertumpuk.appendChild(grupBertumpuk);
+        grupBertumpuk.style.cssText = 'margin-left:0px;width:auto;';
+      }
+      return;
+    }
+    const pelW = Math.round(pel.getBoundingClientRect().width);
+    const kodeL = kode.getBoundingClientRect().left;
+    const unitR = unit.getBoundingClientRect().right;
+    tg.style.cssText = 'display:block;margin-left:0px;width:' + pelW + 'px;';
+    ag.style.cssText = 'display:block;margin-left:0px;width:' + Math.round(unitR - kodeL) + 'px;';
+    // Posisi diukur ulang dua kali, karena menggeser Telp ikut menggeser Alamat
+    // Kalau Alamat turun ke baris sendiri (layar sempit), Alamat rata kiri dan selebar baris
+    const alamatSebaris = () => ag.getBoundingClientRect().top - tg.getBoundingClientRect().top < 5;
+    for (let i = 0; i < 2; i++) {
+      const dTelp = telp.getBoundingClientRect().left - pel.getBoundingClientRect().left;
+      tg.style.marginLeft = (parseFloat(tg.style.marginLeft) - dTelp) + 'px';
+      if (alamatSebaris()) {
+        const dAlamat = alamat.getBoundingClientRect().left - kode.getBoundingClientRect().left;
+        ag.style.marginLeft = (parseFloat(ag.style.marginLeft) - dAlamat) + 'px';
+      }
+    }
+    if (!alamatSebaris()) ag.style.cssText = 'display:block;margin-left:0px;width:100%;';
+    // Tombol Reset dan Pencarian dipindah ke baris Telp/Alamat, di kanan kotak Alamat,
+    // dengan ujung kanan sejajar Serial Number
+    const cari = modal.querySelector('#lacak_servis_cari');
+    const sn = modal.querySelector('#pencarian_serial_number');
+    const wrap = document.getElementById('tm-kontak-wrap');
+    if (cari && sn && wrap && cari.parentElement) {
+      const grupTombol = cari.parentElement;
+      grupTombol.classList.add('tm-kontak-tombol');
+      wrap.appendChild(grupTombol);
+      // Grup tombol ditempel ke kanan baris (margin-left:auto) dengan lebar Serial Number, jadi kirinya sejajar SN
+      grupTombol.style.cssText = 'margin-left:auto;width:' + Math.round(sn.getBoundingClientRect().width) + 'px;';
+      // Kalau layar terlalu sempit, grup tombol pindah ke baris bawah (flex-wrap): lebar mengikuti isi, rata kiri
+      const sebaris = () => grupTombol.getBoundingClientRect().top - telp.getBoundingClientRect().top < 5;
+      if (sebaris()) {
+        grupTombol.classList.remove('tm-tombol-baris');
+      } else {
+        grupTombol.classList.add('tm-tombol-baris');
+        grupTombol.style.marginLeft = '0px';
+        grupTombol.style.width = 'auto';
+      }
+    }
   }
 
   // Ambil dari nota servis: nama barang (kolom Unit / Nama Barang), SN bila di Lacak Servis kosong,
@@ -552,7 +488,9 @@
     const kosongKontak = { alamat: '', telp: '' };
     const link = row.querySelector('a[href*="nota_tutup_servis"]') || row.querySelector('a[href*="nota_penerimaan"]');
     if (!link) return { unit: getCellAny(row, ['Unit', 'Nama Barang', 'Barang']), sn: '', kontak: kosongKontak };
-    const html = await (await fetch(link.getAttribute('href'), { credentials: 'same-origin' })).text();
+    const res = await fetch(link.getAttribute('href'), { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const html = await res.text();
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const kontak = ambilKontakNota(doc);
     const kosong = { unit: '', sn: '', kontak: kontak };
@@ -616,7 +554,7 @@
 
   // Cek dan pasang ulang Termin, Tipe Penjualan, dan Outlet. Mengembalikan hasil tiap pengaturan.
   function pastikanPengaturanNota() {
-    // Jenis Servis = Rawat Inap (radio), sama seperti di alur Buat Member
+    // Jenis Servis = Rawat Inap (radio)
     const rawat = document.getElementById('servis_elektronik_is_rawat_inap_true');
     if (rawat && !rawat.checked) rawat.click();
     return {
@@ -627,7 +565,15 @@
     };
   }
 
+  // Teks hasil Pelanggan untuk alert: OK / hanya teks (id tidak terisi) / gagal
+  function teksPelanggan(hasil) {
+    if (hasil === 'ok') return 'OK';
+    if (hasil === 'teks') return 'hanya teks (ID pelanggan tidak terisi, pilih dari daftar)';
+    return 'gagal';
+  }
+
   async function buatNota(modal) {
+    if (!bolehFitur('buatNota')) return;
     let row = selectedRow && selectedRow.isConnected && modal.contains(selectedRow) ? selectedRow : null;
     if (!row) {
       const rows = modal.querySelectorAll('tbody tr');
@@ -643,21 +589,22 @@
     // Pelanggan: dari judul kolom "Pelanggan". Kalau judul tidak terbaca, pakai kolom ke-3 (urutan tabel
     // Lacak Servis: Tanggal, Kode Servis, Pelanggan, SN, ...), lalu kolom pencarian Pelanggan.
     let pelanggan = getCellAny(row, ['Pelanggan', 'Nama Pelanggan', 'Nama']);
-    if (!pelanggan && sel[2]) pelanggan = (sel[2].innerText || sel[2].textContent || '').trim();
-    if (!pelanggan && namaCari) pelanggan = namaCari.value.trim();
     // SN: dari judul kolom "SN". Kalau judul tidak terbaca, pakai kolom ke-4 (SN).
     let sn = getCellAny(row, ['SN', 'Serial Number', 'Serial No', 'No Seri']);
-    if (!sn && sel[3]) sn = (sel[3].innerText || sel[3].textContent || '').trim();
-
-    if (!getCellAny(row, ['Pelanggan', 'Nama Pelanggan', 'Nama'])) {
-      console.warn('[antrianservis] judul kolom Pelanggan tidak terbaca. Judul:', getHeaders(row), 'Pelanggan dipakai:', pelanggan);
+    if (!pelanggan || !sn) {
+      console.warn('[antrianservis] judul kolom tidak terbaca, dipakai urutan kolom. Judul:', getHeaders(row),
+        'Isi baris:', [...sel].map((td) => (td.textContent || '').trim()));
     }
+    if (!pelanggan && sel[2]) pelanggan = (sel[2].innerText || sel[2].textContent || '').trim();
+    if (!pelanggan && namaCari) pelanggan = namaCari.value.trim();
+    if (!sn && sel[3]) sn = (sel[3].innerText || sel[3].textContent || '').trim();
 
     // Data dari nota (Nama Barang dan SN). Diambil sebelum jendela Lacak Servis ditutup.
     let info = { unit: '', sn: '' };
     try {
       info = await ambilDariNota(row, sn);
     } catch (err) {
+      console.warn('[antrianservis] nota tidak bisa dibaca, Nama Barang tidak terisi:', err.message);
       info = { unit: '', sn: '' };
     }
     if (!sn && info.sn) sn = info.sn;
@@ -667,7 +614,7 @@
     const closeBtn = [...modal.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Tutup');
     if (closeBtn) closeBtn.click();
 
-    const okPelanggan = pelanggan ? await isiPelanggan(pelanggan) : false;
+    const hasilPelanggan = pelanggan ? await isiPelanggan(pelanggan) : false;
     const okSn = sn ? isiSerialNumber(sn) : false;
     const okUnit = unit ? isiNamaBarang(unit) : false;
 
@@ -680,9 +627,9 @@
       hasil = pastikanPengaturanNota();
     }
 
-    if (!okPelanggan || !okSn || !okUnit || !hasil.okTermin || !hasil.okTipe || !hasil.okOutlet || !hasil.okRawat) {
+    if (hasilPelanggan !== 'ok' || !okSn || !okUnit || !hasil.okTermin || !hasil.okTipe || !hasil.okOutlet || !hasil.okRawat) {
       alert(
-        'Sebagian data belum terisi. Pelanggan: ' + (okPelanggan ? 'OK' : 'gagal') +
+        'Sebagian data belum terisi. Pelanggan: ' + teksPelanggan(hasilPelanggan) +
         ', Serial Number: ' + (okSn ? 'OK' : 'gagal') +
         ', Nama Barang: ' + (okUnit ? 'OK' : 'gagal') +
         ', Termin: ' + (hasil.okTermin ? 'OK' : 'gagal') +
@@ -693,78 +640,243 @@
     }
   }
 
-  function makeButton(id, label, closeBtn, color, onClick) {
-    const btn = document.createElement('button');
-    btn.id = id;
-    btn.type = 'button';
-    btn.textContent = label;
-    btn.className = closeBtn.className;
-    btn.style.marginLeft = '8px';
-    btn.style.background = color;
-    btn.style.borderColor = color;
-    btn.style.color = '#fff';
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      onClick();
+  // Tanpa data servis (Buat Data): isi form servis dari kolom pencarian
+  // (Pelanggan, Serial Number, Nama Barang), lalu Termin, Tipe Penjualan, dan Outlet diatur seperti Buat Nota.
+  // Tidak ada nota yang dibaca, karena memang belum ada data servis.
+  async function buatData(modal) {
+    if (!bolehFitur('buatData')) return;
+    const nilai = (q) => {
+      const el = modal.querySelector(q);
+      return el ? el.value.trim() : '';
+    };
+    const pelanggan = nilai('#pencarian_nama_pelanggan');
+    const sn = nilai('#pencarian_serial_number');
+    const unit = nilai('#pencarian_unit');
+    if (!pelanggan && !sn && !unit) {
+      alert('Isi dulu Pelanggan, Serial Number, atau Nama Barang.');
+      return;
+    }
+    const closeBtn = [...modal.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Tutup');
+    if (closeBtn) closeBtn.click();
+
+    const hasilPelanggan = pelanggan ? await isiPelanggan(pelanggan) : 'ok';
+    const okSn = sn ? isiSerialNumber(sn) : true;
+    const okUnit = unit ? isiNamaBarang(unit) : true;
+
+    await tungguAjax();
+    let hasil = pastikanPengaturanNota();
+    for (let i = 0; i < 5; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      hasil = pastikanPengaturanNota();
+    }
+
+    const gagal = [];
+    if (hasilPelanggan !== 'ok') gagal.push('Pelanggan: ' + teksPelanggan(hasilPelanggan));
+    if (!okSn) gagal.push('Serial Number');
+    if (!okUnit) gagal.push('Nama Barang');
+    if (!hasil.okTermin) gagal.push('Termin');
+    if (!hasil.okTipe) gagal.push('Tipe Penjualan');
+    if (!hasil.okOutlet) gagal.push('Outlet');
+    if (!hasil.okRawat) gagal.push('Jenis Servis (Rawat Inap)');
+    if (gagal.length) alert('Sebagian data belum terisi: ' + gagal.join(', '));
+  }
+
+  // Mengosongkan kolom pencarian (Pelanggan, Kode Servis, Nama Barang, Serial Number) beserta Telp dan Alamat.
+  // Tabel hasil dan tombol Pencarian tidak diubah.
+  function resetPencarian(modal) {
+    const $ = window.jQuery;
+    ['#pencarian_nama_pelanggan', '#pencarian_kode', '#pencarian_unit', '#pencarian_serial_number', '#tm-kontak-telp', '#tm-kontak-alamat'].forEach((q) => {
+      const el = modal.querySelector(q);
+      if (!el) return;
+      if ($) $(el).val(''); else el.value = '';
     });
-    closeBtn.insertAdjacentElement('afterend', btn);
+    modal.querySelectorAll('.' + SEL_CLASS).forEach((r) => r.classList.remove(SEL_CLASS));
+    selectedRow = null;
+  }
+
+  // Menandai kolom (lewat judul kolom) untuk pengaturan lebar, dan kolom opsional (Tindakan, Garansi)
+  // yang disembunyikan di layar kecil. Tombol "Tampilkan semua kolom" hanya tampil di layar kecil.
+  function tandaiKolom(modal) {
+    const t = [...modal.querySelectorAll('table')].find((tb) =>
+      [...tb.querySelectorAll('thead th')].some((th) => th.textContent.trim().toUpperCase() === 'KELUHAN'));
+    if (!t) return;
+    const kelas = {
+      KELUHAN: ['tm-kol-keluhan'],
+      TINDAKAN: ['tm-kol-tindakan', 'tm-kol-opsional'],
+      GARANSI: ['tm-kol-opsional'],
+      PELANGGAN: ['tm-kol-pelanggan'],
+    };
+    const peta = [...t.querySelectorAll('thead th')].map((th) => kelas[th.textContent.trim().toUpperCase()] || []);
+    for (const tr of t.rows) {
+      [...tr.cells].forEach((c, i) => (peta[i] || []).forEach((k) => c.classList.add(k)));
+    }
+    if (!modal.querySelector('#tm-kolom-btn')) {
+      const btn = document.createElement('button');
+      btn.id = 'tm-kolom-btn';
+      btn.type = 'button';
+      btn.className = 'btn btn-outline-secondary btn-sm tm-kolom-btn';
+      btn.textContent = 'Tampilkan semua kolom';
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        modal.classList.toggle('tm-kolom-penuh');
+        btn.textContent = modal.classList.contains('tm-kolom-penuh') ? 'Sembunyikan kolom' : 'Tampilkan semua kolom';
+      });
+      const wadah = t.parentElement;
+      wadah.parentElement.insertBefore(btn, wadah);
+    }
   }
 
   function ensureButton() {
     const modal = findModal();
     if (!modal) return;
-    modal.classList.add('tm-lacak');
+
+    // Perilaku otomatis hanya untuk yang punya fitur lacakOtomatis
+    const otomatis = bolehFitur('lacakOtomatis');
+    if (otomatis) {
+      modal.classList.add('tm-lacak');
+      tandaiKolom(modal);
+    }
     bindRowSelection(modal);
-    autoPilihBaris(modal);
-    // Saat Lacak Servis dibuka, Jenis Servis langsung Rawat Inap (sekali per jendela)
-    if (!modal.dataset.tmRawat) {
-      modal.dataset.tmRawat = '1';
-      const rawat = document.getElementById('servis_elektronik_is_rawat_inap_true');
-      if (rawat && !rawat.checked) rawat.click();
+    if (otomatis) {
+      autoPilihBaris(modal);
+      // Saat Lacak Servis dibuka, Jenis Servis langsung Rawat Inap (sekali per jendela)
+      if (!modal.dataset.tmRawat) {
+        modal.dataset.tmRawat = '1';
+        const rawat = document.getElementById('servis_elektronik_is_rawat_inap_true');
+        if (rawat && !rawat.checked) rawat.click();
+      }
     }
 
     const closeBtn = [...modal.querySelectorAll('button')].find(
       (b) => b.textContent.trim() === 'Tutup'
     );
+    // Tombol Reset di sebelah kiri tombol Pencarian: mengosongkan kolom pencarian dan Telp/Alamat
+    const btnCari = modal.querySelector('#lacak_servis_cari');
+    if (otomatis && btnCari && !modal.querySelector('#' + BTN_RESET_ID)) {
+      const btnReset = document.createElement('button');
+      btnReset.id = BTN_RESET_ID;
+      btnReset.type = 'button';
+      // Ikon reset (panah melingkar), dengan title dan aria-label supaya tetap jelas artinya
+      btnReset.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 9 9 9"/></svg>';
+      btnReset.title = 'Reset';
+      btnReset.setAttribute('aria-label', 'Reset');
+      btnReset.style.width = '30px';
+      btnReset.className = btnCari.className;
+      btnReset.style.marginRight = '8px';
+      btnReset.style.background = '#ffc107';
+      btnReset.style.borderColor = '#ffc107';
+      btnReset.style.color = '#212529';
+      btnReset.addEventListener('click', (e) => {
+        e.preventDefault();
+        resetPencarian(modal);
+      });
+      btnCari.insertAdjacentElement('beforebegin', btnReset);
+    }
+
     if (!closeBtn) return;
 
-    // Ada data servis: tampilkan Buat Nota. Tidak ada: tampilkan Buat Member.
+    // Ada data servis: tampilkan Buat Nota. Tidak ada: tampilkan Buat Data.
     const adaData = modal.querySelectorAll('table tbody tr').length > 0;
     const btnNota = modal.querySelector('#' + BTN_ID);
-    const btnMember = modal.querySelector('#' + BTN_MEMBER_ID);
+    const btnDataAda = modal.querySelector('#' + BTN_DATA_ID);
 
     if (adaData) {
-      if (btnMember) btnMember.remove();
+      if (btnDataAda) btnDataAda.remove();
       if (!btnNota && bolehFitur('buatNota')) {
-        makeButton(BTN_ID, 'Buat Nota', closeBtn, '#28a745', () => buatNota(modal));
+        // Tombol Buat Nota ditaruh di baris pencarian, tepat di sebelah kiri tombol Pencarian (sesudah Reset)
+        if (btnCari) {
+          const btnNotaBaru = document.createElement('button');
+          btnNotaBaru.id = BTN_ID;
+          btnNotaBaru.type = 'button';
+          btnNotaBaru.textContent = 'Buat Nota';
+          btnNotaBaru.className = btnCari.className;
+          btnNotaBaru.style.marginRight = '8px';
+          btnNotaBaru.style.background = '#28a745';
+          btnNotaBaru.style.borderColor = '#28a745';
+          btnNotaBaru.style.color = '#fff';
+          btnNotaBaru.addEventListener('click', (e) => {
+            e.preventDefault();
+            buatNota(modal);
+          });
+          btnCari.insertAdjacentElement('beforebegin', btnNotaBaru);
+        }
       }
     } else {
       if (btnNota) btnNota.remove();
-      if (!btnMember && bolehFitur('buatMember')) {
-        makeButton(BTN_MEMBER_ID, 'Buat Member', closeBtn, '#0d6efd', () => bukaTambahPelanggan(modal));
+      // Tanpa data servis: tombol Buat Data di baris pencarian, sebelah kiri Pencarian
+      if (!btnDataAda && btnCari && bolehFitur('buatData')) {
+        const btnDataBaru = document.createElement('button');
+        btnDataBaru.id = BTN_DATA_ID;
+        btnDataBaru.type = 'button';
+        btnDataBaru.textContent = 'Buat Data';
+        btnDataBaru.className = btnCari.className;
+        btnDataBaru.style.marginRight = '8px';
+        btnDataBaru.style.background = '#0d6efd';
+        btnDataBaru.style.borderColor = '#0d6efd';
+        btnDataBaru.style.color = '#fff';
+        btnDataBaru.addEventListener('click', (e) => {
+          e.preventDefault();
+          buatData(modal);
+        });
+        btnCari.insertAdjacentElement('beforebegin', btnDataBaru);
       }
     }
   }
 
-  // Highlight untuk baris yang dipilih
+  // Gaya tampilan. Semua aturan memakai kelas .tm-lacak (hanya dipasang untuk yang punya fitur lacakOtomatis),
+  // kecuali penanda baris terpilih. Bagian tm-kontak-* mengatur susunan Telp dan Alamat, dan ditumpuk di layar kecil.
   const style = document.createElement('style');
   style.textContent = '.' + SEL_CLASS + ' td { background: #fff3b0 !important; }' +
     ' .tm-lacak table thead th, .tm-lacak table thead td { position: sticky; top: 0; z-index: 2; background: #e9ecef; }' +
-    ' .tm-lacak .modal-dialog { max-width: min(96vw, 980px); margin: 1rem auto; }' +
+    ' .tm-lacak { overflow-x: hidden; }' +
+    ' .tm-lacak .modal-dialog { width: min(96vw, 1040px); max-width: min(96vw, 1040px); margin: 1rem auto; }' +
     ' .tm-lacak .modal-content { max-height: 92vh; }' +
     ' .tm-lacak .modal-body { max-height: calc(92vh - 130px); overflow: auto; }' +
     ' .tm-lacak .modal-body .row { display: flex; flex-wrap: wrap; }' +
     ' .tm-lacak .modal-body .row > [class*="col"] { flex: 1 1 200px; min-width: 0; max-width: 100%; }' +
     ' .tm-lacak .modal-body input, .tm-lacak .modal-body select { max-width: 100%; }' +
-    ' .tm-lacak .modal-body .tm-kontak-baris { box-sizing: border-box; min-width: 0; max-width: 100%; }' +
     ' .tm-lacak table { max-width: 100%; }' +
+    ' .tm-lacak .modal-body { overflow-x: hidden !important; overflow-y: auto !important; }' +
+    ' .tm-lacak .modal-body table { width: 100%; border-collapse: collapse; }' +
+    ' .tm-lacak .modal-body table th, .tm-lacak .modal-body table td { border: 1px solid #dee2e6 !important; }' +
+    ' .tm-lacak .modal-body table th, .tm-lacak .modal-body table td { white-space: nowrap; }' +
+    ' .tm-lacak .modal-body table .tm-kol-keluhan, .tm-lacak .modal-body table .tm-kol-tindakan { white-space: normal !important; width: 200px; }' +
+    ' .tm-lacak .modal-body table .tm-kol-pelanggan { white-space: normal !important; width: 150px; }' +
+    ' .tm-kolom-btn { display: none; }' +
+    ' .tm-kontak-tombol.tm-tombol-baris > * { flex: 0 0 auto !important; }' +
+    ' .tm-kontak-wrap > * { flex-shrink: 0; }' +
+    ' .tm-lacak .tm-kontak-row { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: end; }' +
+    ' .tm-lacak .tm-kontak-row > * { flex: 1 1 200px !important; min-width: 0 !important; max-width: 100% !important; width: auto !important; }' +
+    ' .tm-lacak .tm-kontak-row > .tm-kontak-wrap { flex: 0 0 100% !important; }' +
+    ' .tm-kontak-wrap { display: flex; flex-wrap: wrap; align-items: flex-end; row-gap: 8px; }' +
+    ' .tm-kontak-baris { flex: 0 0 auto; }' +
+    ' .tm-kontak-tombol { display: flex; justify-content: flex-end; align-items: flex-end; flex: 0 0 auto; gap: 6px; }' +
+    ' .tm-kontak-tombol > * { margin: 0 !important; flex: 1 1 0; min-width: 0; }' +
+    ' .tm-kontak-tombol > #tm-reset-btn { flex: 0 0 30px; }' +
+    ' .tm-lacak #pencarian_nama_pelanggan, .tm-lacak #pencarian_kode, .tm-lacak #pencarian_unit, .tm-lacak #pencarian_serial_number, .tm-lacak #tm-kontak-telp, .tm-lacak #tm-kontak-alamat { height: 30px !important; font-size: 13px !important; box-sizing: border-box !important; }' +
+    ' .tm-lacak #tm-buat-nota-btn, .tm-lacak #tm-buat-data-btn, .tm-lacak #lacak_servis_cari { height: 30px !important; padding: 0 8px !important; font-size: 13px !important; white-space: nowrap !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; }' +
+    ' .tm-lacak #tm-reset-btn { width: 30px !important; height: 30px !important; padding: 0 !important; font-size: 13px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; }' +
+    ' .tm-lacak #tm-reset-btn svg { flex: 0 0 18px; width: 18px; height: 18px; }' +
+    ' .tm-kontak-baris { box-sizing: border-box; min-width: 0; }' +
+    ' .tm-kontak-baris input { width: 100%; max-width: 100%; box-sizing: border-box; }' +
     ' @media (max-width: 640px) {' +
     '  .tm-lacak .modal-dialog { width: calc(100vw - 16px); max-width: calc(100vw - 16px); margin: 8px auto; }' +
     '  .tm-lacak .modal-content { max-height: 94vh; }' +
     '  .tm-lacak .modal-body { max-height: calc(94vh - 120px); padding: 12px; overflow: auto; }' +
     '  .tm-lacak .modal-body .row { display: grid; grid-template-columns: 1fr; gap: 8px; }' +
     '  .tm-lacak .modal-body .row > div { min-width: 0; max-width: 100%; }' +
-    '  .tm-lacak .modal-body table th, .tm-lacak .modal-body table td { white-space: nowrap; }' +
+    '  .tm-lacak .modal-body table { font-size: 12px; }' +
+    '  .tm-lacak .modal-body table th, .tm-lacak .modal-body table td { padding: 4px 5px; }' +
+    '  .tm-kolom-btn { display: inline-block !important; margin: 0 0 6px 0; }' +
+    '  .tm-lacak .modal-body table .tm-kol-opsional { display: none !important; }' +
+    '  .tm-lacak.tm-kolom-penuh .modal-body table .tm-kol-opsional { display: table-cell !important; }' +
+    '  .tm-lacak .modal-body table .tm-kol-keluhan { width: 150px; }' +
+    '  .tm-lacak .modal-body table .tm-kol-pelanggan { width: 100px; }' +
+    '  .tm-lacak .tm-kontak-row { display: grid; grid-template-columns: 1fr; gap: 8px; }' +
+    '  .tm-lacak .tm-kontak-row > * { flex: none !important; width: 100% !important; }' +
+    '  .tm-kontak-wrap { display: block; }' +
+    '  .tm-kontak-baris { width: 100% !important; margin: 0 0 8px 0 !important; }' +
+    '  .tm-kontak-tombol { width: 100% !important; margin: 0 0 8px 0 !important; justify-content: flex-start !important; }' +
     ' }';
   document.head.appendChild(style);
 
@@ -779,5 +891,11 @@
     });
   });
   observer.observe(document.body, { childList: true, subtree: true });
+  // Posisi Telp dan Alamat dihitung ulang saat ukuran layar berubah
+  window.addEventListener('resize', () => {
+    const modal = findModal();
+    if (modal && bolehFitur('lacakOtomatis')) sejajarkanKontak(modal);
+  });
+  console.log('[antrianservis.js] v1.13.63 aktif');
   ensureButton();
 })();
