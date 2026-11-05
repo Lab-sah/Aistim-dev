@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.74
+// @version      1.13.75
 // @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG. Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
 // @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -479,14 +479,22 @@
     };
     const cari = async () => {
       const term = input.value.trim();
-      if (term.length < 3) { tutup(); return; }
+      if (term.length < 3) { nomor++; input.classList.remove('tm-input-loading'); tutup(); return; }
       const inst = opsi.ambil ? null : opsi.sumber();
       if (!opsi.ambil && !inst) {
         console.warn('[antrianservis] autocomplete ' + opsi.nama + ' tidak ditemukan: saran tidak bisa ditampilkan.');
         return;
       }
       const saya = ++nomor;
-      const items = opsi.ambil ? await opsi.ambil(term) : await panggilSumber(inst, term, opsi.nama);
+      // Ikon loading di dalam kolom selama mencari
+      input.classList.add('tm-input-loading');
+      let items = [];
+      try {
+        items = opsi.ambil ? await opsi.ambil(term) : await panggilSumber(inst, term, opsi.nama);
+      } catch (err) {
+        console.warn('[antrianservis] pencarian ' + opsi.nama + ' gagal:', err.message);
+      }
+      if (saya === nomor) input.classList.remove('tm-input-loading');
       if (saya !== nomor) return;
       if (!logSekali && items.length) { logSekali = true; console.log('[antrianservis] contoh data autocomplete ' + opsi.nama + ':', items[0]); }
       saran = items;
@@ -562,6 +570,7 @@
     const btnCari = modal.querySelector('#lacak_servis_cari');
     if (!btnCari) return [];
     modal.dataset.tmTahan = '1';
+    modal.classList.add('tm-cari-diam');
     const tbody = modal.querySelector('table tbody');
     const sebelum = tbody ? tbody.innerHTML : '';
     await new Promise((resolve) => {
@@ -586,6 +595,7 @@
     // Hasil ini dianggap sudah "dipilih" supaya tidak ada pilih-otomatis yang menimpa kolom SN yang sedang diketik
     if (items[0]) modal.dataset.tmAutoSig = items[0].sig;
     delete modal.dataset.tmTahan;
+    modal.classList.remove('tm-cari-diam');
     return items;
   }
 
@@ -1079,6 +1089,8 @@
     ' .tm-lacak .modal-body .row > [class*="col"] { flex: 1 1 200px; min-width: 0; max-width: 100%; }' +
     ' .tm-lacak .modal-body input, .tm-lacak .modal-body select { max-width: 100%; }' +
     ' .tm-lacak table { max-width: 100%; }' +
+    ' .tm-lacak.tm-cari-diam .tm-tabel-wadah { visibility: hidden; }' +
+    ' .tm-input-loading { background: url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'16\' viewBox=\'0 0 24 24\'%3E%3Ccircle cx=\'12\' cy=\'12\' r=\'9\' fill=\'none\' stroke=\'%23999\' stroke-width=\'3\' opacity=\'.3\'/%3E%3Cpath d=\'M12 3a9 9 0 0 1 9 9\' fill=\'none\' stroke=\'%230d6efd\' stroke-width=\'3\' stroke-linecap=\'round\'%3E%3CanimateTransform attributeName=\'transform\' type=\'rotate\' from=\'0 12 12\' to=\'360 12 12\' dur=\'0.8s\' repeatCount=\'indefinite\'/%3E%3C/path%3E%3C/svg%3E") no-repeat right 8px center / 16px 16px !important; padding-right: 30px !important; }' +
     ' .tm-telp-saran { position: fixed; z-index: 2000; background: #fff; border: 1px solid #bbb; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,.15); max-height: 260px; overflow: auto; font-size: 13px; }' +
     ' .tm-telp-item { padding: 6px 10px; cursor: pointer; }' +
     ' .tm-telp-item:hover { background: #e8f0fe; }' +
@@ -1152,6 +1164,6 @@
     const modal = findModal();
     if (modal && bolehFitur('lacakOtomatis')) sejajarkanKontak(modal);
   });
-  console.log('[antrianservis.js] v1.13.74 aktif');
+  console.log('[antrianservis.js] v1.13.75 aktif');
   ensureButton();
 })();
