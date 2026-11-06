@@ -17,7 +17,6 @@
     "erzap_rak_barang.js",
     "rakstok.js",
     "rekam.js",
-    "pesanan_web.js",
     "ppob.js",
     "rekapbeban.js",
     "analisastok.js",
@@ -56,6 +55,7 @@
     "rekapstokmin.js",
     "smart_repair.js",
     "grafik.js",
-    "olzap.js"
+    "olzap.js",
+    "pesanan_web.js"
   ]
 }
