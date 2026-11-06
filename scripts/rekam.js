@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.9.3
-// @description  [v1.9.3] Pesan "HALAMAN LOGIN" dan catatan kolom password dihapus dari Analisa & Rekam. [v1.9.2] Pesan "HALAMAN LOGIN" dihapus dari hasil Rekam. [v1.9.1] Pesan halaman login menyebut Erzap (bukan partdistro.com). [v1.9.0] Inspect: tombol DOM aktif (analisa setelah JavaScript jalan), Salin/Unduh JSON, jejak request terakhir di laporan, contoh baris tabel, respons JSON dirapikan. [v1.8.2] Ambil & log Rekam menyamarkan token/CSRF (termasuk input tersembunyi). [v1.8.1] Tombol testurl diganti Inspect. [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
+// @version      1.9.4
+// @description  [v1.9.4] Popup Inspect: tombol di baris atas turun ke baris berikutnya (tidak lagi terpotong ke kanan), sehingga bisa dilihat dengan scroll. [v1.9.3] Pesan "HALAMAN LOGIN" dan catatan kolom password dihapus dari Analisa & Rekam. [v1.9.2] Pesan "HALAMAN LOGIN" dihapus dari hasil Rekam. [v1.9.1] Pesan halaman login menyebut Erzap (bukan partdistro.com). [v1.9.0] Inspect: tombol DOM aktif (analisa setelah JavaScript jalan), Salin/Unduh JSON, jejak request terakhir di laporan, contoh baris tabel, respons JSON dirapikan. [v1.8.2] Ambil & log Rekam menyamarkan token/CSRF (termasuk input tersembunyi). [v1.8.1] Tombol testurl diganti Inspect. [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -217,11 +217,11 @@
         judul.style.cssText = 'font-weight:bold;';
         judul.textContent = 'Inspect';
         const baris = document.createElement('div');
-        baris.style.cssText = 'display:flex;gap:6px;';
+        baris.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;';
         const inp = document.createElement('input');
         inp.type = 'text';
         inp.placeholder = 'Link, mis. /penjualans?pencarian[kode]=PJ131026-PMRA1-0001';
-        inp.style.cssText = 'flex:1;padding:6px;border:1px solid #94a3b8;border-radius:4px;';
+        inp.style.cssText = 'flex:1 1 220px;min-width:160px;padding:6px;border:1px solid #94a3b8;border-radius:4px;';
         const bGo = document.createElement('button');
         bGo.type = 'button'; bGo.textContent = 'Ambil'; bGo.style.cssText = gaya('#2563eb');
         const bAnalisa = document.createElement('button');
@@ -236,7 +236,7 @@
         bTutup.type = 'button'; bTutup.textContent = 'Tutup'; bTutup.style.cssText = gaya('#64748b');
         baris.appendChild(inp); baris.appendChild(bGo); baris.appendChild(bAnalisa); baris.appendChild(bDom); baris.appendChild(bSalin); baris.appendChild(bTutup);
         const barisEks = document.createElement('div');
-        barisEks.style.cssText = 'display:flex;gap:6px;';
+        barisEks.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;';
         const bJson = document.createElement('button');
         bJson.type = 'button'; bJson.textContent = 'Salin JSON'; bJson.style.cssText = gaya('#0f766e');
         bJson.title = 'Struktur hasil Analisa / DOM aktif sebagai JSON';
