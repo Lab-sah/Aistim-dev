@@ -56,6 +56,7 @@
     "grafik.js",
     "olzap.js",
     "pesanan_web.js",
-    "pembatalan.js"
+    "pembatalan.js",
+    "penjualan.js"
   ]
 }
