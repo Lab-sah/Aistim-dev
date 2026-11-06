@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Audit Analisa (Laba Rugi & Neraca)
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.1.1
 // @description  Tombol "Audit Analisa" di sebelah AI Insight pada Laporan Laba Rugi dan Neraca ERZAP. Dihitung dari angka tabel (tanpa AI). Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/laporans/laporan_laba_rugi/*
 // @match        https://*.erzap.com/laporans/neraca/*
@@ -74,7 +74,14 @@
     s = (s || '').trim();
     if (!/\d/.test(s)) return null;
     const neg = /\(|^-/.test(s);
-    const v = parseFloat(s.replace(/[^0-9.]/g, ''));
+    let t = s.replace(/[^0-9.,]/g, '');
+    // format Indonesia: titik sebagai pemisah ribuan, koma sebagai desimal (1.234.567 / 1.234.567,89)
+    if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t)) t = t.replace(/\./g, '').replace(',', '.');
+    // koma desimal tanpa titik ribuan (12,5)
+    else if (/^\d+,\d+$/.test(t)) t = t.replace(',', '.');
+    // format Inggris: koma sebagai pemisah ribuan (1,234,567.89)
+    else t = t.replace(/,/g, '');
+    const v = parseFloat(t);
     if (isNaN(v)) return null;
     return neg ? -v : v;
   };
