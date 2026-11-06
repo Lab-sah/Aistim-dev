@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.8.2
-// @description  [v1.8.2] Ambil & log Rekam menyamarkan token/CSRF (termasuk input tersembunyi). [v1.8.1] Tombol testurl diganti Inspect. [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
+// @version      1.9.0
+// @description  [v1.9.0] Inspect: tombol DOM aktif (analisa setelah JavaScript jalan), Salin/Unduh JSON, jejak request terakhir di laporan, contoh baris tabel, respons JSON dirapikan. [v1.8.2] Ambil & log Rekam menyamarkan token/CSRF (termasuk input tersembunyi). [v1.8.1] Tombol testurl diganti Inspect. [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -52,20 +52,40 @@
         perbaruiTombol();
     }
 
+    // ----- jejak request same-origin: dicatat selama skrip aktif (dipakai laporan Inspect) -----
+    const jejak = [];
+    let dalamInspect = 0;   // >0 saat Inspect sendiri yang mengambil halaman (tidak masuk jejak)
+    const JEJAK_ABAIKAN = /\.(js|css|png|jpe?g|gif|svg|ico|woff2?|map)(\?|$)/i;
+    function catatJejak(x) {
+        if (JEJAK_ABAIKAN.test(x.u || '')) return;
+        x.w = t0();
+        jejak.push(x);
+        if (jejak.length > 40) jejak.shift();
+    }
+    // fetch untuk pengambilan milik Inspect sendiri (Ambil & telusur skrip): tidak dicatat ke jejak/rekaman
+    const fetchInspect = (...a) => { dalamInspect++; try { return fetch(...a); } finally { dalamInspect--; } };
+
     // ----- fetch -----
     const asliFetch = window.fetch;
     window.fetch = function (input, init) {
         const url = typeof input === 'string' ? input : (input && input.url) || '';
         const method = (init && init.method) || (input && input.method) || 'GET';
         const body = init && typeof init.body === 'string' ? sensor(init.body).slice(0, 300) : '';
+        const dariInspect = dalamInspect > 0;
         const p = asliFetch.apply(this, arguments);
-        if (merekam && sama_origin(url)) {
+        if (sama_origin(url) && !dariInspect) {
             p.then((res) => {
-                res.clone().text().then((txt) => {
-                    catat('FETCH ' + method + ' ' + sensor(url) + (body ? ' body=' + body : '') +
-                        ' -> ' + res.status + ' [' + (res.headers.get('content-type') || '') + '] ' + txt.length + ' char | ' + snippet(sensor(txt)));
-                }).catch(() => {});
-            }).catch((e) => catat('FETCH ' + method + ' ' + sensor(url) + ' -> ERROR ' + e));
+                catatJejak({ m: method, u: sensor(url), s: res.status, ct: (res.headers.get('content-type') || '').split(';')[0] });
+                if (merekam) {
+                    res.clone().text().then((txt) => {
+                        catat('FETCH ' + method + ' ' + sensor(url) + (body ? ' body=' + body : '') +
+                            ' -> ' + res.status + ' [' + (res.headers.get('content-type') || '') + '] ' + txt.length + ' char | ' + snippet(sensor(txt)));
+                    }).catch(() => {});
+                }
+            }).catch((e) => {
+                catatJejak({ m: method, u: sensor(url), s: 'ERROR' });
+                catat('FETCH ' + method + ' ' + sensor(url) + ' -> ERROR ' + e);
+            });
         }
         return p;
     };
@@ -84,9 +104,14 @@
     };
     XMLHttpRequest.prototype.send = function (body) {
         const info = this.__rk;
-        if (merekam && info && sama_origin(info.url)) {
-            const b = typeof body === 'string' ? sensor(body).slice(0, 300) : '';
+        if (info && sama_origin(info.url)) {
+            const rekam = merekam;
+            const b = rekam && typeof body === 'string' ? sensor(body).slice(0, 300) : '';
             this.addEventListener('loadend', function () {
+                let ct = '';
+                try { ct = (this.getResponseHeader('content-type') || '').split(';')[0]; } catch (e) { /* abaikan */ }
+                catatJejak({ m: info.method, u: sensor(info.url), s: this.status, ct: ct });
+                if (!rekam) return;
                 let txt = '';
                 try { txt = typeof this.responseText === 'string' ? this.responseText : ''; } catch (e) { /* abaikan */ }
                 catat('XHR ' + info.method + ' ' + sensor(info.url) + (b ? ' body=' + b : '') +
@@ -202,11 +227,23 @@
         const bAnalisa = document.createElement('button');
         bAnalisa.type = 'button'; bAnalisa.textContent = 'Analisa'; bAnalisa.style.cssText = gaya('#7c3aed');
         bAnalisa.title = 'Ambil link, parse HTML-nya, tampilkan komponen & input';
+        const bDom = document.createElement('button');
+        bDom.type = 'button'; bDom.textContent = 'DOM aktif'; bDom.style.cssText = gaya('#0d9488');
+        bDom.title = 'Analisa halaman yang sedang tampil (setelah JavaScript berjalan), bukan HTML mentah dari server';
         const bSalin = document.createElement('button');
         bSalin.type = 'button'; bSalin.textContent = 'Salin'; bSalin.style.cssText = gaya('#28a745');
         const bTutup = document.createElement('button');
         bTutup.type = 'button'; bTutup.textContent = 'Tutup'; bTutup.style.cssText = gaya('#64748b');
-        baris.appendChild(inp); baris.appendChild(bGo); baris.appendChild(bAnalisa); baris.appendChild(bSalin); baris.appendChild(bTutup);
+        baris.appendChild(inp); baris.appendChild(bGo); baris.appendChild(bAnalisa); baris.appendChild(bDom); baris.appendChild(bSalin); baris.appendChild(bTutup);
+        const barisEks = document.createElement('div');
+        barisEks.style.cssText = 'display:flex;gap:6px;';
+        const bJson = document.createElement('button');
+        bJson.type = 'button'; bJson.textContent = 'Salin JSON'; bJson.style.cssText = gaya('#0f766e');
+        bJson.title = 'Struktur hasil Analisa / DOM aktif sebagai JSON';
+        const bUnduh = document.createElement('button');
+        bUnduh.type = 'button'; bUnduh.textContent = 'Unduh JSON'; bUnduh.style.cssText = gaya('#0f766e');
+        bUnduh.title = 'Simpan struktur hasil Analisa / DOM aktif sebagai file .json';
+        barisEks.appendChild(bJson); barisEks.appendChild(bUnduh);
         const info = document.createElement('div');
         info.style.cssText = 'color:#475569;';
         const out = document.createElement('textarea');
@@ -214,7 +251,8 @@
         out.style.cssText = 'flex:1;min-height:320px;width:100%;box-sizing:border-box;padding:6px;border:1px solid #cbd5e1;border-radius:4px;font:12px monospace;white-space:pre;';
         const panelForm = document.createElement('div');   // form tiruan hasil Analisa (di bawah laporan)
         let urutan = 0;                                     // penanda analisa terakhir (hasil telusur skrip yang telat dibuang)
-        kotak.appendChild(judul); kotak.appendChild(baris); kotak.appendChild(info); kotak.appendChild(out); kotak.appendChild(panelForm);
+        let terakhir = null;                                // hasil analisa terakhir {doc, meta} untuk JSON
+        kotak.appendChild(judul); kotak.appendChild(baris); kotak.appendChild(info); kotak.appendChild(barisEks); kotak.appendChild(out); kotak.appendChild(panelForm);
         bd.appendChild(kotak);
         document.body.appendChild(bd);
         inp.focus();
@@ -231,14 +269,21 @@
             const no = ++urutan;
             const mulai = Date.now();
             try {
-                const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+                const res = await fetchInspect(url, { credentials: 'same-origin', cache: 'no-store' });
                 const teks = await res.text();
-                info.textContent = 'HTTP ' + res.status + ' ' + res.statusText + ' | ' + (res.headers.get('content-type') || '-') + ' | ' + teks.length + ' karakter | ' + (Date.now() - mulai) + ' ms' + (res.redirected ? ' | dialihkan ke ' + res.url : '');
-                if (!analisa) { out.value = sensor(teks); return; }
+                const tipe = res.headers.get('content-type') || '';
+                info.textContent = 'HTTP ' + res.status + ' ' + res.statusText + ' | ' + (tipe || '-') + ' | ' + teks.length + ' karakter | ' + (Date.now() - mulai) + ' ms' + (res.redirected ? ' | dialihkan ke ' + res.url : '');
+                if (!analisa) {
+                    let tampil = teks;
+                    if (/json/i.test(tipe)) { try { tampil = JSON.stringify(JSON.parse(teks), null, 2); } catch (e) { /* bukan JSON valid: tampilkan apa adanya */ } }
+                    out.value = sensor(tampil);
+                    return;
+                }
                 try {
                     const doc = new DOMParser().parseFromString(teks, 'text/html');
                     const urlAkhir = res.url || url;
-                    out.value = analisaDoc(doc, urlAkhir, teks.length);
+                    terakhir = { doc: doc, meta: { mode: 'html-server', url: urlAkhir, status: res.status, contentType: tipe } };
+                    out.value = analisaDoc(doc, urlAkhir, teks.length) + '\n\n' + jejakTeks();
                     buatPanelForm(doc, urlAkhir, panelForm);
                     telusuriSkrip(doc, urlAkhir).then((t) => { if (no === urutan && t) out.value += '\n\n' + t; }).catch(() => {});
                 } catch (err) {
@@ -250,6 +295,53 @@
         }
         bGo.onclick = () => ambil(false);
         bAnalisa.onclick = () => ambil(true);
+
+        // Analisa halaman yang sedang tampil: DOM setelah JavaScript jalan (termasuk elemen hasil AJAX)
+        function analisaDom() {
+            const no = ++urutan;
+            out.value = '';
+            panelForm.textContent = '';
+            try {
+                const doc = document.cloneNode(true);
+                doc.querySelectorAll('[id^="rk_"]').forEach((el) => el.remove());
+                const urlNow = location.href;
+                const panjang = document.documentElement.outerHTML.length;
+                terakhir = { doc: doc, meta: { mode: 'dom-aktif', url: urlNow, status: null, contentType: 'text/html' } };
+                out.value = analisaDoc(doc, urlNow, panjang) + '\n\n' + jejakTeks();
+                buatPanelForm(doc, urlNow, panelForm);
+                info.textContent = 'DOM aktif: ' + doc.querySelectorAll('*').length + ' elemen (termasuk yang dibuat JavaScript).';
+                telusuriSkrip(doc, urlNow).then((t) => { if (no === urutan && t) out.value += '\n\n' + t; }).catch(() => {});
+            } catch (err) {
+                out.value = 'Analisa DOM gagal: ' + err.message;
+            }
+        }
+        bDom.onclick = analisaDom;
+
+        // Ekspor JSON dari hasil terakhir
+        const jsonTeks = () => {
+            if (!terakhir) { info.textContent = 'Jalankan Analisa atau DOM aktif dulu.'; return null; }
+            return JSON.stringify(strukturJson(terakhir.doc, terakhir.meta), null, 2);
+        };
+        bJson.onclick = async () => {
+            const j = jsonTeks();
+            if (j == null) return;
+            try { await navigator.clipboard.writeText(j); info.textContent = 'JSON disalin (' + j.length + ' karakter).'; }
+            catch (e) { out.value = j; out.select(); document.execCommand('copy'); info.textContent = 'JSON disalin lewat cadangan (' + j.length + ' karakter).'; }
+        };
+        bUnduh.onclick = () => {
+            const j = jsonTeks();
+            if (j == null) return;
+            const a = document.createElement('a');
+            const blobUrl = URL.createObjectURL(new Blob([j], { type: 'application/json' }));
+            a.href = blobUrl;
+            a.download = 'inspect-' + location.hostname + '-' + Date.now() + '.json';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+            info.textContent = 'JSON diunduh: ' + a.download;
+        };
+
         bTutup.onclick = tutup;
         bSalin.onclick = async () => {
             try { await navigator.clipboard.writeText(out.value); } catch (e) { out.select(); document.execCommand('copy'); }
@@ -257,7 +349,104 @@
         };
         inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') ambil(e.shiftKey); if (e.key === 'Escape') tutup(); });
         bd.addEventListener('mousedown', (e) => { if (e.target === bd) tutup(); });
-        info.textContent = 'Ambil = HTML mentah (Enter). Analisa = komponen & input hasil parse (Shift+Enter).';
+        info.textContent = 'Ambil = HTML mentah / JSON rapi (Enter). Analisa = komponen (Shift+Enter). DOM aktif = halaman setelah JavaScript jalan. Salin/Unduh JSON = struktur untuk dianalisa.';
+    }
+
+    // ----- Jejak request terakhir sebagai teks (ditampilkan di laporan Analisa) -----
+    function jejakTeks() {
+        if (!jejak.length) return '== REQUEST TERAKHIR ==\n(belum ada request same-origin yang tercatat sejak halaman dimuat)';
+        return '== REQUEST TERAKHIR (' + jejak.length + ' tercatat, 15 terakhir) ==\n' +
+            jejak.slice(-15).map((x) => '  ' + x.w + ' ' + x.m + ' ' + x.u + ' -> ' + x.s + (x.ct ? ' [' + x.ct + ']' : '')).join('\n');
+    }
+
+    // ----- Ekspor JSON: struktur hasil Analisa / DOM aktif dalam bentuk tetap -----
+    function strukturJson(doc, m) {
+        const ptg = (s, n) => rapih(s).slice(0, n);
+        const SENS = /token|csrf|authenticity|passw|secret/i;
+        const bukanTombol = (el) => !(el.tagName === 'INPUT' && /^(submit|button|reset|image)$/i.test(el.getAttribute('type') || ''));
+        const labelOf = (el) => {
+            const l = el.labels && el.labels[0];
+            return ptg((l && l.textContent) || '', 40).replace(/\s*:$/, '') || null;
+        };
+        const medan = (el) => {
+            const tag = el.tagName.toLowerCase();
+            const tipe = tag === 'input' ? (el.getAttribute('type') || 'text').toLowerCase() : tag;
+            const nama = el.getAttribute('name') || '';
+            const o = {
+                tag: tag, tipe: tipe, name: nama || null, id: el.id || null, label: labelOf(el),
+                placeholder: el.getAttribute('placeholder') || null,
+                required: el.hasAttribute('required'), disabled: el.hasAttribute('disabled'),
+                maxlength: el.getAttribute('maxlength') || null,
+                tersembunyi: tipe === 'hidden'
+            };
+            if (tag === 'select') {
+                o.opsi = Array.from(el.options).slice(0, 60).map((x) => ({ teks: ptg(x.textContent, 40), nilai: String(x.value).slice(0, 60), terpilih: x.hasAttribute('selected') }));
+            } else {
+                const v = tag === 'textarea' ? el.textContent : el.getAttribute('value');
+                o.nilai = !v ? null : (tipe === 'password' || SENS.test(nama + ' ' + el.id) ? '***' : ptg(v, 80));
+            }
+            return o;
+        };
+        const tombol = (el) => {
+            const tag = el.tagName.toLowerCase();
+            return {
+                tag: tag,
+                teks: ptg(tag === 'input' ? el.getAttribute('value') : el.textContent, 60) || null,
+                id: el.id || null,
+                type: el.getAttribute('type') || null,
+                href: tag === 'a' && el.getAttribute('href') ? sensor(el.getAttribute('href')).slice(0, 120) : null,
+                atribut: Array.from(el.attributes).filter((a) => /^(data-|on[a-z]+$)/.test(a.name)).slice(0, 6).map((a) => a.name + '=' + ptg(a.value, 60))
+            };
+        };
+        const semuaMedan = Array.from(doc.querySelectorAll('input, select, textarea')).filter(bukanTombol);
+        const semuaTombol = Array.from(doc.querySelectorAll('button, input[type=submit], input[type=button], input[type=reset], input[type=image], a.btn, a[role=button], [role=button]'));
+        const forms = Array.from(doc.querySelectorAll('form')).slice(0, 30).map((f) => ({
+            id: f.id || null,
+            method: (f.getAttribute('method') || 'get').toUpperCase(),
+            action: sensor(f.getAttribute('action') || '') || null,
+            input: semuaMedan.filter((el) => el.closest('form') === f).slice(0, 200).map(medan),
+            tombol: semuaTombol.filter((el) => el.closest('form') === f).slice(0, 50).map(tombol)
+        }));
+        const tabel = Array.from(doc.querySelectorAll('table')).slice(0, 20).map((t) => {
+            const baris = Array.from(t.querySelectorAll('tbody tr'));
+            return {
+                id: t.id || null,
+                class: ptg(t.className, 80) || null,
+                kolom: Array.from(t.querySelectorAll('th')).map((x) => ptg(x.textContent, 40)),
+                jumlahBaris: baris.length,
+                contohBaris: baris.slice(0, 5).map((tr) => Array.from(tr.children).map((td) => ptg(td.textContent, 80)))
+            };
+        });
+        const link = [];
+        const seen = {};
+        doc.querySelectorAll('a[href]').forEach((a) => {
+            const t = ptg(a.textContent, 60);
+            const h = a.getAttribute('href') || '';
+            if (!t || !h || h.charAt(0) === '#' || /^javascript/i.test(h)) return;
+            const k = t + '>' + h;
+            if (seen[k] || link.length >= 150) return;
+            seen[k] = 1;
+            link.push({ teks: t, href: sensor(h).slice(0, 160) });
+        });
+        return {
+            inspect: 'devtool',
+            mode: m.mode,
+            url: sensor(m.url),
+            waktu: new Date().toISOString(),
+            status: m.status,
+            contentType: m.contentType || null,
+            judul: ptg(doc.title, 200) || null,
+            heading: Array.from(doc.querySelectorAll('h1,h2,h3,h4')).map((h) => ptg(h.textContent, 80)).filter(Boolean).slice(0, 20),
+            halamanLogin: !!doc.querySelector('input[type=password]'),
+            form: forms,
+            inputDiLuarForm: semuaMedan.filter((el) => !el.closest('form')).slice(0, 200).map(medan),
+            tombolDiLuarForm: semuaTombol.filter((el) => !el.closest('form')).slice(0, 50).map(tombol),
+            tabel: tabel,
+            iframe: Array.from(doc.querySelectorAll('iframe')).map((f) => sensor(f.getAttribute('src') || '').slice(0, 160)),
+            link: link,
+            skripEksternal: Array.from(doc.querySelectorAll('script[src]')).map((s) => sensor(s.getAttribute('src') || '').slice(0, 200)),
+            request: jejak.slice(-30).map((x) => ({ waktu: x.w, metode: x.m, url: x.u, status: x.s, contentType: x.ct || null }))
+        };
     }
 
     // ----- Analisa: komponen & input halaman dari HTML hasil fetch (HTML mentah dari server) -----
@@ -396,6 +585,8 @@
             out.push('TABEL ' + (i + 1) + ' id=' + (t.id || '-') + ' class="' + ptg(t.className, 50) + '" baris=' + t.querySelectorAll('tbody tr').length +
                 ' kotak-centang=' + t.querySelectorAll('input[type=checkbox]').length);
             out.push('  kolom: ' + (th.join(' | ') || '-'));
+            Array.from(t.querySelectorAll('tbody tr')).slice(0, 3).forEach((tr, j) =>
+                out.push('  baris ' + (j + 1) + ': ' + Array.from(tr.children).map((td) => ptg(td.textContent, 30)).join(' | ')));
         });
 
         if (modal.length) {
@@ -502,7 +693,7 @@
             const nama = u.pathname.split('/').pop() || u.pathname;
             let teks = '';
             try {
-                const r = await fetch(u.href, { credentials: 'same-origin' });
+                const r = await fetchInspect(u.href, { credentials: 'same-origin' });
                 if (!r.ok) continue;
                 teks = await r.text();
             } catch (e) { continue; }
