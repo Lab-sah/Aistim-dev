@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.26.2
+// @version      1.26.3
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -29,12 +29,22 @@
     const KATA_BUNYI = 'Pesanan baru dari web';   // diucapkan saat ada nota web baru
     const CACHE_MS = 90 * 1000;        // pindah halaman tidak memicu fetch ulang kalau data masih segar
     const K_SEEN = 'aistim_pw_seen', K_POS = 'aistim_pw_pos', K_FILTER = 'aistim_pw_filter', K_CACHE = 'aistim_pw_cache', K_BUNYI = 'aistim_pw_bunyi';
+    // Akun tanpa izin Data Penjualan: Erzap membalas 403 untuk /penjualans. Setelah itu tidak minta lagi selama JEDA_AKSES_MS
+    // (dicek ulang pelan-pelan, kalau izinnya nanti diberikan). Penanda dipakai bersama semua tab.
+    const K_AKSES = 'aistim_pw_akses';
+    const JEDA_AKSES_MS = 30 * 60 * 1000;
+    const AKSES_PESAN = 'Akun ini tidak punya akses Data Penjualan';
 
     const ls = {
         get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
         set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* diblokir */ } },
         del(k) { try { localStorage.removeItem(k); } catch (e) { /* diblokir */ } }
     };
+
+    function aksesDitolak() {
+        const t = +(ls.get(K_AKSES) || 0);
+        return !!t && Date.now() - t < JEDA_AKSES_MS;
+    }
 
     const rapih = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
 
@@ -170,6 +180,7 @@
     async function muatData(paksa, hal) {
         if (sedangFetch) return;
         if (hal) halKini = hal;
+        if (aksesDitolak()) { data = { items: [], totalBaris: 0, halaman: halKini, waktu: 0, error: AKSES_PESAN }; sesuaikanBadge(); render(); return; }
         if (!paksa && halKini === 1) {
             const c = bacaCache();
             if (c) { data = c; sesuaikanBadge(); render(); return; }
@@ -179,6 +190,7 @@
         try {
             const u = LIST_URL + (halKini > 1 ? '?page=' + halKini : '');
             const res = await fetch(u, { credentials: 'same-origin', cache: 'no-store' });
+            if (res.status === 403) { ls.set(K_AKSES, String(Date.now())); throw new Error(AKSES_PESAN); }
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
             const r = ekstrakDaftar(doc, location.origin + LIST_URL);
@@ -272,6 +284,7 @@
     let hari = null;           // { items, totalBaris, halaman, selesai, waktu, error }
     async function muatHari(lanjut) {
         if (sedangFetch) return;
+        if (aksesDitolak()) { hari = { items: [], totalBaris: 0, halaman: 0, selesai: true, waktu: Date.now(), error: AKSES_PESAN }; render(); return; }
         sedangFetch = true;
         const peta = new Map();
         let total = 0, hal = 0, selesai = false, p1 = null;
@@ -284,6 +297,7 @@
             const mulai = hal + 1;
             for (let n = mulai; n < mulai + HAL_PER_TAHAP; n++) {
                 const res = await fetch(LIST_URL + (n > 1 ? '?page=' + n : ''), { credentials: 'same-origin', cache: 'no-store' });
+                if (res.status === 403) { ls.set(K_AKSES, String(Date.now())); throw new Error(AKSES_PESAN); }
                 if (!res.ok) throw new Error('HTTP ' + res.status + ' (halaman ' + n + ')');
                 const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
                 const r = ekstrakDaftar(doc, location.origin + LIST_URL);
@@ -1117,7 +1131,7 @@
     async function siklusCek() {
         let tunda = POLL_MS;
         try {
-            if (!terbuka && jadiPemimpin()) {
+            if (!terbuka && !aksesDitolak() && jadiPemimpin()) {
                 await muatData(true);
                 gagalCek = data && data.error ? gagalCek + 1 : 0;
             }
