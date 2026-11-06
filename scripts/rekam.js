@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.9.5
-// @description  [v1.9.5] Kirim GET tidak lagi memasukkan token CSRF & password ke URL; sensor() juga menyamarkan parameter URL bernama token/password/secret/api_key. [v1.9.4] Popup Inspect: tombol di baris atas turun ke baris berikutnya (tidak lagi terpotong ke kanan), sehingga bisa dilihat dengan scroll. [v1.9.3] Pesan "HALAMAN LOGIN" dan catatan kolom password dihapus dari Analisa & Rekam. [v1.9.2] Pesan "HALAMAN LOGIN" dihapus dari hasil Rekam. [v1.9.1] Pesan halaman login menyebut Erzap (bukan partdistro.com). [v1.9.0] Inspect: tombol DOM aktif (analisa setelah JavaScript jalan), Salin/Unduh JSON, jejak request terakhir di laporan, contoh baris tabel, respons JSON dirapikan. [v1.8.2] Ambil & log Rekam menyamarkan token/CSRF (termasuk input tersembunyi). [v1.8.1] Tombol testurl diganti Inspect. [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
+// @version      1.9.6
+// @description  [v1.9.6] DOM aktif tidak lagi membuang elemen rk_ milik rakstok.js dari analisa; pencarian kata website/partdistro di Rekam dipercepat (lewat text node). [v1.9.5] Kirim GET tidak lagi memasukkan token CSRF & password ke URL; sensor() juga menyamarkan parameter URL bernama token/password/secret/api_key. [v1.9.4] Popup Inspect: tombol di baris atas turun ke baris berikutnya (tidak lagi terpotong ke kanan), sehingga bisa dilihat dengan scroll. [v1.9.3] Pesan "HALAMAN LOGIN" dan catatan kolom password dihapus dari Analisa & Rekam. [v1.9.2] Pesan "HALAMAN LOGIN" dihapus dari hasil Rekam. [v1.9.1] Pesan halaman login menyebut Erzap (bukan partdistro.com). [v1.9.0] Inspect: tombol DOM aktif (analisa setelah JavaScript jalan), Salin/Unduh JSON, jejak request terakhir di laporan, contoh baris tabel, respons JSON dirapikan. [v1.8.2] Ambil & log Rekam menyamarkan token/CSRF (termasuk input tersembunyi). [v1.8.1] Tombol testurl diganti Inspect. [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -187,6 +187,7 @@
 
     function tampilModal(teks, judul) {
         const bd = document.createElement('div');
+        bd.id = 'rk_modal';
         bd.style.cssText = 'position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;';
         bd.innerHTML = '<div style="background:#fff;width:94%;max-width:640px;border-radius:8px;padding:12px;display:flex;flex-direction:column;max-height:88vh;">' +
             '<div id="rk_judul" style="font-weight:bold;margin-bottom:6px;"></div>' +
@@ -305,7 +306,8 @@
             panelForm.textContent = '';
             try {
                 const doc = document.cloneNode(true);
-                doc.querySelectorAll('[id^="rk_"]').forEach((el) => el.remove());
+                // hanya buang elemen milik Inspect/Rekam; id rk_ lain (mis. rakstok.js: rk_pending, rk_simpan) tetap ikut dianalisa
+                doc.querySelectorAll('#rk_rekam_ui, #rk_inspect_pop, #rk_modal').forEach((el) => el.remove());
                 const urlNow = location.href;
                 const panjang = document.documentElement.outerHTML.length;
                 terakhir = { doc: doc, meta: { mode: 'dom-aktif', url: urlNow, status: null, contentType: 'text/html' } };
@@ -1010,14 +1012,21 @@
         });
 
         // Di mana kata "website"/"partdistro" muncul (cara nota dari web dibedakan)
+        // Dicari lewat text node (bukan textContent tiap elemen) supaya tetap cepat di halaman besar
         const cocok = [];
-        doc.querySelectorAll('body *').forEach((el) => {
-            if (cocok.length >= 12 || /^(script|style|noscript|option)$/i.test(el.tagName) || (el.closest && el.closest('#rk_rekam_ui'))) return;
-            const t = rapih(el.textContent);
-            if (t.length > 0 && t.length <= 60 && /website|partdistro|olzap/i.test(t) && !Array.from(el.children).some((c) => /website|partdistro|olzap/i.test(c.textContent || ''))) {
-                cocok.push('<' + el.tagName.toLowerCase() + (el.className ? ' class="' + rapih(el.className).slice(0, 40) + '"' : '') + (el.id ? ' id="' + el.id + '"' : '') + '> "' + t + '"');
-            }
-        });
+        const sudahCocok = new Set();
+        const walker = doc.createTreeWalker(doc.body || doc.documentElement, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node && cocok.length < 12; node = walker.nextNode()) {
+            if (!/website|partdistro|olzap/i.test(node.data)) continue;
+            const el = node.parentElement;
+            if (!el || /^(script|style|noscript|option)$/i.test(el.tagName) || el.closest('#rk_rekam_ui')) continue;
+            const penuh = rapih(el.textContent);
+            const t = penuh.length <= 60 ? penuh : rapih(node.data).slice(0, 60);
+            const baris = '<' + el.tagName.toLowerCase() + (el.className ? ' class="' + rapih(el.className).slice(0, 40) + '"' : '') + (el.id ? ' id="' + el.id + '"' : '') + '> "' + t + '"';
+            if (sudahCocok.has(baris)) continue;
+            sudahCocok.add(baris);
+            cocok.push(baris);
+        }
         out.push('Kata website/partdistro/olzap muncul di: ' + (cocok.length ? '' : '-'));
         cocok.forEach((c) => out.push('  ' + c));
         return out.join('\n');
