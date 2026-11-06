@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.9.6
-// @description  [v1.9.6] DOM aktif tidak lagi membuang elemen rk_ milik rakstok.js dari analisa; pencarian kata website/partdistro di Rekam dipercepat (lewat text node). [v1.9.5] Kirim GET tidak lagi memasukkan token CSRF & password ke URL; sensor() juga menyamarkan parameter URL bernama token/password/secret/api_key. [v1.9.4] Popup Inspect: tombol di baris atas turun ke baris berikutnya (tidak lagi terpotong ke kanan), sehingga bisa dilihat dengan scroll. [v1.9.3] Pesan "HALAMAN LOGIN" dan catatan kolom password dihapus dari Analisa & Rekam. [v1.9.2] Pesan "HALAMAN LOGIN" dihapus dari hasil Rekam. [v1.9.1] Pesan halaman login menyebut Erzap (bukan partdistro.com). [v1.9.0] Inspect: tombol DOM aktif (analisa setelah JavaScript jalan), Salin/Unduh JSON, jejak request terakhir di laporan, contoh baris tabel, respons JSON dirapikan. [v1.8.2] Ambil & log Rekam menyamarkan token/CSRF (termasuk input tersembunyi). [v1.8.1] Tombol testurl diganti Inspect. [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
+// @version      1.9.7
+// @description  [v1.9.7] Inspect: laporan & JSON terakhir tetap ada saat popup ditutup lalu dibuka lagi; Escape / klik di luar popup minta konfirmasi bila laporan belum disalin. [v1.9.6] DOM aktif tidak lagi membuang elemen rk_ milik rakstok.js dari analisa; pencarian kata website/partdistro di Rekam dipercepat (lewat text node). [v1.9.5] Kirim GET tidak lagi memasukkan token CSRF & password ke URL; sensor() juga menyamarkan parameter URL bernama token/password/secret/api_key. [v1.9.4] Popup Inspect: tombol di baris atas turun ke baris berikutnya (tidak lagi terpotong ke kanan), sehingga bisa dilihat dengan scroll. [v1.9.3] Pesan "HALAMAN LOGIN" dan catatan kolom password dihapus dari Analisa & Rekam. [v1.9.2] Pesan "HALAMAN LOGIN" dihapus dari hasil Rekam. [v1.9.1] Pesan halaman login menyebut Erzap (bukan partdistro.com). [v1.9.0] Inspect: tombol DOM aktif (analisa setelah JavaScript jalan), Salin/Unduh JSON, jejak request terakhir di laporan, contoh baris tabel, respons JSON dirapikan. [v1.8.2] Ambil & log Rekam menyamarkan token/CSRF (termasuk input tersembunyi). [v1.8.1] Tombol testurl diganti Inspect. [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -66,6 +66,11 @@
     }
     // fetch untuk pengambilan milik Inspect sendiri (Ambil & telusur skrip): tidak dicatat ke jejak/rekaman
     const fetchInspect = (...a) => { dalamInspect++; try { return fetch(...a); } finally { dalamInspect--; } };
+
+    // ----- keadaan Inspect yang bertahan saat popup ditutup (dipulihkan saat dibuka lagi) -----
+    let terakhir = null;      // hasil analisa terakhir {doc, meta} (untuk JSON & form tiruan)
+    let outTerakhir = '';     // teks laporan terakhir
+    let teksDisalin = null;   // teks laporan yang sudah disalin/diekspor (untuk konfirmasi saat tutup)
 
     // ----- fetch -----
     const asliFetch = window.fetch;
@@ -254,13 +259,19 @@
         out.style.cssText = 'flex:1;min-height:320px;width:100%;box-sizing:border-box;padding:6px;border:1px solid #cbd5e1;border-radius:4px;font:12px monospace;white-space:pre;';
         const panelForm = document.createElement('div');   // form tiruan hasil Analisa (di bawah laporan)
         let urutan = 0;                                     // penanda analisa terakhir (hasil telusur skrip yang telat dibuang)
-        let terakhir = null;                                // hasil analisa terakhir {doc, meta} untuk JSON
         kotak.appendChild(judul); kotak.appendChild(baris); kotak.appendChild(info); kotak.appendChild(barisEks); kotak.appendChild(out); kotak.appendChild(panelForm);
         bd.appendChild(kotak);
         document.body.appendChild(bd);
         inp.focus();
 
-        const tutup = () => bd.remove();
+        // tutup: simpan laporan terakhir supaya muncul lagi saat Inspect dibuka
+        const tutup = () => { outTerakhir = out.value; bd.remove(); };
+        // Escape / klik di luar popup: minta konfirmasi bila ada laporan yang belum disalin
+        const tutupDenganKonfirmasi = () => {
+            if (out.value.trim() && out.value !== teksDisalin &&
+                !confirm('Tutup Inspect? Laporan yang belum disalin tetap disimpan dan muncul lagi saat Inspect dibuka.')) return;
+            tutup();
+        };
         async function ambil(analisa) {
             const v = inp.value.trim();
             if (!v) { info.textContent = 'Isi link dulu.'; return; }
@@ -324,6 +335,7 @@
         // Ekspor JSON dari hasil terakhir
         const jsonTeks = () => {
             if (!terakhir) { info.textContent = 'Jalankan Analisa atau DOM aktif dulu.'; return null; }
+            teksDisalin = out.value;
             return JSON.stringify(strukturJson(terakhir.doc, terakhir.meta), null, 2);
         };
         bJson.onclick = async () => {
@@ -349,11 +361,15 @@
         bTutup.onclick = tutup;
         bSalin.onclick = async () => {
             try { await navigator.clipboard.writeText(out.value); } catch (e) { out.select(); document.execCommand('copy'); }
+            teksDisalin = out.value;
             info.textContent = 'Output disalin.';
         };
-        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') ambil(e.shiftKey); if (e.key === 'Escape') tutup(); });
-        bd.addEventListener('mousedown', (e) => { if (e.target === bd) tutup(); });
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') ambil(e.shiftKey); if (e.key === 'Escape') tutupDenganKonfirmasi(); });
+        bd.addEventListener('mousedown', (e) => { if (e.target === bd) tutupDenganKonfirmasi(); });
         info.textContent = 'Ambil = HTML mentah / JSON rapi (Enter). Analisa = komponen (Shift+Enter). DOM aktif = halaman setelah JavaScript jalan. Salin/Unduh JSON = struktur untuk dianalisa.';
+        // pulihkan laporan & form tiruan terakhir (jika Inspect pernah ditutup)
+        if (outTerakhir) { out.value = outTerakhir; info.textContent = 'Laporan terakhir dipulihkan. ' + info.textContent; }
+        if (terakhir) buatPanelForm(terakhir.doc, terakhir.meta.url, panelForm);
     }
 
     // ----- Jejak request terakhir sebagai teks (ditampilkan di laporan Analisa) -----
