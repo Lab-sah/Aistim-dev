@@ -32,7 +32,7 @@
 
             const m = location.pathname.match(/\/penjualans\/(\d+)/);
             const id = m ? m[1] : '';
-            if (!id) { console.warn('[salespenjualan.js] ID penjualan tidak ditemukan di URL'); return; }
+            if (!id) return;
 
             const asli = document.querySelector('a[href*="/void_penjualan/"]');
             if (asli) { asli.click(); return; }
@@ -45,7 +45,6 @@
                 return;
             }
 
-            console.warn('[salespenjualan.js] tombol Batalkan asli & show_popup_batal tidak ketemu -- transaksi ini mungkin tidak bisa dibatalkan dari sini');
             alert('Transaksi ini tidak bisa dibatalkan dari sini.');
         });
 
@@ -55,14 +54,12 @@
         kolom.appendChild(btnBatal);
 
         wrapper.parentNode.insertBefore(kolom, wrapper.nextSibling);
-        console.log('[salespenjualan.js] tombol Batal dipasang di samping Duplikasi Penjualan');
     }
 
     function proses() {
-        try { pasangTombolBatal(); } catch (e) { console.warn('[salespenjualan.js] gagal pasang tombol Batal: ' + e.message); }
+        try { pasangTombolBatal(); } catch (e) { /* dicoba lagi saat halaman berubah */ }
     }
 
-    console.log('[salespenjualan.js] v1.0.0 aktif');
     proses();
 
     const observer = new MutationObserver(proses);
