@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.24.4
+// @version      1.25.0
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -1188,7 +1188,7 @@ function rkBoleh(fitur) {
     const FILTER_GBR_KEY = 'aistim_gbr_filter';
     let filterRak = '';
     let filterGbr = '';
-    try { const f = sessionStorage.getItem(FILTER_KEY); if (f === 'ada' || f === 'kosong') filterRak = f; } catch (e) { }
+    try { const f = sessionStorage.getItem(FILTER_KEY); if (f === 'ada' || f === 'kosong' || f === 'multi') filterRak = f; } catch (e) { }
     try { const f = sessionStorage.getItem(FILTER_GBR_KEY); if (f === 'ada' || f === 'kosong') filterGbr = f; } catch (e) { }
     function aktifFilter() { return !!(filterRak || filterGbr); }
 
@@ -1196,15 +1196,21 @@ function rkBoleh(fitur) {
     let jalanFilter = 0;
     const MAKS_FILTER = 6;
 
+    // "RKS-001, RKS-002" -> 2
+    function hitungRak(rak) {
+        return rak ? String(rak).split(/\s*,\s*/).filter(Boolean).length : 0;
+    }
+
     function rakAdaCepat(td) {
         const prd = td.dataset.prd;
         if (!prd) return Promise.resolve(false);
         const gdn = td.dataset.gdn || '';
         if (!gdn) return dataRak(td).then((d) => (d || []).some((x) => x.r));
         const key = prd + '|' + gdn;
-        if (segar(RAKF[key])) return Promise.resolve(RAKF[key].ada);
+        // Filter "Rak lebih dari 1" butuh jumlah rak (n); entri cache lama tanpa n diambil ulang.
+        if (segar(RAKF[key]) && (filterRak !== 'multi' || RAKF[key].n !== undefined)) return Promise.resolve(RAKF[key].ada);
         return rakGudang(prd, gdn, td.dataset.otl || '').then((rak) => {
-            RAKF[key] = { t: Date.now(), ada: !!rak };
+            RAKF[key] = { t: Date.now(), ada: !!rak, n: hitungRak(rak) };
             simpanFilterCache();
             return !!rak;
         });
@@ -1221,7 +1227,7 @@ function rkBoleh(fitur) {
         const terapkan = () => { if (aktifFilter()) terapkanFilter(); };
         if (gdn) {
             rakGudang(prd, gdn, td.dataset.otl || '').then((rak) => {
-                RAKF[prd + '|' + gdn] = { t: Date.now(), ada: !!rak };
+                RAKF[prd + '|' + gdn] = { t: Date.now(), ada: !!rak, n: hitungRak(rak) };
                 simpanFilterCache();
                 terapkan();
             }).catch(() => { });
@@ -1263,6 +1269,25 @@ function rkBoleh(fitur) {
         return td.dataset.rkgagal ? 'gagal' : null;
     }
 
+    // Filter "Rak lebih dari 1": 'ada' bila jumlah rak > 1. Dengan filter gudang = rak di gudang itu;
+    // tanpa filter gudang = jumlah semua rak produk di seluruh gudangnya.
+    function statusRakMulti(td) {
+        const prd = td.dataset.prd;
+        if (!prd) return 'kosong';
+        const gdn = td.dataset.gdn || '';
+        if (gdn) {
+            const c = RAKF[prd + '|' + gdn];
+            if (segar(c) && c.n !== undefined) return c.n > 1 ? 'ada' : 'kosong';
+        } else {
+            const c = cache[prd + '|' + (td.dataset.otl || '')];
+            if (c && Date.now() - c.t < CACHE_TTL) {
+                const n = (c.v || []).reduce((jml, x) => jml + hitungRak(x.r), 0);
+                return n > 1 ? 'ada' : 'kosong';
+            }
+        }
+        return td.dataset.rkgagal ? 'gagal' : null;
+    }
+
     function statusGbr(td) {
         const id = td.dataset.prd;
         if (!id) return 'kosong';
@@ -1275,9 +1300,10 @@ function rkBoleh(fitur) {
     function statusFilter(td) {
         let gagal = false;
         if (filterRak) {
-            const s = statusRak(td);
+            const multi = filterRak === 'multi';
+            const s = multi ? statusRakMulti(td) : statusRak(td);
             if (s === null) return null;
-            if (s === 'gagal') gagal = true; else if (s !== filterRak) return 'tidak';
+            if (s === 'gagal') gagal = true; else if (s !== (multi ? 'ada' : filterRak)) return 'tidak';
         }
         if (filterGbr) {
             const s = statusGbr(td);
@@ -1349,7 +1375,7 @@ function rkBoleh(fitur) {
         lb.textContent = 'Status Rak / Gambar';
         const sel = document.createElement('select');
         sel.id = 'rk_filter_status';
-        [['', '-- Semua --'], ['rak_ada', 'Sudah ada rak'], ['rak_kosong', 'Belum ada rak'], ['gbr_ada', 'Sudah bergambar'], ['gbr_kosong', 'Belum ada gambar']].forEach((o) => {
+        [['', '-- Semua --'], ['rak_ada', 'Sudah ada rak'], ['rak_kosong', 'Belum ada rak'], ['rak_multi', 'Rak lebih dari 1'], ['gbr_ada', 'Sudah bergambar'], ['gbr_kosong', 'Belum ada gambar']].forEach((o) => {
             const op = document.createElement('option');
             op.value = o[0];
             op.textContent = o[1];
