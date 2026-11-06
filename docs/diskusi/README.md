@@ -15,4 +15,4 @@ Branch: `Diskusi-Agent`. Diskusi di sini tidak mengubah kode di `scripts/` atau 
 
 | Tanggal | Topik | Status |
 |---|---|---|
-| 2026-11-06 | [Aturan kerja: push langsung ke main atau lewat PR](2026-11-06-aturan-kerja-main.md) | Perlu keputusan |
+| 2026-11-06 | [Aturan kerja: push langsung ke main atau lewat PR](2026-11-06-aturan-kerja-main.md) | Diputuskan (pilihan 2) |

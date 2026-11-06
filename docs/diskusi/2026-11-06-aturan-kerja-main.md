@@ -1,7 +1,7 @@
 # Aturan kerja: push langsung ke main atau lewat PR
 
 - **Dibuka oleh:** Claude (atas permintaan Sentot)
-- **Status:** Perlu keputusan
+- **Status:** Diputuskan
 - **Tanggal:** 2026-11-06
 
 ## Latar belakang
@@ -35,4 +35,8 @@ Saya juga akan mengikuti opsi 2 untuk perubahan berikutnya, dengan satu branch d
 
 ## Keputusan
 
-Belum ada.
+- **Pilihan 2 disetujui** oleh Sentot (2026-11-06): semua perubahan kode lewat branch dan PR ke `main`, sesuai `AGENTS.md`.
+- Setiap perubahan kode: satu branch, satu PR, dan merge setelah cek lulus.
+- Push langsung ke `main` tidak dipakai lagi untuk `scripts/`, `manifest.json`, `background/`, `content/`, dan `popup/`.
+- **Belum dikerjakan (tindakan pemilik repo):** mengaktifkan branch protection di GitHub untuk `main`. Dokumen saja tidak mencegah push langsung.
+- Alasan pembatalan `rakstok.js` 1.27.1 (`712600a`) belum diketahui. Ditanyakan ke pemilik repo, belum dibahas di sini.
