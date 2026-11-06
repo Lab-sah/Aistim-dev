@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Beban trans
 // @namespace    http://tampermonkey.net/
-// @version      1.2.4
+// @version      1.2.5
 // @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: tabel Informasi Saldo Kas/Bank (saldo sebelum dan sesudah dipotong beban, di form Beban baru); kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
@@ -301,7 +301,9 @@
 
     // Saldo sesudah dipotong < 0: peringatan + tombol Simpan dinonaktifkan (bukan disembunyikan).
     // Klik, F2, dan submit form juga ditahan, karena tombol nonaktif masih bisa lewat F2/submit.
-    const SAVE_SEL = '#bt_simpan, #simpan, #simpan_disable, #image_simpan, [title="Simpan"]';
+    // Ikon Simpan di sidebar belum tentu punya id/title "Simpan": dicocokkan juga lewat id/title/href/onclick
+    // yang memuat "simpan", atau kelas ikon save/floppy.
+    const SAVE_SEL = '#bt_simpan, #simpan, #simpan_disable, #image_simpan, [title="Simpan"], [id*="simpan" i], [title*="simpan" i], [href*="simpan" i], [onclick*="simpan" i], [class*="fa-save"], [class*="fa-floppy"]';
     let saldoMinus = false;
     let uiAktif = null;
 
