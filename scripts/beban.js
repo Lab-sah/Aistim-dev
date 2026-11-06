@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Beban trans
 // @namespace    http://tampermonkey.net/
-// @version      1.2.8
+// @version      1.2.9
 // @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: tabel Informasi Saldo Kas/Bank (saldo sebelum dan sesudah dipotong beban, di form Beban baru); kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Tombol Simpan juga nonaktif (redup) bila Jumlah belum diisi, saldo Kas/Bank sebelum 0/minus, saldo sesudah minus, atau saldo belum terbaca. Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
@@ -303,6 +303,7 @@
   (function () {
     if (!/\/jurnals\/transaksi_beban(\/|$|\?)/.test(location.pathname)) return;
     const aktif = () => bolehFitur('infoSaldo');
+    const SALDO_CEK_DETIK = 30; // saldo diambil ulang tiap 30 detik selama form terbuka
     const WRAP_ID = 'info-saldo-kas-bank';
     const STYLE_ID = 'info-saldo-kas-bank-style';
 
@@ -531,12 +532,16 @@
       });
       // Dicek tiap detik: total berubah saat Jumlah diketik. Kalau tabelnya hilang (halaman menggambar ulang
       // area itu), pencarian tempat dipasang diulang dari awal.
+      // Saldo juga dicek ulang berkala (SALDO_CEK_DETIK), karena bisa berubah dari transaksi lain
+      // walau form ini tidak berubah.
+      let detikSejakCek = 0;
       const iv = setInterval(() => {
         if (!document.body.contains(ui.wrap)) { clearInterval(iv); pasang(); return; }
         terapkanBlokir(); // tombol Simpan bisa digambar ulang halaman
         if (!aktif()) return;
         const k = kunci();
-        if (k !== lastKey) { lastKey = k; update(); }
+        if (k !== lastKey) { lastKey = k; detikSejakCek = 0; update(); return; }
+        if (++detikSejakCek >= SALDO_CEK_DETIK) { detikSejakCek = 0; update(); }
       }, 1000);
       lastKey = kunci();
       update();
