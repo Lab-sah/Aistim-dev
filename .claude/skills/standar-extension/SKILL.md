@@ -78,3 +78,12 @@ Contoh minimal dari standar:
 - `manifest.json` punya `key` dan `update_url`. Keduanya dipakai untuk paket mandiri, bukan untuk Web Store. Jangan dihapus dari versi repo. Versi store dibuat oleh `build-store.py`.
 - `update_url` dan `REPO.owner` (di `background/background.js`) memakai `devtim-lab`. Nama itu dialihkan ke `Lab-sah`. Lihat `docs/chrome-web-store.md` untuk langkah rilis.
 - Izin `activeTab` ada di manifest repo tetapi dibuang di zip store.
+
+## Audit
+
+Setiap kali diminta audit atau standarisasi repo ini:
+
+1. Ikuti checklist di `docs/audit/checklist-web-store.md`. Checklist ini melengkapi bagian di atas, dan semua poin relevan harus diperiksa.
+2. Simpan hasilnya sebagai file baru `docs/audit/YYYY-MM-DD-<ruang-lingkup>.md` memakai template di `docs/audit/README.md`. Jangan mengubah audit lama.
+3. Tulis audit lewat branch dan Pull Request, karena `main` diproteksi (check `cek` wajib).
+4. Temuan harus punya status: `Diperbaiki` (dengan hash commit), `Terbuka`, `Perlu keputusan`, atau `Dikoreksi` (dengan alasan).
