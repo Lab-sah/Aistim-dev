@@ -250,6 +250,8 @@
     const TH = find('Total Harta'), TKM = find('Total Kewajiban dan Modal'), TK = find('Total Kewajiban'), TM = find('Total Modal');
     const HL = find('Total Harta Lancar'), HT = find('Total Harta Tetap'), HLn = find('Total Harta Lainnya') || 0;
     const PS = find('Persediaan Barang Dagang') || 0, HD = find('Hutang Dagang') || 0, HP = find('Hutang Pajak');
+    // pemeriksaan yang memakai nilai cadangan nol hanya jalan bila barisnya benar-benar terbaca
+    const PS_ada = find('Persediaan Barang Dagang') !== null, HD_ada = find('Hutang Dagang') !== null, HLn_ada = find('Total Harta Lainnya') !== null;
     const PL = find('Piutang Lain') || 0;
     if (TH === null || TKM === null) return { empty: true, title: 'Audit Analisa Neraca' };
 
@@ -259,15 +261,15 @@
     const selisih = TH - TKM;
     const bal = Math.abs(selisih) < 1;
     flags.push(bal ? { l: 'ok', t: 'Neraca seimbang: total harta sama dengan total kewajiban dan modal.' } : { l: 'warn', t: `Neraca TIDAK seimbang. Selisih ${fmt(selisih)}.` });
-    if (HL !== null && HT !== null && Math.abs(TH - (HL + HT + HLn)) > 1) flags.push({ l: 'warn', t: 'Total harta tidak sama dengan harta lancar ditambah harta tetap dan harta lainnya.' });
+    if (HL !== null && HT !== null && HLn_ada && Math.abs(TH - (HL + HT + HLn)) > 1) flags.push({ l: 'warn', t: 'Total harta tidak sama dengan harta lancar ditambah harta tetap dan harta lainnya.' });
     if (TK !== null && TM !== null && Math.abs(TK + TM - TKM) > 1) flags.push({ l: 'warn', t: 'Total kewajiban ditambah total modal tidak sama dengan total kewajiban dan modal.' });
 
     // rasio hanya dihitung bila penyebutnya tidak nol; yang tidak bisa dihitung tampil "-"
-    const cr = TK ? HL / TK : NaN, quick = TK ? (HL - PS) / TK : NaN, der = TM ? TK / TM : NaN, eq = TH ? TM / TH : NaN, psShare = HL ? PS / HL : NaN;
+    const cr = TK ? HL / TK : NaN, quick = (TK && PS_ada) ? (HL - PS) / TK : NaN, der = TM ? TK / TM : NaN, eq = TH ? TM / TH : NaN, psShare = HL ? PS / HL : NaN;
     if (cr < 1) flags.push({ l: 'warn', t: `Rasio lancar ${rat(cr)}, di bawah 1. Harta lancar tidak cukup menutup kewajiban.` });
     if (quick < 1) flags.push({ l: 'warn', t: `Rasio cepat (tanpa persediaan) ${rat(quick)}, di bawah 1.` });
     if (psShare > 0.5) flags.push({ l: 'info', t: `Persediaan barang dagang ${pct(psShare)} dari harta lancar.` });
-    if (HD >= PS * 0.9) flags.push({ l: 'info', t: `Hutang dagang ${fmt(HD)} hampir sebesar persediaan ${fmt(PS)}. Perputaran persediaan perlu dicek agar bisa membayar pemasok.` });
+    if (HD_ada && PS_ada && HD >= PS * 0.9) flags.push({ l: 'info', t: `Hutang dagang ${fmt(HD)} hampir sebesar persediaan ${fmt(PS)}. Perputaran persediaan perlu dicek agar bisa membayar pemasok.` });
     if (HL && PL / HL > 0.05) flags.push({ l: 'info', t: `Piutang lain ${fmt(PL)} (${pct(PL / HL)} dari harta lancar). Pos ini perlu ditelusuri.` });
     if (HP === 0) flags.push({ l: 'info', t: 'Hutang pajak Rp 0. Pastikan kewajiban pajak sudah dicatat, terutama bila PPh di laba rugi juga nol.' });
     rows.filter(r => /^(Bank|Kas)/.test(r.label) && r.v !== null && r.v < 0)
