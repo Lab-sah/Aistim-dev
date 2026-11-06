@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.26.0
+// @version      1.27.0
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -1189,16 +1189,13 @@ function rkBoleh(fitur) {
     let filterRak = '';
     let filterGbr = '';
 
-    // Filter aktif: 50 baris cocok per klik dari 100 baris tabel per halaman. "Berikutnya" menampilkan 50 cocok berikutnya
-    // (nomor lanjut 51, 101, ...); kalau halaman tabel habis, lanjut ke halaman tabel berikutnya.
+    // Filter aktif: 50 baris cocok per klik, lintas halaman. Semua baris tabel dimuat sekali (panjang "Semua"),
+    // blok ke-N = cocok ke-(50*(N-1)+1) sampai 50*N. Baris yang sudah lewat disembunyikan.
     const BLOK_FILTER = 50;
-    const LEN_FILTER = 100;
-    let blokFilter = 0;        // blok 50 cocok di halaman tabel ini (-1 = blok terakhir)
-    let halFilterAkhir = -1;   // halaman tabel (DataTables) yang terakhir dipakai filter
-    let cocokHal = {};         // halaman tabel -> jumlah cocok (sudah lengkap), dipakai untuk nomor lanjut
-    let lenAsli = null;        // panjang halaman DataTables sebelum filter memaksa LEN_FILTER
+    const PER_PUTARAN = 40;    // maks. baris yang diminta statusnya per putaran (sisanya di putaran berikutnya)
+    let blokFilter = 0;        // indeks blok yang sedang tampil (0 = 1-50)
+    let lenAsli = null;        // panjang halaman DataTables sebelum filter memaksa "Semua"
     let lenSudahDiset = false; // panjang sudah dipaksa untuk filter yang sedang aktif
-    let maxBlokAktif = 0;      // hasil terakhir: blok terakhir di halaman tabel ini
     let navRef = null;         // tombol Sebelumnya / Berikutnya
     try { const f = sessionStorage.getItem(FILTER_KEY); if (f === 'ada' || f === 'kosong' || f === 'multi') filterRak = f; } catch (e) { }
     try { const f = sessionStorage.getItem(FILTER_GBR_KEY); if (f === 'ada' || f === 'kosong') filterGbr = f; } catch (e) { }
@@ -1265,7 +1262,6 @@ function rkBoleh(fitur) {
         Object.keys(cache).forEach((k) => { if (k.indexOf(awal) === 0 && !kunciCache[k]) delete cache[k]; });
         simpanFilterCache();
         saveCache();
-        cocokHal = {};
     });
 
     function statusRak(td) {
@@ -1352,6 +1348,14 @@ function rkBoleh(fitur) {
         const wrap = table && table.closest('.dataTables_wrapper');
         return (wrap && wrap.querySelector('.dataTables_length select')) || document.querySelector('.dataTables_length select');
     }
+    // Pilihan terbesar: "Semua" (-1) kalau ada, kalau tidak angka terbesar
+    function panjangTerbesar(sel) {
+        const nilai = Array.from(sel.options).map((o) => o.value);
+        if (nilai.indexOf('-1') !== -1) return '-1';
+        let best = null, bestN = -Infinity;
+        nilai.forEach((v) => { const n = parseInt(v, 10); if (!isNaN(n) && n > bestN) { bestN = n; best = v; } });
+        return best;
+    }
     function gantiPanjang(table, nilai) {
         const sel = cariSelPanjang(table);
         const tuju = String(nilai);
@@ -1362,9 +1366,11 @@ function rkBoleh(fitur) {
     }
     function paksaPanjang(table) {
         const sel = cariSelPanjang(table);
-        if (!sel || sel.value === String(LEN_FILTER)) return false;
+        if (!sel) return false;
+        const tuju = panjangTerbesar(sel);
+        if (tuju === null || sel.value === tuju) return false;
         if (lenAsli === null) lenAsli = sel.value;
-        return gantiPanjang(table, LEN_FILTER);
+        return gantiPanjang(table, tuju);
     }
     function pulihkanPanjang(table) {
         if (lenAsli === null) return false;
@@ -1373,17 +1379,8 @@ function rkBoleh(fitur) {
         return gantiPanjang(table, nilai);
     }
 
-    // Jumlah cocok semua halaman sebelum 'hal'. Null-aman: halaman yang belum pernah dihitung dianggap 0.
-    function offsetHal(hal) {
-        let s = 0;
-        for (let q = 0; q < hal; q++) {
-            if (cocokHal[q] !== undefined) s += cocokHal[q];
-        }
-        return s;
-    }
-
     // Kolom "No": nomor baris yang tampil. Tanpa filter: nomor dari teks "Showing 26 to 50" (seperti bawaan).
-    // Dengan filter: nomor lanjut dari 'offset' (jumlah cocok sebelumnya).
+    // Dengan filter: nomor lanjut dari 'offset' (jumlah cocok sebelum blok ini).
     function nomorUrut(table, rows, offset) {
         const headRow = table.querySelector('thead tr');
         if (!headRow) return;
@@ -1414,13 +1411,12 @@ function rkBoleh(fitur) {
         });
     }
 
-    function segarkanNav(api) {
+    // adaLanjut: masih ada cocok (atau pemeriksaan belum selesai) setelah blok ini
+    function segarkanNav(adaLanjut) {
         if (!navRef) return;
         navRef.wrap.style.display = aktifFilter() ? 'flex' : 'none';
-        const info = api && api.page ? api.page.info() : null;
-        const blok = blokFilter === -1 ? maxBlokAktif : blokFilter;
-        navRef.prev.disabled = blok <= 0 && (!info || info.page <= 0);
-        navRef.next.disabled = blok >= maxBlokAktif && (!info || info.page >= info.pages - 1);
+        navRef.prev.disabled = blokFilter <= 0;
+        navRef.next.disabled = !adaLanjut;
     }
 
     function terapkanFilter() {
@@ -1430,84 +1426,61 @@ function rkBoleh(fitur) {
         const tulis = (teks) => { if (info && info.textContent !== teks) info.textContent = teks; };
         const tampilkan = (tr, nilai) => { if (tr.style.display !== nilai) tr.style.display = nilai; };
         const rows = Array.from(table.querySelectorAll('tbody tr')).filter((tr) => tr.querySelector(STOK_SEL));
-        const api = dtApi(table);
 
         if (!aktifFilter()) {
             if (lenSudahDiset) { lenSudahDiset = false; if (pulihkanPanjang(table)) return; } // digambar ulang, lalu dihitung lagi
-            halFilterAkhir = -1;
             blokFilter = 0;
             rows.forEach((tr) => tampilkan(tr, ''));
             tulis('');
             nomorUrut(table, rows, null);
-            segarkanNav(null);
+            segarkanNav(false);
             return;
         }
         if (!lenSudahDiset) {
             lenSudahDiset = true;
-            cocokHal = {};
-            if (api && paksaPanjang(table)) return; // tabel digambar ulang dengan 100 baris, lalu dihitung lagi
+            if (paksaPanjang(table)) return; // tabel digambar ulang dengan semua baris, lalu dihitung lagi
         }
 
-        const hal = api ? api.page.info().page : 0;
-        if (halFilterAkhir !== hal) { halFilterAkhir = hal; blokFilter = 0; } // halaman diganti lewat pager bawaan
-
-        let menunggu = 0;
+        // Cocok dikumpulkan berurutan sampai cukup untuk blok ini ditambah satu (untuk tahu ada blok berikutnya).
+        // Status baris yang belum ada diminta sebagian per putaran; sisanya diperiksa setelah putaran ini selesai.
+        const batas = (blokFilter + 1) * BLOK_FILTER;
         const cocok = [];
-        rows.forEach((tr) => {
-            const td = tr.querySelector(STOK_SEL);
+        let menunggu = 0, habis = true;
+        for (let i = 0; i < rows.length; i++) {
+            const td = rows[i].querySelector(STOK_SEL);
             const st = statusFilter(td);
             if (st === null) {
                 menunggu++;
                 if (!td.dataset.rkantri) { td.dataset.rkantri = '1'; antreFilter.push(td); }
-                return;
+                if (menunggu >= PER_PUTARAN) { habis = false; break; }
+                continue;
             }
-            if (st === 'cocok' || st === 'gagal') cocok.push(tr);
-        });
-        if (api && menunggu === 0) cocokHal[hal] = cocok.length;
+            if (st === 'cocok' || st === 'gagal') {
+                cocok.push(rows[i]);
+                if (cocok.length > batas) { habis = false; break; }
+            }
+        }
 
-        const total = cocok.length;
-        const maxBlok = Math.max(0, Math.ceil(total / BLOK_FILTER) - 1);
-        const blok = blokFilter === -1 ? maxBlok : Math.min(blokFilter, maxBlok);
-        if (menunggu === 0) blokFilter = blok;
-        maxBlokAktif = maxBlok;
-
-        const mulai = blok * BLOK_FILTER;
+        const mulai = blokFilter * BLOK_FILTER;
         const tampil = new Set(cocok.slice(mulai, mulai + BLOK_FILTER));
         rows.forEach((tr) => tampilkan(tr, tampil.has(tr) ? '' : 'none'));
-        nomorUrut(table, rows, (api ? offsetHal(hal) : 0) + mulai);
+        nomorUrut(table, rows, mulai);
 
+        const adaLanjut = cocok.length > batas || !habis;
+        segarkanNav(adaLanjut);
         pompaFilter();
-        const sampai = Math.min(mulai + BLOK_FILTER, total);
+        const sampai = Math.min(mulai + BLOK_FILTER, cocok.length);
+        const totalTeks = (habis && menunggu === 0) ? String(cocok.length) : cocok.length + '+';
         tulis(menunggu
-            ? 'Memeriksa ' + (rows.length - menunggu) + '/' + rows.length + ' baris di halaman ini...'
-            : 'Menampilkan ' + (total ? mulai + 1 : 0) + '–' + sampai + ' dari ' + total + ' yang cocok' + (api ? ' (halaman tabel ' + (hal + 1) + ')' : ''));
-        segarkanNav(api);
+            ? 'Memeriksa ' + (rows.length - menunggu) + '/' + rows.length + ' baris...' + (cocok.length ? ' (' + cocok.length + ' cocok sejauh ini)' : '')
+            : 'Menampilkan ' + (cocok.length ? mulai + 1 : 0) + '–' + sampai + ' dari ' + totalTeks + ' yang cocok');
     }
 
-    // Tombol Sebelumnya (-1) / Berikutnya (+1): pindah blok 50, atau pindah halaman tabel kalau blok di halaman itu habis
+    // Tombol Sebelumnya (-1) / Berikutnya (+1): pindah blok 50 cocok. Halaman tabel tidak berpindah.
     function navFilter(arah) {
-        const table = document.querySelector(TABLE_SEL);
-        if (!table) return;
-        const api = dtApi(table);
-        const info = api ? api.page.info() : null;
-        const blok = blokFilter === -1 ? maxBlokAktif : blokFilter;
-        if (arah > 0) {
-            if (blok < maxBlokAktif) { blokFilter = blok + 1; }
-            else if (info && info.page < info.pages - 1) {
-                halFilterAkhir = info.page + 1;
-                blokFilter = 0;
-                api.page('next').draw('page');
-                return;
-            } else { return; }
-        } else {
-            if (blok > 0) { blokFilter = blok - 1; }
-            else if (info && info.page > 0) {
-                halFilterAkhir = info.page - 1;
-                blokFilter = -1; // blok terakhir di halaman sebelumnya
-                api.page('previous').draw('page');
-                return;
-            } else { return; }
-        }
+        if (arah > 0) blokFilter++;
+        else if (blokFilter > 0) blokFilter--;
+        else return;
         terapkanFilter();
     }
 
@@ -1537,9 +1510,7 @@ function rkBoleh(fitur) {
         sel.value = filterRak ? 'rak_' + filterRak : (filterGbr ? 'gbr_' + filterGbr : '');
         sel.addEventListener('change', () => {
             const v = sel.value;
-            cocokHal = {};
             blokFilter = 0;
-            halFilterAkhir = -1;
             filterRak = v.indexOf('rak_') === 0 ? v.slice(4) : '';
             filterGbr = v.indexOf('gbr_') === 0 ? v.slice(4) : '';
             try {
