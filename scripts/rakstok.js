@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.24.0
+// @version      1.24.1
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -1715,16 +1715,35 @@ function rkBoleh(fitur) {
 
     if (!d.__rkSaveHook && w.jQuery) {
       d.__rkSaveHook = 1;
+      console.log('[Penentuan Rak] hook simpan terpasang');
       w.alert = function (m) { state.msg = m; if (!state.saving) toast(m, 'info'); };
-      var cocokUrl = function (o) { return !!(o && String(o.url || '').indexOf('/produks/update_rak_barangs') > -1); };
-      w.jQuery(d).ajaxSend(function (ev, xhr, o) { if (cocokUrl(o)) { state.saving = true; state.msg = ''; } });
+      // Klik "Simpan" menandai jendela 20 detik: permintaan ajax non-GET sesudahnya dianggap penyimpanan rak,
+      // walau alamatnya berbeda dari yang diperkirakan.
+      d.addEventListener('click', function (e) {
+        if (e.target && e.target.closest && e.target.closest('#btn_update_rak')) state.klik = Date.now();
+      }, true);
+      var simpanReq = function (o) {
+        if (!o) return false;
+        if (String(o.url || '').indexOf('update_rak_barang') > -1) return true;
+        return !!state.klik && Date.now() - state.klik < 20000 && /^(post|put|patch|delete)$/i.test(o.type || o.method || '');
+      };
+      w.jQuery(d).ajaxSend(function (ev, xhr, o) { if (simpanReq(o)) { state.saving = true; state.msg = ''; } });
       w.jQuery(d).ajaxComplete(function (ev, xhr, o) {
-        if (!cocokUrl(o)) return;
+        if (!simpanReq(o)) return;
         state.saving = false;
+        state.klik = 0;
         var r = xhr && xhr.responseJSON;
         if (!r) { try { r = JSON.parse(xhr.responseText); } catch (e) { r = null; } }
+        console.log('[Penentuan Rak] simpan selesai:', o && o.url, 'HTTP', xhr && xhr.status, r);
+        var http = xhr && xhr.status;
+        var httpOk = http >= 200 && http < 300;
+        // Berhasil: status "1"/true/success, atau respons tanpa penanda status tetapi HTTP 2xx
+        var ok = r
+          ? (String(r.status) === '1' || r.status === true || r.success === true ||
+             (r.status === undefined && r.success === undefined && httpOk))
+          : httpOk;
         var msg = state.msg || (r && r.message) || '';
-        if (r && String(r.status) === '1') {
+        if (ok) {
           try { document.dispatchEvent(new CustomEvent('rk:rakberubah', { detail: { prd: lastLihat && lastLihat.dataset ? lastLihat.dataset.prd : '' } })); } catch (e) { }
           closeOverlay();
           toast(msg || 'Rak tersimpan', 'ok');
