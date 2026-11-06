@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Beban trans
 // @namespace    http://tampermonkey.net/
-// @version      1.2.6
+// @version      1.2.7
 // @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: tabel Informasi Saldo Kas/Bank (saldo sebelum dan sesudah dipotong beban, di form Beban baru); kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
@@ -347,16 +347,25 @@
         if (on) ui.warn.textContent = 'Simpan dinonaktifkan: ' + alasan.join('; ') + '.';
       }
       document.querySelectorAll(SAVE_SEL).forEach(el => {
+        // Yang diredupkan hanya elemen terluar (mis. #bt_simpan), supaya ikon di dalamnya tidak ikut pudar dua kali
+        const luar = !(el.parentElement && el.parentElement.closest && el.parentElement.closest(SAVE_SEL));
         if (on) {
-          if (el.dataset.saldoAsli === undefined) el.dataset.saldoAsli = (el.disabled === true) ? '1' : '0';
+          if (el.dataset.saldoAsli === undefined) {
+            el.dataset.saldoAsli = (el.disabled === true) ? '1' : '0';
+            el.dataset.saldoFilter = el.style.filter || '';
+          }
           if ('disabled' in el) el.disabled = true;
           el.setAttribute('aria-disabled', 'true');
           el.style.pointerEvents = 'none';
+          if (luar) { el.style.filter = 'opacity(0.35)'; el.style.cursor = 'not-allowed'; }
         } else if (el.dataset.saldoAsli !== undefined) {
           if ('disabled' in el) el.disabled = el.dataset.saldoAsli === '1';
           el.removeAttribute('aria-disabled');
           el.style.pointerEvents = '';
+          el.style.filter = el.dataset.saldoFilter || '';
+          el.style.cursor = '';
           delete el.dataset.saldoAsli;
+          delete el.dataset.saldoFilter;
         }
       });
     }
