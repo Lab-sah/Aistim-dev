@@ -92,6 +92,22 @@ Cara menambah akses ke script baru: salin blok `AKSES_JSON` + fungsi `bacaAkses(
 
 Setiap kenaikan `"version"` di manifest → GitHub Actions otomatis buat tag + release `vX.Y.Z` dengan ZIP berversi.
 
+### Arti nomor versi (`x.y.z`)
+
+Berlaku untuk `@version` script di `scripts/` dan untuk `"version"` di manifest.
+
+- **x (major)**: generasi besar. Naik kalau ada perubahan besar yang mengubah cara pakai, atau tidak kompatibel. Saat naik, y dan z kembali ke 0.
+- **y (minor)**: fitur baru yang terlihat pengguna. Naik, z kembali ke 0.
+- **z (patch)**: perbaikan bug atau penyesuaian kecil tanpa fitur baru.
+
+Contoh: `rakstok.js` `1.27.2` = generasi 1, 27 kali ada fitur baru, 2 kali perbaikan sejak fitur ke-27.
+
+Aturan tambahan:
+- **x ≥ 99 dicadangkan** untuk stub dan penimpaan. Jangan dipakai untuk versi biasa.
+- **Revert** dicatat sebagai perbaikan (z naik), bukan dengan menurunkan versi, karena ekstensi memilih versi tertinggi.
+- **Ganti nama `@name`** dicatat sebagai perbaikan (z naik).
+- **Versi manifest** hanya dinaikkan dengan persetujuan pemilik (lihat CLAUDE.md), karena memicu rilis Web Store.
+
 ## 🌉 Jembatan Fetch Lintas Domain (v2.9.0+)
 
 Userscript di halaman `*.erzap.com` bisa mengambil data dari situs lain lewat ekstensi (bypass CORS), contoh `olzap.js` → `partdistro.com`:
