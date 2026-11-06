@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Sales Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.2.1
+// @version      1.3.0
 // @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Halaman Pencatatan Penjualan baru (/penjualans/new): popup Draf Penjualan langsung terbuka, hanya menampilkan draf hari ini (centang bisa dimatikan). Fitur Batal dipindahkan dari penjualan.js (v1.0.3). Jika tombol Batalkan asli atau show_popup_batal tidak ada, tampil alert bahwa transaksi ini tidak bisa dibatalkan dari sini.
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -58,12 +58,35 @@
 
     // Halaman Pencatatan Penjualan baru (/penjualans/new): popup Draf Penjualan langsung dibuka, sekali per buka halaman
     let drafDibuka = false;
+    let tabelDraf = null;   // tabel draf di popup terakhir yang ditemukan (dan kolom Tanggal-nya)
+    let kolomTgl = -1;
+    const RE_TGL = /^\d{2}-\d{2}-\d{4}$/;
     function bukaDrafOtomatis() {
         if (drafDibuka || !/\/penjualans\/new\/?$/.test(location.pathname)) return;
         const tombol = document.getElementById('btnDrafPenjualan');
         if (!tombol) return;
         drafDibuka = true;
-        setTimeout(() => tombol.click(), 300);   // beri waktu halaman mengikat event tombolnya
+        setTimeout(() => {
+            tombol.click();
+            setTimeout(() => cekDrafKosong(Date.now()), 600);
+        }, 300);
+    }
+    // Popup ditutup lagi kalau tidak ada draf yang tampil (kosong, atau semuanya disembunyikan).
+    // Menunggu tabel selesai dimuat (maks. 6 detik) supaya tidak menutup saat masih loading.
+    function cekDrafKosong(mulai) {
+        const tbl = tabelDraf;
+        const sudahMuat = tbl && tbl.isConnected && tbl.querySelectorAll('tbody tr').length > 0;
+        if (!sudahMuat && Date.now() - mulai < 6000) { setTimeout(() => cekDrafKosong(mulai), 300); return; }
+        if (!tbl || !tbl.isConnected) return;
+        const adaDraf = Array.from(tbl.querySelectorAll('tbody tr')).some((tr) => {
+            if (tr.style.display === 'none') return false;
+            const sel = tr.children[kolomTgl];
+            return !!sel && RE_TGL.test(sel.textContent.trim());
+        });
+        if (adaDraf) return;
+        const modal = tbl.closest('.modal, [role="dialog"]');
+        const tutup = modal && modal.querySelector('[data-bs-dismiss="modal"]');
+        if (tutup) tutup.click();
     }
 
     // Popup Draf Penjualan: baris bertanggal hari ini disembunyikan (bisa ditampilkan lagi lewat centang di atas tabel)
@@ -79,6 +102,8 @@
             const iTgl = head.indexOf('Tanggal');
             if (iTgl < 0 || head.indexOf('No Faktur') < 0) return;      // hanya tabel draf
             if (!tbl.closest('.modal, [role="dialog"]')) return;        // hanya yang ada di popup
+            tabelDraf = tbl;
+            kolomTgl = iTgl;
             const induk = tbl.parentElement;
             if (!induk) return;
             if (!induk.querySelector(':scope > .draf-hari-ini')) {
