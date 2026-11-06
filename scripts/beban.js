@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Beban trans
 // @namespace    http://tampermonkey.net/
-// @version      1.2.7
-// @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: tabel Informasi Saldo Kas/Bank (saldo sebelum dan sesudah dipotong beban, di form Beban baru); kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Fitur diatur lewat AKSES_JSON (public/private/role).
+// @version      1.2.8
+// @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: tabel Informasi Saldo Kas/Bank (saldo sebelum dan sesudah dipotong beban, di form Beban baru); kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Tombol Simpan juga nonaktif (redup) bila Jumlah belum diisi, saldo Kas/Bank sebelum 0/minus, saldo sesudah minus, atau saldo belum terbaca. Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_keluar*
@@ -71,6 +71,25 @@
       if (cocok) return r.fitur.indexOf('*') !== -1 || r.fitur.indexOf(fitur) !== -1;
     }
     return false;
+  }
+
+  // Tombol Simpan di sidebar: #bt_simpan (wadah), #simpan, #simpan_disable, #image_simpan (ikon fa-save)
+  const SAVE_SEL = '#bt_simpan, #simpan, #simpan_disable, #image_simpan, [title="Simpan"]';
+  // Kolom Jumlah per baris di form Beban / Kas Masuk / Kas Keluar
+  const DEBIT_SEL = 'input[id^="jurnal_detail"][id$="_debit"]';
+
+  // Baris Jumlah per baris tabel: nomor baris, apakah terisi (selain 0), dan elemen Keterangan-nya
+  function barisBerjumlah() {
+    return Array.from(document.querySelectorAll(DEBIT_SEL)).map(d => {
+      const n = d.id.replace(/^jurnal_detail(\d+)_debit$/, '$1');
+      const bersih = String(d.value || '').replace(/Rp/gi, '').replace(/\s+/g, '').replace(/,/g, '');
+      const angka = parseFloat(bersih);
+      return {
+        n: n,
+        filled: bersih !== '' && !isNaN(angka) && angka !== 0,
+        ket: document.getElementById('jurnal_detail' + n + '_keterangan')
+      };
+    });
   }
 
   /* ========== 1. Format Rp kolom Jumlah (seperti Nominal Transfer, izinkan .00) ========== */
@@ -203,22 +222,13 @@
 
   /* ========== 2. Wajib Keterangan sebelum Simpan ========== */
   (function () {
-    const DEBIT_SEL = 'input[id^="jurnal_detail"][id$="_debit"]';
-    const SAVE_SEL = '#bt_simpan, #simpan, #simpan_disable, #image_simpan, [title="Simpan"]';
     const aktif = () => bolehFitur('wajibKeterangan');
 
     // Baris yang Jumlah-nya terisi (selain 0) tetapi Keterangan-nya kosong
     function missingRows() {
       const out = [];
       if (!aktif()) return out;
-      document.querySelectorAll(DEBIT_SEL).forEach(d => {
-        const n = d.id.replace(/^jurnal_detail(\d+)_debit$/, '$1');
-        const cleaned = String(d.value || '').replace(/Rp/gi, '').replace(/\s+/g, '').replace(/,/g, '');
-        const num = parseFloat(cleaned);
-        const filled = cleaned !== '' && !isNaN(num) && num !== 0;
-        const ket = document.getElementById('jurnal_detail' + n + '_keterangan');
-        if (filled && ket && ket.value.trim() === '') out.push({ n, ket });
-      });
+      barisBerjumlah().forEach(r => { if (r.filled && r.ket && r.ket.value.trim() === '') out.push({ n: r.n, ket: r.ket }); });
       return out;
     }
 
@@ -300,39 +310,27 @@
     const num = t => parseFloat(String(t).replace(/Rp/g, '').replace(/,/g, '').trim()) || 0;
 
     // Tombol Simpan dinonaktifkan (bukan disembunyikan) bila salah satu:
-    //  - saldo Kas/Bank sebelum 0 atau minus (fitur infoSaldo)
+    //  - saldo Kas/Bank sebelum 0 atau minus, atau saldo belum terbaca (fitur infoSaldo)
     //  - saldo sesudah dipotong beban minus (fitur infoSaldo)
     //  - Jumlah belum diisi, atau ada baris berjumlah yang Keterangan-nya kosong (fitur wajibKeterangan)
-    // Klik, F2, dan submit form juga ditahan, karena tombol nonaktif masih bisa lewat F2/submit.
-    // Ikon Simpan di sidebar belum tentu punya id/title "Simpan": dicocokkan juga lewat id/title/href/onclick
-    // yang memuat "simpan", atau kelas ikon save/floppy.
-    const SAVE_SEL = '#bt_simpan, #simpan, #simpan_disable, #image_simpan, [title="Simpan"], [id*="simpan" i], [title*="simpan" i], [href*="simpan" i], [onclick*="simpan" i], [class*="fa-save"], [class*="fa-floppy"]';
-    const DEBIT_SEL = 'input[id^="jurnal_detail"][id$="_debit"]';
+    // Yang diredupkan hanya tombolnya. Klik, F2, dan submit form juga ditahan, karena tombol nonaktif masih bisa lewat F2/submit.
     let saldoSebelum = null;
     let saldoSesudah = null;
+    let saldoGagal = false;
     let uiAktif = null;
 
     function alasanBlokir() {
       const alasan = [];
       if (aktif()) {
-        if (saldoSebelum !== null && saldoSebelum <= 0) alasan.push('Saldo Kas/Bank sebelum ' + fmtRp(saldoSebelum) + ' (0/minus)');
+        if (saldoGagal) alasan.push('Saldo Kas/Bank belum terbaca (pilih ulang Kas/Bank atau muat ulang halaman)');
+        else if (saldoSebelum !== null && saldoSebelum <= 0) alasan.push('Saldo Kas/Bank sebelum ' + fmtRp(saldoSebelum) + ' (0/minus)');
         else if (saldoSesudah !== null && saldoSesudah < 0) alasan.push('Saldo sesudah dipotong beban ' + fmtRp(saldoSesudah) + ' (minus)');
       }
       if (bolehFitur('wajibKeterangan')) {
-        const debit = document.querySelectorAll(DEBIT_SEL);
-        if (debit.length) {
-          let adaJumlah = false, ketKosong = false;
-          debit.forEach(d => {
-            const bersih = String(d.value || '').replace(/Rp/gi, '').replace(/\s+/g, '').replace(/,/g, '');
-            const n = parseFloat(bersih);
-            if (bersih === '' || isNaN(n) || n === 0) return;
-            adaJumlah = true;
-            const no = d.id.replace(/^jurnal_detail(\d+)_debit$/, '$1');
-            const ket = document.getElementById('jurnal_detail' + no + '_keterangan');
-            if (ket && ket.value.trim() === '') ketKosong = true;
-          });
-          if (!adaJumlah) alasan.push('Jumlah belum diisi');
-          else if (ketKosong) alasan.push('Keterangan belum diisi');
+        const baris = barisBerjumlah();
+        if (baris.length) {
+          if (!baris.some(r => r.filled)) alasan.push('Jumlah belum diisi');
+          else if (baris.some(r => r.filled && r.ket && r.ket.value.trim() === '')) alasan.push('Keterangan belum diisi');
         }
       }
       return alasan;
@@ -357,13 +355,12 @@
           if ('disabled' in el) el.disabled = true;
           el.setAttribute('aria-disabled', 'true');
           el.style.pointerEvents = 'none';
-          if (luar) { el.style.filter = 'opacity(0.35)'; el.style.cursor = 'not-allowed'; }
+          if (luar) el.style.filter = 'opacity(0.35)';
         } else if (el.dataset.saldoAsli !== undefined) {
           if ('disabled' in el) el.disabled = el.dataset.saldoAsli === '1';
           el.removeAttribute('aria-disabled');
           el.style.pointerEvents = '';
           el.style.filter = el.dataset.saldoFilter || '';
-          el.style.cursor = '';
           delete el.dataset.saldoAsli;
           delete el.dataset.saldoFilter;
         }
@@ -473,6 +470,7 @@
       uiAktif = ui;
       saldoSebelum = null;
       saldoSesudah = null;
+      saldoGagal = false;
       terapkanBlokir();
       const kosong = () => {
         ui.sebelum.textContent = '-';
@@ -481,6 +479,7 @@
         ui.sesudah.style.fontWeight = '';
         saldoSebelum = null;
         saldoSesudah = null;
+        saldoGagal = false;
         terapkanBlokir();
       };
 
@@ -506,7 +505,7 @@
             let teksSaldo = String(txt).trim();
             if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(teksSaldo)) teksSaldo = teksSaldo.replace(/,/g, '');
             const saldo = parseFloat(teksSaldo);
-            if (isNaN(saldo)) { kosong(); return; }
+            if (isNaN(saldo)) { kosong(); saldoGagal = true; terapkanBlokir(); return; }
             const sesudah = saldo - f.total;
             ui.sebelum.textContent = fmtRp(saldo);
             ui.sesudah.textContent = fmtRp(sesudah);
@@ -514,9 +513,10 @@
             ui.sesudah.style.fontWeight = sesudah < 0 ? 'bold' : 'normal';
             saldoSebelum = saldo;
             saldoSesudah = sesudah;
+            saldoGagal = false;
             terapkanBlokir();
           })
-          .catch(() => { if (id === reqId) kosong(); });
+          .catch(() => { if (id === reqId) { kosong(); saldoGagal = true; terapkanBlokir(); } });
       }
 
       const kunci = () => { const f = bacaForm(); return [f.outlet, f.kas, f.tanggal, f.total].join('|'); };
