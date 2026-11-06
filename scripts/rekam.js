@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.8.1
-// @description  [v1.8.1] Tombol testurl diganti Inspect. [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
+// @version      1.8.2
+// @description  [v1.8.2] Ambil & log Rekam menyamarkan token/CSRF (termasuk input tersembunyi). [v1.8.1] Tombol testurl diganti Inspect. [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -34,7 +34,10 @@
         .replace(/(authenticity_token=)[^&\s"']*/gi, '$1***')
         .replace(/(csrf[-_]?token["']?\s*[:=]\s*["']?)[^&\s"']*/gi, '$1***')
         .replace(/(<meta[^>]*name=["']csrf-token["'][^>]*content=["'])[^"']*/gi, '$1***')
-        .replace(/(<meta[^>]*content=["'])[^"']*(["'][^>]*name=["']csrf-token["'])/gi, '$1***$2');
+        .replace(/(<meta[^>]*content=["'])[^"']*(["'][^>]*name=["']csrf-token["'])/gi, '$1***$2')
+        // input tersembunyi berisi token/password (mis. name="authenticity_token" value="...")
+        .replace(/<input\b[^>]*>/gi, (tag) => /token|csrf|authenticity|passw|secret/i.test(tag)
+            ? tag.replace(/(\bvalue=)(["'])[^"']*\2/i, '$1$2***$2') : tag);
 
     function snippet(teks) {
         const t = rapih(teks);
@@ -60,7 +63,7 @@
             p.then((res) => {
                 res.clone().text().then((txt) => {
                     catat('FETCH ' + method + ' ' + sensor(url) + (body ? ' body=' + body : '') +
-                        ' -> ' + res.status + ' [' + (res.headers.get('content-type') || '') + '] ' + txt.length + ' char | ' + snippet(txt));
+                        ' -> ' + res.status + ' [' + (res.headers.get('content-type') || '') + '] ' + txt.length + ' char | ' + snippet(sensor(txt)));
                 }).catch(() => {});
             }).catch((e) => catat('FETCH ' + method + ' ' + sensor(url) + ' -> ERROR ' + e));
         }
@@ -87,7 +90,7 @@
                 let txt = '';
                 try { txt = typeof this.responseText === 'string' ? this.responseText : ''; } catch (e) { /* abaikan */ }
                 catat('XHR ' + info.method + ' ' + sensor(info.url) + (b ? ' body=' + b : '') +
-                    ' hdr{' + info.headers.join('; ') + '} -> ' + this.status + ' ' + txt.length + ' char | ' + snippet(txt));
+                    ' hdr{' + info.headers.join('; ') + '} -> ' + this.status + ' ' + txt.length + ' char | ' + snippet(sensor(txt)));
             });
         }
         return asliSend.apply(this, arguments);
@@ -231,7 +234,7 @@
                 const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
                 const teks = await res.text();
                 info.textContent = 'HTTP ' + res.status + ' ' + res.statusText + ' | ' + (res.headers.get('content-type') || '-') + ' | ' + teks.length + ' karakter | ' + (Date.now() - mulai) + ' ms' + (res.redirected ? ' | dialihkan ke ' + res.url : '');
-                if (!analisa) { out.value = teks; return; }
+                if (!analisa) { out.value = sensor(teks); return; }
                 try {
                     const doc = new DOMParser().parseFromString(teks, 'text/html');
                     const urlAkhir = res.url || url;
@@ -239,7 +242,7 @@
                     buatPanelForm(doc, urlAkhir, panelForm);
                     telusuriSkrip(doc, urlAkhir).then((t) => { if (no === urutan && t) out.value += '\n\n' + t; }).catch(() => {});
                 } catch (err) {
-                    out.value = 'Analisa gagal: ' + err.message + '\n\nHTML mentah:\n' + teks;
+                    out.value = 'Analisa gagal: ' + err.message + '\n\nHTML mentah:\n' + sensor(teks);
                 }
             } catch (err) {
                 info.textContent = 'Gagal: ' + err.message + ' (link luar domain biasanya diblokir CORS)';
