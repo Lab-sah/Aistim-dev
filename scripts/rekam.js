@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.8.0
-// @description  [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
+// @version      1.8.1
+// @description  [v1.8.1] Tombol testurl diganti Inspect. [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -115,13 +115,13 @@
     ui.style.cssText = 'position:fixed;left:8px;bottom:70px;z-index:99990;font-family:sans-serif;';
     ui.innerHTML = '<button id="rk_btn" type="button" style="padding:8px 12px;border:none;border-radius:20px;background:#343a40;color:#fff;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.4);">&#9210; Rekam</button>';
     const btn = ui.firstChild;
-    // tombol testurl tepat di bawah tombol Rekam (Rekam tidak bergeser)
+    // tombol Inspect tepat di bawah tombol Rekam (Rekam tidak bergeser)
     const btnUrl = document.createElement('button');
-    btnUrl.id = 'rk_testurl';
+    btnUrl.id = 'rk_inspect';
     btnUrl.type = 'button';
-    btnUrl.textContent = 'testurl';
+    btnUrl.textContent = 'Inspect';
     btnUrl.style.cssText = 'position:absolute;top:100%;left:0;margin-top:6px;padding:6px 12px;border:none;border-radius:20px;background:#343a40;color:#fff;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,.4);';
-    btnUrl.addEventListener('click', tampilTestUrl);
+    btnUrl.addEventListener('click', tampilInspect);
     ui.appendChild(btnUrl);
 
     function perbaruiTombol() {
@@ -176,18 +176,18 @@
         };
     }
 
-    // ----- testurl: popup input link -> fetch (GET, sesi login) -> tampilkan outputnya -----
-    function tampilTestUrl() {
-        if (document.getElementById('rk_testurl_pop')) return;
+    // ----- Inspect: popup input link -> fetch (GET, sesi login) -> tampilkan outputnya -----
+    function tampilInspect() {
+        if (document.getElementById('rk_inspect_pop')) return;
         const gaya = (b) => 'padding:6px 14px;border:0;border-radius:4px;background:' + b + ';color:#fff;cursor:pointer;';
         const bd = document.createElement('div');
-        bd.id = 'rk_testurl_pop';
+        bd.id = 'rk_inspect_pop';
         bd.style.cssText = 'position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;';
         const kotak = document.createElement('div');
         kotak.style.cssText = 'background:#fff;color:#111;width:94%;max-width:900px;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;max-height:90vh;overflow:auto;font:13px sans-serif;';
         const judul = document.createElement('div');
         judul.style.cssText = 'font-weight:bold;';
-        judul.textContent = 'testurl';
+        judul.textContent = 'Inspect';
         const baris = document.createElement('div');
         baris.style.cssText = 'display:flex;gap:6px;';
         const inp = document.createElement('input');
