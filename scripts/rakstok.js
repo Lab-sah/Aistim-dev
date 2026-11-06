@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.27.0
+// @version      1.27.1
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -1364,7 +1364,18 @@ function rkBoleh(fitur) {
         sel.dispatchEvent(new Event('change', { bubbles: true })); // DataTables menggambar ulang halamannya
         return true;
     }
-    function paksaPanjang(table) {
+    // Lewat API DataTables bila ada: tidak bergantung pada pilihan "Semua" di kotak (bisa tidak ada di halaman).
+    // -1 = semua baris. Kalau API tidak ada, lewat kotak pilihan.
+    let lenViaApi = false;
+    function paksaPanjang(table, api) {
+        if (api && api.page && typeof api.page.len === 'function') {
+            const sekarang = api.page.len();
+            if (sekarang === -1) return false;
+            lenAsli = sekarang;
+            lenViaApi = true;
+            api.page.len(-1).draw();
+            return true;
+        }
         const sel = cariSelPanjang(table);
         if (!sel) return false;
         const tuju = panjangTerbesar(sel);
@@ -1372,10 +1383,11 @@ function rkBoleh(fitur) {
         if (lenAsli === null) lenAsli = sel.value;
         return gantiPanjang(table, tuju);
     }
-    function pulihkanPanjang(table) {
+    function pulihkanPanjang(table, api) {
         if (lenAsli === null) return false;
         const nilai = lenAsli;
         lenAsli = null;
+        if (lenViaApi && api) { lenViaApi = false; api.page.len(nilai).draw(); return true; }
         return gantiPanjang(table, nilai);
     }
 
@@ -1427,8 +1439,9 @@ function rkBoleh(fitur) {
         const tampilkan = (tr, nilai) => { if (tr.style.display !== nilai) tr.style.display = nilai; };
         const rows = Array.from(table.querySelectorAll('tbody tr')).filter((tr) => tr.querySelector(STOK_SEL));
 
+        const api = dtApi(table);
         if (!aktifFilter()) {
-            if (lenSudahDiset) { lenSudahDiset = false; if (pulihkanPanjang(table)) return; } // digambar ulang, lalu dihitung lagi
+            if (lenSudahDiset) { lenSudahDiset = false; if (pulihkanPanjang(table, api)) return; } // digambar ulang, lalu dihitung lagi
             blokFilter = 0;
             rows.forEach((tr) => tampilkan(tr, ''));
             tulis('');
@@ -1438,7 +1451,7 @@ function rkBoleh(fitur) {
         }
         if (!lenSudahDiset) {
             lenSudahDiset = true;
-            if (paksaPanjang(table)) return; // tabel digambar ulang dengan semua baris, lalu dihitung lagi
+            if (paksaPanjang(table, api)) return; // tabel digambar ulang dengan semua baris, lalu dihitung lagi
         }
 
         // Cocok dikumpulkan berurutan sampai cukup untuk blok ini ditambah satu (untuk tahu ada blok berikutnya).
