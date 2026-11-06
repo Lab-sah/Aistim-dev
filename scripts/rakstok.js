@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.24.3
+// @version      1.24.4
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -1527,7 +1527,10 @@ function rkBoleh(fitur) {
     '#rk_aksi_rak{margin-top:18px!important;padding-top:16px;border-top:1px solid #e9eef3}',
     '#btn_update_rak{height:44px;font-size:15px!important;font-weight:600;border-radius:8px!important;padding:0 16px!important}',
     '#rk_batal_rak{height:44px;padding:0 22px!important;font-size:15px!important;font-weight:600;color:#4a5a6a!important;border:1.5px solid #cfd8e3!important;border-radius:8px!important;background:#fff!important;cursor:pointer}',
-    '#rk_batal_rak:hover{background:#f3f6f9!important}'
+    '#rk_batal_rak:hover{background:#f3f6f9!important}',
+    // Hanya nama produk: yang panjang turun ke baris berikutnya (juga kata tanpa spasi). Sengaja tidak menyentuh
+    // overflow halaman, combobox, atau daftar rak, supaya dropdown rak tidak terpotong.
+    '#content_produk p.mb-2{white-space:normal!important;overflow-wrap:anywhere;word-break:break-word;max-width:100%}'
   ].join('');
 
   var mode = 'other';
