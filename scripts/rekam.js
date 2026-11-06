@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.9.4
-// @description  [v1.9.4] Popup Inspect: tombol di baris atas turun ke baris berikutnya (tidak lagi terpotong ke kanan), sehingga bisa dilihat dengan scroll. [v1.9.3] Pesan "HALAMAN LOGIN" dan catatan kolom password dihapus dari Analisa & Rekam. [v1.9.2] Pesan "HALAMAN LOGIN" dihapus dari hasil Rekam. [v1.9.1] Pesan halaman login menyebut Erzap (bukan partdistro.com). [v1.9.0] Inspect: tombol DOM aktif (analisa setelah JavaScript jalan), Salin/Unduh JSON, jejak request terakhir di laporan, contoh baris tabel, respons JSON dirapikan. [v1.8.2] Ambil & log Rekam menyamarkan token/CSRF (termasuk input tersembunyi). [v1.8.1] Tombol testurl diganti Inspect. [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
+// @version      1.9.5
+// @description  [v1.9.5] Kirim GET tidak lagi memasukkan token CSRF & password ke URL; sensor() juga menyamarkan parameter URL bernama token/password/secret/api_key. [v1.9.4] Popup Inspect: tombol di baris atas turun ke baris berikutnya (tidak lagi terpotong ke kanan), sehingga bisa dilihat dengan scroll. [v1.9.3] Pesan "HALAMAN LOGIN" dan catatan kolom password dihapus dari Analisa & Rekam. [v1.9.2] Pesan "HALAMAN LOGIN" dihapus dari hasil Rekam. [v1.9.1] Pesan halaman login menyebut Erzap (bukan partdistro.com). [v1.9.0] Inspect: tombol DOM aktif (analisa setelah JavaScript jalan), Salin/Unduh JSON, jejak request terakhir di laporan, contoh baris tabel, respons JSON dirapikan. [v1.8.2] Ambil & log Rekam menyamarkan token/CSRF (termasuk input tersembunyi). [v1.8.1] Tombol testurl diganti Inspect. [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -32,6 +32,8 @@
     const rapih = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
     const sensor = (s) => String(s || '')
         .replace(/(authenticity_token=)[^&\s"']*/gi, '$1***')
+        // parameter URL bernama token/password/secret/api_key (mis. ?token=, &amp;password=)
+        .replace(/([?&;][^=&\s"'<>]*(?:token|passw|secret|api[_-]?key)[^=&\s"'<>]*=)[^&\s"'<>]*/gi, '$1***')
         .replace(/(csrf[-_]?token["']?\s*[:=]\s*["']?)[^&\s"']*/gi, '$1***')
         .replace(/(<meta[^>]*name=["']csrf-token["'][^>]*content=["'])[^"']*/gi, '$1***')
         .replace(/(<meta[^>]*content=["'])[^"']*(["'][^>]*name=["']csrf-token["'])/gi, '$1***$2')
@@ -864,11 +866,14 @@
 
             async function kirim() {
                 const p = kumpul();
+                // GET memasukkan isian ke URL (tercatat di log server, riwayat, Referer): token & password tidak ikut
+                const pwNames = new Set(Array.from(salinan.querySelectorAll('input[type=password]')).map((e) => e.getAttribute('name')).filter(Boolean));
+                const pKirim = method === 'GET' ? p.filter((x) => x[0] !== 'utf8' && !SENSITIF_NAMA.test(x[0]) && !pwNames.has(x[0])) : p;
                 let u;
                 try { u = new URL(aksi || url); } catch (e) { alert('Alamat form tidak valid.'); return; }
                 if (u.origin !== location.origin) { alert('Alamat form di luar domain ini, tidak dikirim: ' + u.origin); return; }
                 const ringkasReq = method + ' ' + u.pathname + u.search + '\n' + (method === 'POST' ? 'Content-Type: application/x-www-form-urlencoded\n' : '') +
-                    (cbToken.checked && tokenMeta ? 'X-CSRF-Token: ***\n' : '') + tampilPayload(p).slice(0, 3000);
+                    (cbToken.checked && tokenMeta ? 'X-CSRF-Token: ***\n' : '') + tampilPayload(pKirim).slice(0, 3000);
                 hasil.style.display = '';
                 if (!confirm('KIRIM ' + ringkasReq.slice(0, 1500) + '\n\nIni MENGIRIM data sungguhan ke Erzap. Lanjutkan?')) {
                     hasil.value = '(dibatalkan, tidak ada yang dikirim)';
@@ -876,8 +881,8 @@
                 }
                 const opsi = { method: method, credentials: 'same-origin', headers: {} };
                 if (cbToken.checked && tokenMeta) opsi.headers['X-CSRF-Token'] = tokenMeta;
-                if (method === 'GET') p.forEach((x) => u.searchParams.append(x[0], x[1]));
-                else opsi.body = new URLSearchParams(p);
+                if (method === 'GET') pKirim.forEach((x) => u.searchParams.append(x[0], x[1]));
+                else opsi.body = new URLSearchParams(pKirim);
                 bKirim.disabled = true;
                 hasil.value = 'Mengirim ...';
                 const mulai = Date.now();
