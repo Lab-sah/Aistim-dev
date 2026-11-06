@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.25.0
+// @version      1.25.1
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -1325,6 +1325,36 @@ function rkBoleh(fitur) {
         }
     }
 
+    // Kolom "No" diganti nomor urut baris yang TAMPIL (1, 2, 3, ... tanpa lompatan akibat baris yang disembunyikan
+    // filter), bukan nomor bawaan Erzap. Di halaman berikutnya penomoran lanjut dari awal halaman itu
+    // (dibaca dari teks "Showing 26 to 50 ..." DataTables; kalau tidak ada, dari nomor asli baris pertama).
+    function nomorUrut(table, rows) {
+        const headRow = table.querySelector('thead tr');
+        if (!headRow) return;
+        const idx = Array.from(headRow.children).findIndex((th) => /^no\.?$/i.test(th.textContent.trim()));
+        if (idx < 0) return;
+        const sel = (tr) => (tr.children.length > idx ? tr.children[idx] : null);
+        // Nomor asli Erzap disimpan sekali supaya bisa dipakai sebagai cadangan
+        rows.forEach((tr) => {
+            const c = sel(tr);
+            if (c && c.dataset.rkNoAsli === undefined) c.dataset.rkNoAsli = c.textContent.trim();
+        });
+        let mulai = NaN;
+        const infoDT = document.querySelector('.dataTables_info');
+        const mi = infoDT && /(\d[\d.,]*)/.exec(infoDT.textContent);
+        if (mi) mulai = parseInt(mi[1].replace(/[.,]/g, ''), 10);
+        if (isNaN(mulai) && rows[0]) { const c0 = sel(rows[0]); mulai = c0 ? parseInt(c0.dataset.rkNoAsli, 10) : NaN; }
+        if (isNaN(mulai) || mulai < 1) mulai = 1;
+        let n = mulai;
+        rows.forEach((tr) => {
+            if (tr.style.display === 'none') return;
+            const c = sel(tr);
+            if (!c || c.children.length) return; // sel berisi elemen lain: jangan ditimpa
+            const teks = String(n++);
+            if (c.textContent !== teks) c.textContent = teks;
+        });
+    }
+
     function terapkanFilter() {
         const table = document.querySelector(TABLE_SEL);
         if (!table) return;
@@ -1336,6 +1366,7 @@ function rkBoleh(fitur) {
         if (!aktifFilter()) {
             rows.forEach((tr) => tampilkan(tr, ''));
             tulis('');
+            nomorUrut(table, rows);
             return;
         }
         let menunggu = 0, cocok = 0;
@@ -1352,6 +1383,7 @@ function rkBoleh(fitur) {
             if (ok) cocok++;
             tampilkan(tr, ok ? '' : 'none');
         });
+        nomorUrut(table, rows);
         pompaFilter();
         tulis(menunggu
             ? 'Memeriksa ' + (rows.length - menunggu) + '/' + rows.length + ' baris di halaman ini...'
