@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Beban trans
 // @namespace    http://tampermonkey.net/
-// @version      1.2.10
+// @version      1.2.11
 // @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: tabel Informasi Saldo Kas/Bank (saldo sebelum dan sesudah dipotong beban, di form Beban baru); kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Tombol Simpan juga nonaktif (redup) bila Jumlah belum diisi, saldo Kas/Bank sebelum 0/minus, saldo sesudah minus, atau saldo belum terbaca. Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
@@ -318,12 +318,14 @@
     let saldoSebelum = null;
     let saldoSesudah = null;
     let saldoGagal = false;
+    let sesiHabis = false; // respons berupa halaman login: pengambilan saldo berhenti sampai halaman dimuat ulang
     let uiAktif = null;
 
     function alasanBlokir() {
       const alasan = [];
       if (aktif()) {
-        if (saldoGagal) alasan.push('Saldo Kas/Bank belum terbaca (pilih ulang Kas/Bank atau muat ulang halaman)');
+        if (sesiHabis) alasan.push('Sesi login habis: muat ulang halaman (F5) lalu login lagi');
+        else if (saldoGagal) alasan.push('Saldo Kas/Bank belum terbaca (pilih ulang Kas/Bank atau muat ulang halaman)');
         else if (saldoSebelum !== null && saldoSebelum <= 0) alasan.push('Saldo Kas/Bank sebelum ' + fmtRp(saldoSebelum) + ' (0/minus)');
         else if (saldoSesudah !== null && saldoSesudah < 0) alasan.push('Saldo sesudah dipotong beban ' + fmtRp(saldoSesudah) + ' (minus)');
       }
@@ -500,6 +502,7 @@
       };
 
       function update() {
+        if (sesiHabis) { terapkanBlokir(); return; } // sesi sudah habis: tidak ada lagi request saldo
         const f = bacaForm();
         const generik = !f.kasName || /Tentukan|Please|Silakan/i.test(f.kasName);
         ui.label.textContent = (generik ? 'Kas/Bank' : f.kasName) + ' (Asal)';
@@ -517,6 +520,8 @@
           .then(res => res.text())
           .then(txt => {
             if (id !== reqId) return;
+            // Sesi habis: ERZAP mengembalikan halaman login (ada kolom password), bukan angka saldo
+            if (/type=["']?password/i.test(String(txt))) { sesiHabis = true; kosong(); terapkanBlokir(); return; }
             // "1,500,000.00" (koma ribuan) dibaca utuh, bukan terpotong di koma pertama
             let teksSaldo = String(txt).trim();
             if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(teksSaldo)) teksSaldo = teksSaldo.replace(/,/g, '');
