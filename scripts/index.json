@@ -35,7 +35,6 @@
     "piutanglain.js",
     "auditanalisa.js",
     "deposit.js",
-    "pembatalan.js",
     "searchable_select.js",
     "crmrak.js",
     "antrianservis.js",
@@ -56,6 +55,7 @@
     "smart_repair.js",
     "grafik.js",
     "olzap.js",
-    "pesanan_web.js"
+    "pesanan_web.js",
+    "pembatalan.js"
   ]
 }
