@@ -29,11 +29,10 @@
     const KATA_BUNYI = 'Pesanan baru dari web';   // diucapkan saat ada nota web baru
     const CACHE_MS = 90 * 1000;        // pindah halaman tidak memicu fetch ulang kalau data masih segar
     const K_SEEN = 'aistim_pw_seen', K_POS = 'aistim_pw_pos', K_FILTER = 'aistim_pw_filter', K_CACHE = 'aistim_pw_cache', K_BUNYI = 'aistim_pw_bunyi';
-    // Akun tanpa izin Data Penjualan: Erzap membalas 403 untuk /penjualans. Setelah itu tidak minta lagi selama JEDA_AKSES_MS
-    // (dicek ulang pelan-pelan, kalau izinnya nanti diberikan). Penanda dipakai bersama semua tab.
-    const K_AKSES = 'aistim_pw_akses';
+    // Akun tanpa izin ke suatu halaman: Erzap membalas 403. Halaman itu tidak diminta lagi selama JEDA_AKSES_MS
+    // (dicek ulang pelan-pelan, kalau izinnya nanti diberikan). Penanda per halaman, dipakai bersama semua tab.
     const JEDA_AKSES_MS = 30 * 60 * 1000;
-    const AKSES_PESAN = 'Akun ini tidak punya akses Data Penjualan';
+    const AKSES_PESAN = 'Akun ini tidak punya akses ke halaman ini';
 
     const ls = {
         get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -41,10 +40,11 @@
         del(k) { try { localStorage.removeItem(k); } catch (e) { /* diblokir */ } }
     };
 
-    function aksesDitolak() {
-        const t = +(ls.get(K_AKSES) || 0);
+    function aksesDitolak(path) {
+        const t = +(ls.get('aistim_pw_akses' + path) || 0);
         return !!t && Date.now() - t < JEDA_AKSES_MS;
     }
+    function catatAksesDitolak(path) { ls.set('aistim_pw_akses' + path, String(Date.now())); }
 
     const rapih = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
 
@@ -180,7 +180,7 @@
     async function muatData(paksa, hal) {
         if (sedangFetch) return;
         if (hal) halKini = hal;
-        if (aksesDitolak()) { data = { items: [], totalBaris: 0, halaman: halKini, waktu: 0, error: AKSES_PESAN }; sesuaikanBadge(); render(); return; }
+        if (aksesDitolak(LIST_URL)) { data = { items: [], totalBaris: 0, halaman: halKini, waktu: 0, error: AKSES_PESAN }; sesuaikanBadge(); render(); return; }
         if (!paksa && halKini === 1) {
             const c = bacaCache();
             if (c) { data = c; sesuaikanBadge(); render(); return; }
@@ -190,7 +190,7 @@
         try {
             const u = LIST_URL + (halKini > 1 ? '?page=' + halKini : '');
             const res = await fetch(u, { credentials: 'same-origin', cache: 'no-store' });
-            if (res.status === 403) { ls.set(K_AKSES, String(Date.now())); throw new Error(AKSES_PESAN); }
+            if (res.status === 403) { catatAksesDitolak(LIST_URL); throw new Error(AKSES_PESAN); }
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
             const r = ekstrakDaftar(doc, location.origin + LIST_URL);
@@ -254,7 +254,9 @@
                 const sudah = new Set();
                 for (let n = 1; n <= 30 && url && !sudah.has(url); n++) {
                     sudah.add(url);
+                    if (aksesDitolak(PESANAN_URL)) break;
                     const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+                    if (res.status === 403) catatAksesDitolak(PESANAN_URL);
                     if (!res.ok) break;
                     const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
                     doc.querySelectorAll('table tbody tr').forEach((tr) => {
@@ -284,7 +286,7 @@
     let hari = null;           // { items, totalBaris, halaman, selesai, waktu, error }
     async function muatHari(lanjut) {
         if (sedangFetch) return;
-        if (aksesDitolak()) { hari = { items: [], totalBaris: 0, halaman: 0, selesai: true, waktu: Date.now(), error: AKSES_PESAN }; render(); return; }
+        if (aksesDitolak(LIST_URL)) { hari = { items: [], totalBaris: 0, halaman: 0, selesai: true, waktu: Date.now(), error: AKSES_PESAN }; render(); return; }
         sedangFetch = true;
         const peta = new Map();
         let total = 0, hal = 0, selesai = false, p1 = null;
@@ -296,8 +298,9 @@
         try {
             const mulai = hal + 1;
             for (let n = mulai; n < mulai + HAL_PER_TAHAP; n++) {
+                if (aksesDitolak(LIST_URL)) throw new Error(AKSES_PESAN);
                 const res = await fetch(LIST_URL + (n > 1 ? '?page=' + n : ''), { credentials: 'same-origin', cache: 'no-store' });
-                if (res.status === 403) { ls.set(K_AKSES, String(Date.now())); throw new Error(AKSES_PESAN); }
+                if (res.status === 403) { catatAksesDitolak(LIST_URL); throw new Error(AKSES_PESAN); }
                 if (!res.ok) throw new Error('HTTP ' + res.status + ' (halaman ' + n + ')');
                 const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
                 const r = ekstrakDaftar(doc, location.origin + LIST_URL);
@@ -775,9 +778,10 @@
             while (jalanOutlet < 4 && antriOutlet.length) {
                 const it = antriOutlet.shift();
                 if (cacheOutlet[it.id]) { isiOutlet(it.td, cacheOutlet[it.id]); continue; }
+                if (aksesDitolak(PESANAN_URL)) { isiOutlet(it.td, '(tanpa akses)'); continue; }
                 jalanOutlet++;
                 fetch('/pesanan_penjualans/' + it.id, { credentials: 'same-origin', cache: 'no-store' })
-                    .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+                    .then((r) => { if (r.status === 403) catatAksesDitolak(PESANAN_URL); if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
                     .then((h) => {
                         const nama = bacaOutlet(h);
                         if (nama) { cacheOutlet[it.id] = nama; ls.set(K_OUTLET, JSON.stringify(cacheOutlet)); }
@@ -1043,7 +1047,9 @@
                 const sudah = new Set();
                 while (!batal() && url && hal < MAKS_HAL_WEB && !sudah.has(url)) {
                     sudah.add(url);
+                    if (aksesDitolak(LIST_URL)) throw new Error(AKSES_PESAN);
                     const res = await fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'text/html' } });
+                    if (res.status === 403) { catatAksesDitolak(LIST_URL); throw new Error(AKSES_PESAN); }
                     if (batal()) return;
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
@@ -1131,7 +1137,7 @@
     async function siklusCek() {
         let tunda = POLL_MS;
         try {
-            if (!terbuka && !aksesDitolak() && jadiPemimpin()) {
+            if (!terbuka && !aksesDitolak(LIST_URL) && jadiPemimpin()) {
                 await muatData(true);
                 gagalCek = data && data.error ? gagalCek + 1 : 0;
             }
