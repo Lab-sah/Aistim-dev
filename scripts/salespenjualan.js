@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Sales Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
-// @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Fitur dipindahkan dari penjualan.js (v1.0.3). Jika tombol Batalkan asli atau show_popup_batal tidak ada, tampil alert bahwa transaksi ini tidak bisa dibatalkan dari sini.
+// @version      1.1.0
+// @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Halaman Pencatatan Penjualan baru (/penjualans/new): popup Draf Penjualan langsung terbuka. Fitur Batal dipindahkan dari penjualan.js (v1.0.3). Jika tombol Batalkan asli atau show_popup_batal tidak ada, tampil alert bahwa transaksi ini tidak bisa dibatalkan dari sini.
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -56,8 +56,19 @@
         wrapper.parentNode.insertBefore(kolom, wrapper.nextSibling);
     }
 
+    // Halaman Pencatatan Penjualan baru (/penjualans/new): popup Draf Penjualan langsung dibuka, sekali per buka halaman
+    let drafDibuka = false;
+    function bukaDrafOtomatis() {
+        if (drafDibuka || !/\/penjualans\/new\/?$/.test(location.pathname)) return;
+        const tombol = document.getElementById('btnDrafPenjualan');
+        if (!tombol) return;
+        drafDibuka = true;
+        setTimeout(() => tombol.click(), 300);   // beri waktu halaman mengikat event tombolnya
+    }
+
     function proses() {
         try { pasangTombolBatal(); } catch (e) { /* dicoba lagi saat halaman berubah */ }
+        try { bukaDrafOtomatis(); } catch (e) { /* dicoba lagi saat halaman berubah */ }
     }
 
     proses();
