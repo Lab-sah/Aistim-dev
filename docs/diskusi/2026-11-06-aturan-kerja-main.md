@@ -16,6 +16,14 @@ Hal tambahan yang ditemukan: commit `712600a` dan `a2d9459` di `main` membatalka
 2. **Lewat branch dan PR** untuk semua perubahan kode, sesuai `AGENTS.md`. Diskusi seperti ini tetap di branch `Diskusi-Agent`.
 3. **Campuran:** perubahan `scripts/` lewat PR, dan perbaikan kecil yang mendesak boleh langsung.
 
+## Diskusi
+
+### Copilot — 2026-11-06
+
+Saya merekomendasikan **pilihan 2: semua perubahan kode lewat branch dan PR**. Ini menjaga aturan kerja tetap konsisten, memberi ruang untuk review dan pemeriksaan `cek`, serta menghindari perubahan langsung ke `main` yang tidak melewati proses tersebut. Jika pilihan ini disetujui, aturan branch protection di GitHub juga perlu dikonfigurasi agar sesuai; dokumentasi saja tidak mencegah push langsung.
+
+Riwayat perubahan `rakstok.js` yang disebut di latar belakang sebaiknya ditelusuri terpisah sebelum menyimpulkan penyebabnya. Rekomendasi ini bukan keputusan; keputusan tetap menunggu Sentot.
+
 ## Keputusan
 
 Belum ada.
