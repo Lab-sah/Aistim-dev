@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Sales Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.2.1
 // @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Halaman Pencatatan Penjualan baru (/penjualans/new): popup Draf Penjualan langsung terbuka, hanya menampilkan draf hari ini (centang bisa dimatikan). Fitur Batal dipindahkan dari penjualan.js (v1.0.3). Jika tombol Batalkan asli atau show_popup_batal tidak ada, tampil alert bahwa transaksi ini tidak bisa dibatalkan dari sini.
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -66,8 +66,8 @@
         setTimeout(() => tombol.click(), 300);   // beri waktu halaman mengikat event tombolnya
     }
 
-    // Popup Draf Penjualan: hanya baris bertanggal hari ini yang tampil (bisa dimatikan lewat centang di atas tabel)
-    let hanyaHariIni = true;
+    // Popup Draf Penjualan: baris bertanggal hari ini disembunyikan (bisa ditampilkan lagi lewat centang di atas tabel)
+    let sembunyikanHariIni = true;
     function tanggalHariIni() {
         const d = new Date();
         const dua = (n) => String(n).padStart(2, '0');
@@ -87,17 +87,17 @@
                 kotak.style.cssText = 'display:block;margin:6px 0;font-size:13px;';
                 const cb = document.createElement('input');
                 cb.type = 'checkbox';
-                cb.checked = hanyaHariIni;
-                cb.addEventListener('change', () => { hanyaHariIni = cb.checked; filterDraf(); });
+                cb.checked = sembunyikanHariIni;
+                cb.addEventListener('change', () => { sembunyikanHariIni = cb.checked; filterDraf(); });
                 kotak.appendChild(cb);
-                kotak.appendChild(document.createTextNode(' Hanya tanggal hari ini (' + tanggalHariIni() + ')'));
+                kotak.appendChild(document.createTextNode(' Sembunyikan draf tanggal hari ini (' + tanggalHariIni() + ')'));
                 induk.insertBefore(kotak, tbl);
             }
             const hari = tanggalHariIni();
             tbl.querySelectorAll('tbody tr').forEach((tr) => {
                 const sel = tr.children[iTgl];
                 const tgl = sel ? sel.textContent.trim() : '';
-                tr.style.display = (!hanyaHariIni || tgl === hari) ? '' : 'none';
+                tr.style.display = (sembunyikanHariIni && tgl === hari) ? 'none' : '';
             });
         });
     }
