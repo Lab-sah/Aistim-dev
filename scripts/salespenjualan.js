@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Sales Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
-// @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Halaman Pencatatan Penjualan baru (/penjualans/new): popup Draf Penjualan langsung terbuka, hanya menampilkan draf hari ini (centang bisa dimatikan). Fitur Batal dipindahkan dari penjualan.js (v1.0.3). Jika tombol Batalkan asli atau show_popup_batal tidak ada, tampil alert bahwa transaksi ini tidak bisa dibatalkan dari sini.
+// @version      1.4.0
+// @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Halaman Pencatatan Penjualan baru (/penjualans/new): popup Draf Penjualan langsung terbuka, dengan filter outlet dan sembunyikan draf hari ini; popup ditutup lagi kalau tidak ada draf yang tampil. Fitur hanya untuk role yang diatur di AKSES_JSON (SENTOT, SURYO, MANAJEMEN PUSAT).
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -12,9 +12,64 @@
 (function () {
     'use strict';
 
+    // ====== HAK AKSES & FITUR (JSON) ======
+    // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini. Kosong = tidak ada fitur untuk umum.
+    // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua). Nama fitur: batal, drafOtomatis.
+    // "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
+    //              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
+    // Fitur yang tidak disebut di "public" maupun "private" ditolak.
+    // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
+    // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
+    const AKSES_JSON = `{
+        "public": [],
+        "private": ["batal", "drafOtomatis"],
+        "role": {
+          "pusat": {
+            "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT"],
+            "fitur": ["*"]
+          }
+        }
+    }`;
+
+    function bacaAkses() {
+        try {
+            const a = JSON.parse(AKSES_JSON) || {};
+            const role = a.role && typeof a.role === 'object' ? a.role : {};
+            return {
+                public: Array.isArray(a.public) ? a.public.map(String) : [],
+                role: Object.keys(role).map(k => {
+                    const r = role[k] || {};
+                    return {
+                        nama: Array.isArray(r.nama) ? r.nama.map(String) : [],
+                        fitur: Array.isArray(r.fitur) ? r.fitur.map(String) : [],
+                    };
+                }),
+            };
+        } catch (err) {
+            return { public: [], role: [] };
+        }
+    }
+    const AKSES = bacaAkses();
+
+    // dicek saat dipakai (bukan sekali di awal), karena nama kasir di pojok ERZAP bisa dimuat belakangan.
+    function bolehFitur(fitur) {
+        if (AKSES.public.indexOf(fitur) !== -1) return true;
+        const nama = (((document.getElementById('info_kasir') || {}).textContent) || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        for (const r of AKSES.role) {
+            const cocok = r.nama.some(u => {
+                u = u.replace(/\s+/g, ' ').trim().toLowerCase();
+                return !!u && nama.indexOf(u) !== -1;
+            });
+            if (cocok) return r.fitur.indexOf('*') !== -1 || r.fitur.indexOf(fitur) !== -1;
+        }
+        return false;
+    }
+
+    /* ========== Tombol Batal (halaman Data Penjualan detail) ========== */
     let btnBatal = null;
 
     function pasangTombolBatal() {
+        if (!bolehFitur('batal')) return;
         if (btnBatal && document.body.contains(btnBatal)) return;
 
         const dup = document.querySelector('a.button[href*="copy_penjualan"]');
@@ -56,12 +111,16 @@
         wrapper.parentNode.insertBefore(kolom, wrapper.nextSibling);
     }
 
-    // Halaman Pencatatan Penjualan baru (/penjualans/new): popup Draf Penjualan langsung dibuka, sekali per buka halaman
+    /* ========== Popup Draf Penjualan (halaman Pencatatan Penjualan baru) ========== */
     let drafDibuka = false;
-    let tabelDraf = null;   // tabel draf di popup terakhir yang ditemukan (dan kolom Tanggal-nya)
-    let kolomTgl = -1;
+    let tabelDraf = null;      // tabel draf di popup terakhir yang ditemukan
+    let kolomTgl = -1;         // indeks kolom Tanggal di tabel draf
+    let sembunyikanHariIni = true;
+    let outletPilih = '';      // '' = Semua outlet
     const RE_TGL = /^\d{2}-\d{2}-\d{4}$/;
+
     function bukaDrafOtomatis() {
+        if (!bolehFitur('drafOtomatis')) return;
         if (drafDibuka || !/\/penjualans\/new\/?$/.test(location.pathname)) return;
         const tombol = document.getElementById('btnDrafPenjualan');
         if (!tombol) return;
@@ -71,6 +130,7 @@
             setTimeout(() => cekDrafKosong(Date.now()), 600);
         }, 300);
     }
+
     // Popup ditutup lagi kalau tidak ada draf yang tampil (kosong, atau semuanya disembunyikan).
     // Menunggu tabel selesai dimuat (maks. 6 detik) supaya tidak menutup saat masih loading.
     function cekDrafKosong(mulai) {
@@ -89,40 +149,92 @@
         if (tutup) tutup.click();
     }
 
-    // Popup Draf Penjualan: baris bertanggal hari ini disembunyikan (bisa ditampilkan lagi lewat centang di atas tabel)
-    let sembunyikanHariIni = true;
     function tanggalHariIni() {
         const d = new Date();
         const dua = (n) => String(n).padStart(2, '0');
         return dua(d.getDate()) + '-' + dua(d.getMonth() + 1) + '-' + d.getFullYear();
     }
+
+    // Kotak kontrol di atas tabel draf: centang sembunyikan hari ini + dropdown outlet
+    function buatKotakFilter(induk, tbl) {
+        const kotak = document.createElement('div');
+        kotak.className = 'draf-filter';
+        kotak.style.cssText = 'margin:6px 0;font-size:13px;';
+
+        const label = document.createElement('label');
+        label.style.cssText = 'display:inline-block;margin-right:12px;';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'draf-cb';
+        cb.checked = sembunyikanHariIni;
+        cb.addEventListener('change', () => { sembunyikanHariIni = cb.checked; filterDraf(); });
+        const teks = document.createElement('span');
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(' '));
+        label.appendChild(teks);
+
+        const sel = document.createElement('select');
+        sel.className = 'draf-outlet';
+        sel.style.cssText = 'font-size:13px;';
+        sel.addEventListener('change', () => { outletPilih = sel.value; filterDraf(); });
+
+        kotak.appendChild(label);
+        kotak.appendChild(sel);
+        induk.insertBefore(kotak, tbl);
+        return kotak;
+    }
+
     function filterDraf() {
+        if (!bolehFitur('drafOtomatis')) return;
         document.querySelectorAll('table').forEach((tbl) => {
             const head = Array.from(tbl.querySelectorAll('thead th, thead td')).map((c) => c.textContent.trim());
             const iTgl = head.indexOf('Tanggal');
+            const iOutlet = head.indexOf('Outlet');
             if (iTgl < 0 || head.indexOf('No Faktur') < 0) return;      // hanya tabel draf
             if (!tbl.closest('.modal, [role="dialog"]')) return;        // hanya yang ada di popup
             tabelDraf = tbl;
             kolomTgl = iTgl;
             const induk = tbl.parentElement;
             if (!induk) return;
-            if (!induk.querySelector(':scope > .draf-hari-ini')) {
-                const kotak = document.createElement('label');
-                kotak.className = 'draf-hari-ini';
-                kotak.style.cssText = 'display:block;margin:6px 0;font-size:13px;';
-                const cb = document.createElement('input');
-                cb.type = 'checkbox';
-                cb.checked = sembunyikanHariIni;
-                cb.addEventListener('change', () => { sembunyikanHariIni = cb.checked; filterDraf(); });
-                kotak.appendChild(cb);
-                kotak.appendChild(document.createTextNode(' Sembunyikan draf tanggal hari ini (' + tanggalHariIni() + ')'));
-                induk.insertBefore(kotak, tbl);
-            }
+
+            let kotak = induk.querySelector(':scope > .draf-filter');
+            if (!kotak) kotak = buatKotakFilter(induk, tbl);
             const hari = tanggalHariIni();
-            tbl.querySelectorAll('tbody tr').forEach((tr) => {
-                const sel = tr.children[iTgl];
-                const tgl = sel ? sel.textContent.trim() : '';
-                tr.style.display = (sembunyikanHariIni && tgl === hari) ? 'none' : '';
+            kotak.querySelector('label span').textContent = 'Sembunyikan draf tanggal hari ini (' + hari + ')';
+            kotak.querySelector('.draf-cb').checked = sembunyikanHariIni;
+
+            const rows = Array.from(tbl.querySelectorAll('tbody tr'));
+            const sel = kotak.querySelector('.draf-outlet');
+            if (iOutlet >= 0) {
+                const daftar = Array.from(new Set(rows.map((tr) => (tr.children[iOutlet] ? tr.children[iOutlet].textContent.trim() : '')).filter(Boolean))).sort();
+                const kunci = daftar.join('|');
+                if (sel.dataset.kunci !== kunci) {
+                    sel.dataset.kunci = kunci;
+                    sel.textContent = '';
+                    const semua = document.createElement('option');
+                    semua.value = '';
+                    semua.textContent = 'Semua outlet';
+                    sel.appendChild(semua);
+                    daftar.forEach((o) => {
+                        const op = document.createElement('option');
+                        op.value = o;
+                        op.textContent = o;
+                        sel.appendChild(op);
+                    });
+                }
+                if (daftar.indexOf(outletPilih) === -1) outletPilih = '';
+                sel.value = outletPilih;
+                sel.style.display = '';
+            } else {
+                sel.style.display = 'none';
+                outletPilih = '';
+            }
+
+            rows.forEach((tr) => {
+                const tgl = tr.children[iTgl] ? tr.children[iTgl].textContent.trim() : '';
+                const outlet = iOutlet >= 0 && tr.children[iOutlet] ? tr.children[iOutlet].textContent.trim() : '';
+                const sembunyi = (sembunyikanHariIni && tgl === hari) || (outletPilih !== '' && outlet !== outletPilih);
+                tr.style.display = sembunyi ? 'none' : '';
             });
         });
     }
