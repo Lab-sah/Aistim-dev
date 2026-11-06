@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Beban trans
 // @namespace    http://tampermonkey.net/
-// @version      1.2.9
+// @version      1.2.10
 // @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: tabel Informasi Saldo Kas/Bank (saldo sebelum dan sesudah dipotong beban, di form Beban baru); kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Tombol Simpan juga nonaktif (redup) bila Jumlah belum diisi, saldo Kas/Bank sebelum 0/minus, saldo sesudah minus, atau saldo belum terbaca. Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
@@ -382,6 +382,22 @@
     // Jumlah / Keterangan / Kas berubah: tombol langsung diperbarui
     ['input', 'keyup', 'change', 'focusout'].forEach(t => document.addEventListener(t, () => terapkanBlokir(), true));
 
+    // Saldo diambil ulang setelah selesai mengisi: Jumlah, Keterangan, PPN/PPh, dan lainnya (change / keluar kolom).
+    // Ditunda 400 ms supaya Total Pembayaran sempat dihitung ulang oleh halaman.
+    let updateSaldoFn = null;
+    let tundaUpdate = null;
+    function updateSetelahIsi() {
+      if (!updateSaldoFn || !aktif() || !uiAktif || !uiAktif.wrap.isConnected) return;
+      clearTimeout(tundaUpdate);
+      tundaUpdate = setTimeout(() => { if (updateSaldoFn) updateSaldoFn(); }, 400);
+    }
+    ['change', 'focusout'].forEach(t => document.addEventListener(t, e => {
+      const el = e.target;
+      if (!el || !el.matches || !el.matches('input, select, textarea')) return;
+      if (el.closest && el.closest('#' + WRAP_ID)) return; // kotak saldo sendiri tidak memicu
+      updateSetelahIsi();
+    }, true));
+
     function addStyle() {
       if (document.getElementById(STYLE_ID)) return;
       const st = document.createElement('style');
@@ -467,7 +483,6 @@
 
     function mulai(ui) {
       let reqId = 0;
-      let lastKey = null;
       uiAktif = ui;
       saldoSebelum = null;
       saldoSesudah = null;
@@ -520,7 +535,8 @@
           .catch(() => { if (id === reqId) { kosong(); saldoGagal = true; terapkanBlokir(); } });
       }
 
-      const kunci = () => { const f = bacaForm(); return [f.outlet, f.kas, f.tanggal, f.total].join('|'); };
+      // Saldo diambil ulang setelah selesai mengisi (lihat updateSetelahIsi), bukan tiap detik.
+      updateSaldoFn = update;
       ['jurnal_idoutlet_own', 'jurnal_idperkiraan_kas_bank', 'jurnal_tanggal'].forEach(id => {
         const el = document.getElementById(id);
         if (el && !el.dataset.iskTerpasang) {
@@ -530,20 +546,16 @@
           el.addEventListener('blur', () => { if (aktif() && ui.wrap.isConnected) update(); });
         }
       });
-      // Dicek tiap detik: total berubah saat Jumlah diketik. Kalau tabelnya hilang (halaman menggambar ulang
-      // area itu), pencarian tempat dipasang diulang dari awal.
-      // Saldo juga dicek ulang berkala (SALDO_CEK_DETIK), karena bisa berubah dari transaksi lain
-      // walau form ini tidak berubah.
+      // Tiap detik hanya cek tombol di browser (tanpa request ke server). Kalau tabelnya hilang (halaman
+      // menggambar ulang area itu), pencarian tempat dipasang diulang dari awal.
+      // Saldo juga diambil ulang berkala (SALDO_CEK_DETIK), karena bisa berubah dari transaksi lain.
       let detikSejakCek = 0;
       const iv = setInterval(() => {
         if (!document.body.contains(ui.wrap)) { clearInterval(iv); pasang(); return; }
         terapkanBlokir(); // tombol Simpan bisa digambar ulang halaman
         if (!aktif()) return;
-        const k = kunci();
-        if (k !== lastKey) { lastKey = k; detikSejakCek = 0; update(); return; }
         if (++detikSejakCek >= SALDO_CEK_DETIK) { detikSejakCek = 0; update(); }
       }, 1000);
-      lastKey = kunci();
       update();
     }
 
