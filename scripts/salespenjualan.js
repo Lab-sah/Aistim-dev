@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Sales Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.4.0
+// @version      1.4.1
 // @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Halaman Pencatatan Penjualan baru (/penjualans/new): popup Draf Penjualan langsung terbuka, dengan filter outlet dan sembunyikan draf hari ini; popup ditutup lagi kalau tidak ada draf yang tampil. Fitur hanya untuk role yang diatur di AKSES_JSON (SENTOT, SURYO, MANAJEMEN PUSAT).
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -25,7 +25,7 @@
         "private": ["batal", "drafOtomatis"],
         "role": {
           "pusat": {
-            "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT"],
+            "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT", "TIMORITEL"],
             "fitur": ["*"]
           }
         }
