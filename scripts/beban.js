@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Beban trans
 // @namespace    http://tampermonkey.net/
-// @version      1.2.3
+// @version      1.2.4
 // @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: tabel Informasi Saldo Kas/Bank (saldo sebelum dan sesudah dipotong beban, di form Beban baru); kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
@@ -299,6 +299,43 @@
     const fmtRp = n => 'Rp ' + (n < 0 ? '-' : '') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const num = t => parseFloat(String(t).replace(/Rp/g, '').replace(/,/g, '').trim()) || 0;
 
+    // Saldo sesudah dipotong < 0: peringatan + tombol Simpan dinonaktifkan (bukan disembunyikan).
+    // Klik, F2, dan submit form juga ditahan, karena tombol nonaktif masih bisa lewat F2/submit.
+    const SAVE_SEL = '#bt_simpan, #simpan, #simpan_disable, #image_simpan, [title="Simpan"]';
+    let saldoMinus = false;
+    let uiAktif = null;
+
+    function terapkanBlokir(ui) {
+      const on = saldoMinus && aktif();
+      ui.warn.style.display = on ? 'block' : 'none';
+      if (on) ui.warn.textContent = 'Saldo Kas/Bank tidak cukup: sesudah dipotong beban ' + ui.sesudah.textContent + '. Simpan dinonaktifkan.';
+      document.querySelectorAll(SAVE_SEL).forEach(el => {
+        if (on) {
+          if (el.dataset.saldoAsli === undefined) el.dataset.saldoAsli = (el.disabled === true) ? '1' : '0';
+          if ('disabled' in el) el.disabled = true;
+          el.setAttribute('aria-disabled', 'true');
+          el.style.pointerEvents = 'none';
+        } else if (el.dataset.saldoAsli !== undefined) {
+          if ('disabled' in el) el.disabled = el.dataset.saldoAsli === '1';
+          el.removeAttribute('aria-disabled');
+          el.style.pointerEvents = '';
+          delete el.dataset.saldoAsli;
+        }
+      });
+    }
+
+    function blokirAksi(e) {
+      if (!saldoMinus || !aktif()) return;
+      e.preventDefault(); e.stopImmediatePropagation(); e.stopPropagation();
+      if (uiAktif && uiAktif.warn) uiAktif.warn.style.display = 'block';
+    }
+    document.addEventListener('click', e => { if (e.target.closest && e.target.closest(SAVE_SEL)) blokirAksi(e); }, true);
+    document.addEventListener('keydown', e => { if (e.key === 'F2' || e.keyCode === 113) blokirAksi(e); }, true);
+    document.addEventListener('submit', e => {
+      const f = e.target;
+      if (f && f.querySelector && f.querySelector('#jurnal_idperkiraan_kas_bank')) blokirAksi(e);
+    }, true);
+
     function addStyle() {
       if (document.getElementById(STYLE_ID)) return;
       const st = document.createElement('style');
@@ -309,6 +346,7 @@
         '#' + WRAP_ID + ' table { width: 100%; border-collapse: collapse; border: 1px solid #bbb; background: #fff; }' +
         '#' + WRAP_ID + ' th, #' + WRAP_ID + ' td { border: 1px solid #bbb; padding: 5px 8px; line-height: 1.3; white-space: nowrap; }' +
         '#' + WRAP_ID + ' th { background: #ececec; font-weight: bold; text-align: left; }' +
+        '#' + WRAP_ID + ' .isk-warn { margin-top: 6px; padding: 6px 10px; border: 1px solid #f5c2c7; background: #f8d7da; color: #842029; border-radius: 4px; font-size: 13px; white-space: normal; }' +
         '@media (max-width: 767px) {' +
         '  #' + WRAP_ID + ' .isk-title { font-size: 1rem; }' +
         '  #' + WRAP_ID + ' table { font-size: 0.85rem; }' +
@@ -353,10 +391,15 @@
       tbody.appendChild(tr);
       table.appendChild(thead);
       table.appendChild(tbody);
+      const warn = document.createElement('div');
+      warn.className = 'isk-warn';
+      warn.setAttribute('role', 'alert');
+      warn.style.display = 'none';
       wrap.appendChild(title);
       wrap.appendChild(table);
+      wrap.appendChild(warn);
       host.appendChild(wrap);
-      return { wrap: wrap, label: label, sebelum: sebelum, sesudah: sesudah };
+      return { wrap: wrap, label: label, sebelum: sebelum, sesudah: sesudah, warn: warn };
     }
 
     function bacaForm() {
@@ -379,11 +422,16 @@
     function mulai(ui) {
       let reqId = 0;
       let lastKey = null;
+      uiAktif = ui;
+      saldoMinus = false;
+      terapkanBlokir(ui);
       const kosong = () => {
         ui.sebelum.textContent = '-';
         ui.sesudah.textContent = '-';
         ui.sesudah.style.color = '';
         ui.sesudah.style.fontWeight = '';
+        saldoMinus = false;
+        terapkanBlokir(ui);
       };
 
       function update() {
@@ -414,6 +462,8 @@
             ui.sesudah.textContent = fmtRp(sesudah);
             ui.sesudah.style.color = sesudah < 0 ? '#b00020' : '';
             ui.sesudah.style.fontWeight = sesudah < 0 ? 'bold' : 'normal';
+            saldoMinus = sesudah < 0;
+            terapkanBlokir(ui);
           })
           .catch(() => { if (id === reqId) kosong(); });
       }
@@ -432,6 +482,7 @@
       // area itu), pencarian tempat dipasang diulang dari awal.
       const iv = setInterval(() => {
         if (!document.body.contains(ui.wrap)) { clearInterval(iv); pasang(); return; }
+        terapkanBlokir(ui); // tombol Simpan bisa digambar ulang halaman
         if (!aktif()) return;
         const k = kunci();
         if (k !== lastKey) { lastKey = k; update(); }
