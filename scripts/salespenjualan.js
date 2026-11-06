@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Sales Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.4.1
+// @version      1.5.0
 // @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Halaman Pencatatan Penjualan baru (/penjualans/new): popup Draf Penjualan langsung terbuka, dengan filter outlet dan sembunyikan draf hari ini; popup ditutup lagi kalau tidak ada draf yang tampil. Fitur hanya untuk role yang diatur di AKSES_JSON (SENTOT, SURYO, MANAJEMEN PUSAT).
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -22,7 +22,7 @@
     // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
     const AKSES_JSON = `{
         "public": [],
-        "private": ["batal", "drafOtomatis"],
+        "private": ["batal", "drafOtomatis", "tipeMarketplace"],
         "role": {
           "pusat": {
             "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT", "TIMORITEL"],
@@ -239,10 +239,28 @@
         });
     }
 
+    /* ========== Pelanggan Shopee -> Tipe Penjualan Marketplace (form Pencatatan Penjualan) ========== */
+    const KATA_SHOPEE = /shopee/i;
+    const TIPE_MARKETPLACE = '3';   // value "3. Marketplace" di select penjualan[idtipe_penjualan]
+
+    function cekPelangganShopee() {
+        if (!bolehFitur('tipeMarketplace')) return;
+        const pel = document.querySelector('input[name="penjualan[nama_pelanggan]"]');
+        const tipe = document.getElementById('penjualan_idtipe_penjualan');
+        if (!pel || !tipe) return;
+        if (!KATA_SHOPEE.test(pel.value) || tipe.value === TIPE_MARKETPLACE) return;
+        if (window.jQuery) window.jQuery(tipe).val(TIPE_MARKETPLACE).trigger('change');   // select yang memakai plugin
+        else { tipe.value = TIPE_MARKETPLACE; tipe.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
+    ['input', 'change', 'focusout'].forEach((t) => document.addEventListener(t, (e) => {
+        if (e.target && e.target.name === 'penjualan[nama_pelanggan]') { try { cekPelangganShopee(); } catch (err) { /* abaikan */ } }
+    }, true));
+
     function proses() {
         try { pasangTombolBatal(); } catch (e) { /* dicoba lagi saat halaman berubah */ }
         try { bukaDrafOtomatis(); } catch (e) { /* dicoba lagi saat halaman berubah */ }
         try { filterDraf(); } catch (e) { /* dicoba lagi saat halaman berubah */ }
+        try { cekPelangganShopee(); } catch (e) { /* dicoba lagi saat halaman berubah */ }
     }
 
     proses();
