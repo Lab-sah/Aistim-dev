@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Auto Koreksi
 // @namespace    http://tampermonkey.net/
-// @version      1.13.0
+// @version      1.13.1
 // @updateURL    https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
 // @downloadURL  https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
 // @description  [v1.13.0] Hanya role yang diizinkan (AKSES_JSON, fitur autoKoreksi) yang melihat tombol START AUTO / CEK SIMPAN / STOP. Hanya lanjut otomatis kalau halaman dibuka oleh script sendiri (maks 1 menit) - buka halaman koreksi manual tidak pernah auto jalan. Ganti ID SO = mulai dari awal (isi pengkoreksi & tanggal lagi, tidak auto jalan). Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI, stop & refresh halaman. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
@@ -370,9 +370,16 @@
                         : status === 'Tidak Pasti' ? '#fd7e14'
                         : status === 'Sudah tersimpan' ? '#6c757d' : '#dc3545';
 
+                    // textContent, bukan innerHTML: status dan nomor halaman tidak dirender sebagai HTML.
                     const row = document.createElement('tr');
-                    row.innerHTML = `<td style="padding: 8px; border: 1px solid #dee2e6; text-align: center;">Page ${pageNum}</td>
-                                     <td style="padding: 8px; border: 1px solid #dee2e6; text-align: center; color: ${statusColor}; font-weight: bold;">${status}</td>`;
+                    const tdHal = document.createElement('td');
+                    tdHal.style.cssText = 'padding: 8px; border: 1px solid #dee2e6; text-align: center;';
+                    tdHal.textContent = 'Page ' + pageNum;
+                    const tdStatus = document.createElement('td');
+                    tdStatus.style.cssText = 'padding: 8px; border: 1px solid #dee2e6; text-align: center; color: ' + statusColor + '; font-weight: bold;';
+                    tdStatus.textContent = String(status);
+                    row.appendChild(tdHal);
+                    row.appendChild(tdStatus);
                     tbody.appendChild(row);
                 });
             }
