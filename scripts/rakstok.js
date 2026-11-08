@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.27.9
+// @version      1.27.10
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -145,6 +145,7 @@ function rkBoleh(fitur) {
         #gs_rak_pop .rk_rv { font-weight: 600; color: #0d9bdb; padding-left: 0; }
         #gs_rak_pop .rk_info { color: #777; font-size: 11px; padding: 4px 0; }
         #gs_rak_pop .rk_info.rk_err { color: #dc3545; }
+        #gs_rak_pop .rk_kosong_msg { padding: 0 8px; margin: 0; color: #888; font-size: 11px; }
         #gs_rak_pop .rk_tutup { display: block; padding: 3px 10px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; font-size: 11px; color: #444; }
         #gs_rak_pop .rk_tutup:hover { background: #f0f0f0; }
         #gs_rak_pop .rk_foot { flex: none; padding: 5px 8px; border-top: 1px solid #ddd; background: #fff; border-radius: 0 0 4px 4px; }
@@ -999,6 +1000,7 @@ function rkBoleh(fitur) {
                 });
                 m.isi.appendChild(baris);
             });
+            filterRakPerGudang();
             m.tombolTutup();
             m.taruh();
         }).catch((e) => {
@@ -1006,6 +1008,48 @@ function rkBoleh(fitur) {
             if (document.body.contains(m.pop)) m.info('Gagal memuat rak (' + (e && e.message ? e.message : e) + ').', true);
         });
     }
+
+    // Filter baris rak di popup Map rak sesuai Gudang yang dipilih di #pencarian_idgudang.
+    // "-- Semua --" menampilkan semua gudang. Kalau gudang yang dipilih tidak punya rak, tampilkan pesan di atas tombol.
+    const MSG_RAK_GUDANG_KOSONG = 'Produk ini belum punya penempatan rak.';
+    function filterRakPerGudang() {
+        const pop = document.getElementById('gs_rak_pop');
+        if (!pop || pop.dataset.tipe !== 'rak') return;
+        const sel = document.getElementById('pencarian_idgudang');
+        if (!sel) return;
+        const opt = sel.options[sel.selectedIndex];
+        const isAll = !sel.value || !opt || /semua/i.test(opt.text);
+        const want = isAll ? null : opt.text.trim().toUpperCase();
+
+        const rows = Array.from(pop.querySelectorAll('.rk_baris'));
+        let tampil = 0;
+        rows.forEach((r) => {
+            const g = ((r.querySelector('.rk_gn') || {}).textContent || '').trim().toUpperCase();
+            const show = !want || g === want;
+            r.style.display = show ? '' : 'none';
+            if (show) tampil++;
+        });
+
+        let msg = pop.querySelector('.rk_kosong_msg');
+        if (want && rows.length && tampil === 0) {
+            if (!msg) {
+                msg = document.createElement('div');
+                msg.className = 'rk_kosong_msg';
+            }
+            msg.textContent = MSG_RAK_GUDANG_KOSONG;
+            const foot = pop.querySelector(':scope > .rk_foot');
+            if (foot) {
+                if (msg.parentNode !== pop || msg.nextElementSibling !== foot) pop.insertBefore(msg, foot);
+            } else if (msg.parentNode !== pop) {
+                pop.appendChild(msg);
+            }
+        } else if (msg) {
+            msg.remove();
+        }
+    }
+    document.addEventListener('change', (e) => {
+        if (e.target && e.target.id === 'pencarian_idgudang') setTimeout(filterRakPerGudang, 50);
+    }, true);
 
     document.addEventListener('mousedown', (e) => {
         if (!document.getElementById('gs_rak_pop')) return;
