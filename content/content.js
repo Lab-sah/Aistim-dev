@@ -3,7 +3,6 @@
 
   var VERSION = '2.10.8';
   console.log('[Aistim] ===== Content script v' + VERSION + ' loaded =====');
-  console.log('[Aistim] URL:', window.location.href);
 
   // Shim: listener window 'load' tetap jalan walau script diinject setelah load selesai
   var LOAD_SHIM = "window.addEventListener=(function(orig){return function(t,f,o){if(t==='load'&&document.readyState==='complete'){try{setTimeout(f,0);}catch(e){}return;}return orig.call(window,t,f,o);};})(window.addEventListener);";
@@ -174,7 +173,7 @@
   // Hanya dilayani di halaman *.erzap.com; host tujuan dibatasi lagi di background (X_FETCH_ALLOW).
   if (/(^|\.)erzap\.com$/i.test(location.hostname)) {
     window.addEventListener('message', function(ev) {
-      if (ev.source !== window || !ev.data || !ev.data.aistimFetch) return;
+      if (ev.source !== window || ev.origin !== location.origin || !ev.data || !ev.data.aistimFetch) return;
       var q = ev.data.aistimFetch;
       if (!q.id || !q.url) return;
       try {
