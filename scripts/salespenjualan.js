@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Sales Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.9.1
+// @version      1.9.2
 // @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Form Pencatatan Penjualan: Tipe Penjualan otomatis dari nama Pelanggan (shopee/tiktok/tokopedia -> Marketplace, NON-MEMBERSHIP -> Offline/Instore, S+angka -> Antar Outlet). Popup Tukar Tambah: Barang Bekas dinonaktifkan, Dari/Tujuan Outlet, No Faktur setelah outlet diisi, peringatan outlet, tombol 'Retur Antar Outlet'. Popup Draf Penjualan yang kosong tidak ditampilkan. Fitur hanya untuk role yang diatur di AKSES_JSON.
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -115,7 +115,7 @@
     /* ========== Tipe Penjualan otomatis dari Pelanggan (form Pencatatan Penjualan) ========== */
     // Urutan aturan penting: aturan pertama yang cocok yang dipakai.
     const TIPE_RULES = [
-        { test: n => /shopee|tokopedia|tiktok/.test(n), tipe: '3', fitur: 'tipeMarketplace' },   // 3. Marketplace
+        { test: n => /shopee|tokopedia|toko\s*pedia|tiktok/.test(n), tipe: '3', fitur: 'tipeMarketplace' },   // 3. Marketplace
         { test: n => n.includes('non-membership'),       tipe: '6', fitur: 'tipePelanggan' },    // 1. Offline / Instore
         { test: n => /^s\d{2,}\b/.test(n),               tipe: '8', fitur: 'tipePelanggan' }     // 4. Antar Outlet (Internal)
     ];
@@ -127,8 +127,17 @@
         else { tipe.value = nilai; tipe.dispatchEvent(new Event('change', { bubbles: true })); }
     }
 
+    // Kolom Pelanggan: pakai name penjualan[nama_pelanggan]; kalau tidak ada (mis. halaman
+    // /penjualans/proses_pesanan_penjualan), cari input teks di sebelah label "Pelanggan".
+    function findPelanggan() {
+        const byName = document.querySelector('input[name="penjualan[nama_pelanggan]"]');
+        if (byName) return byName;
+        const lbl = Array.from(document.querySelectorAll('label')).find((l) => l.textContent.trim() === 'Pelanggan');
+        return lbl && lbl.parentElement ? lbl.parentElement.querySelector('input[type=text]') : null;
+    }
+
     function cekTipePelanggan() {
-        const pel = document.querySelector('input[name="penjualan[nama_pelanggan]"]');
+        const pel = findPelanggan();
         if (!pel) return;
         const n = pel.value.trim().toLowerCase();
         const rule = TIPE_RULES.find(r => r.test(n));
@@ -136,7 +145,7 @@
         setTipePenjualan(rule.tipe);
     }
     ['input', 'change', 'focusout'].forEach((t) => document.addEventListener(t, (e) => {
-        if (e.target && e.target.name === 'penjualan[nama_pelanggan]') { try { cekTipePelanggan(); } catch (err) { /* abaikan */ } }
+        if (e.target && e.target === findPelanggan()) { try { cekTipePelanggan(); } catch (err) { /* abaikan */ } }
     }, true));
     // pemilihan dari daftar autocomplete (jQuery UI)
     document.addEventListener('autocompleteselect', () => {
