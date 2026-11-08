@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Beban trans
 // @namespace    http://tampermonkey.net/
-// @version      1.2.11
+// @version      1.2.12
 // @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: tabel Informasi Saldo Kas/Bank (saldo sebelum dan sesudah dipotong beban, di form Beban baru); kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Tombol Simpan juga nonaktif (redup) bila Jumlah belum diisi, saldo Kas/Bank sebelum 0/minus, saldo sesudah minus, atau saldo belum terbaca. Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
@@ -31,7 +31,7 @@
     "private": [],
     "role": {
       "pusat": {
-        "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT"],
+        "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT", "TIMORITEL"],
         "fitur": ["*"]
       }
     }
