@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.27.4
+// @version      1.27.5
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -548,6 +548,19 @@ function rkBoleh(fitur) {
         return true;
     }
 
+    // Notifikasi kecil di dalam popup edit gambar (textContent, bukan HTML).
+    function tampilNotifEdit(ov, teks) {
+        let n = ov.querySelector('#rk_notif');
+        if (!n) {
+            n = document.createElement('div');
+            n.id = 'rk_notif';
+            n.setAttribute('role', 'status');
+            n.style.cssText = 'position:absolute;left:50%;bottom:16px;transform:translateX(-50%);max-width:92%;background:#343a40;color:#fff;padding:8px 14px;border-radius:6px;font-size:13px;line-height:1.4;z-index:6;box-shadow:0 2px 8px rgba(0,0,0,.3);text-align:center';
+            ov.appendChild(n);
+        }
+        n.textContent = teks;
+    }
+
     function bukaEditGambar(id, judul) {
         tutupModal();
         tutupEditGambar();
@@ -732,13 +745,19 @@ function rkBoleh(fitur) {
                                 inpEl.dispatchEvent(new w.Event('change', { bubbles: true }));
                                 const sb = doc.getElementById('rk_simpan');
                                 if (sb) { sb.textContent = 'Simpan'; sb.title = 'Mode bawaan Erzap: gambar langsung terkirim saat dipilih (tahap Simpan belum siap)'; }
+                                ov._rkKirimLangsung = true;
+                                tampilNotifEdit(ov, 'Tombol Simpan belum siap, jadi gambar yang dipilih langsung dikirim. Tidak perlu klik Simpan.');
                             }
                         }
                     } catch (err) { console.warn('[Edit gambar] gagal memproses gambar yang ditahan', err); }
                     if (!siapSejak) siapSejak = Date.now();
                     f.style.visibility = 'visible';
                     msg.remove();
-                    if (!ov._rkSimpanOK && lama > 15000 && !ov._rkLapor) { ov._rkLapor = true; console.warn('[Edit gambar] Simpan belum bisa dipasang: ' + (ov._rkAlasan || 'belum diketahui') + ' (masih dicoba)'); }
+                    if (!ov._rkSimpanOK && lama > 15000 && !ov._rkLapor) {
+                        ov._rkLapor = true;
+                        console.warn('[Edit gambar] Simpan belum bisa dipasang: ' + (ov._rkAlasan || 'belum diketahui') + ' (masih dicoba)');
+                        if (!ov._rkKirimLangsung) tampilNotifEdit(ov, 'Tombol Simpan gambar belum bisa dipasang (' + (ov._rkAlasan || 'belum diketahui') + '). Tutup lalu buka lagi popup ini.');
+                    }
                     if (ov._rkSimpanOK ? Date.now() - siapSejak > 3000 : lama > 180000) clearInterval(ov._rkTimer);
                     return;
                 }
