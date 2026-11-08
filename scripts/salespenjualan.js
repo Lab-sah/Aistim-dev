@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Sales Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.8.0
+// @version      1.9.0
 // @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Form Pencatatan Penjualan: Tipe Penjualan otomatis dari nama Pelanggan (shopee/tiktok/tokopedia -> Marketplace, NON-MEMBERSHIP -> Offline/Instore, S+angka -> Antar Outlet). Popup Tukar Tambah: Barang Bekas dinonaktifkan, Dari/Tujuan Outlet, No Faktur setelah outlet diisi, peringatan outlet, tombol 'Retur Antar Outlet'. Popup Draf Penjualan yang kosong tidak ditampilkan. Fitur hanya untuk role yang diatur di AKSES_JSON.
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -15,7 +15,7 @@
     // ====== HAK AKSES & FITUR (JSON) ======
     // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini. Kosong = tidak ada fitur untuk umum.
     // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua).
-    //              Nama fitur: batal, tipeMarketplace, tipePelanggan, tukarTambah, drafKosong, jumlahAngka, peringatanStok.
+    //              Nama fitur: batal, tipeMarketplace, tipePelanggan, tukarTambah, drafKosong, jumlahAngka, peringatanStok, tipePartdistro.
     // "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
     //              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
     // Fitur yang tidak disebut di "public" maupun "private" ditolak.
@@ -23,7 +23,7 @@
     // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
     const AKSES_JSON = `{
         "public": [],
-        "private": ["batal", "tipeMarketplace", "tipePelanggan", "tukarTambah", "drafKosong", "jumlahAngka", "peringatanStok"],
+        "private": ["batal", "tipeMarketplace", "tipePelanggan", "tukarTambah", "drafKosong", "jumlahAngka", "peringatanStok", "tipePartdistro"],
         "role": {
           "pusat": {
             "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT", "TIMORITEL"],
@@ -374,9 +374,30 @@
         peringatanBox.style.display = baris.length ? 'block' : 'none';
     }
 
+    /* ========== No Faktur diawali 1 -> Tipe Penjualan '5. PartDistro.com' (fitur tipePartdistro) ========== */
+    const KODE_ID = 'penjualan_kode';
+    const TIPE_PARTDISTRO = '5. PartDistro.com';
+    let partdistroAktif = false;
+
+    function pasangTipePartdistro() {
+        if (partdistroAktif) return;
+        partdistroAktif = true;
+        // Listener di level document, jadi tetap jalan walau elemen dirender ulang
+        document.addEventListener('input', (e) => {
+            if (!e.target || e.target.id !== KODE_ID) return;
+            if (!e.target.value.trim().startsWith('1')) return;
+            const tipe = document.getElementById('penjualan_idtipe_penjualan');
+            if (!tipe) return;
+            const opt = Array.from(tipe.options).find((o) => o.text.trim() === TIPE_PARTDISTRO);
+            if (!opt) return;
+            setTipePenjualan(opt.value);
+        }, true);
+    }
+
     function proses() {
         try { pasangTombolBatal(); } catch (e) { /* dicoba lagi saat halaman berubah */ }
         try { cekTipePelanggan(); } catch (e) { /* dicoba lagi saat halaman berubah */ }
+        try { if (bolehFitur('tipePartdistro')) pasangTipePartdistro(); } catch (e) { /* dicoba lagi */ }
         try { if (bolehFitur('jumlahAngka')) pasangJumlahAngka(); } catch (e) { /* dicoba lagi */ }
         try { if (bolehFitur('peringatanStok')) cekPeringatanStok(); } catch (e) { /* dicoba lagi */ }
     }
