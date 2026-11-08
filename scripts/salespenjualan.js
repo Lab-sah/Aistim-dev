@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Sales Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.7.0
+// @version      1.8.0
 // @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Form Pencatatan Penjualan: Tipe Penjualan otomatis dari nama Pelanggan (shopee/tiktok/tokopedia -> Marketplace, NON-MEMBERSHIP -> Offline/Instore, S+angka -> Antar Outlet). Popup Tukar Tambah: Barang Bekas dinonaktifkan, Dari/Tujuan Outlet, No Faktur setelah outlet diisi, peringatan outlet, tombol 'Retur Antar Outlet'. Popup Draf Penjualan yang kosong tidak ditampilkan. Fitur hanya untuk role yang diatur di AKSES_JSON.
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -15,7 +15,7 @@
     // ====== HAK AKSES & FITUR (JSON) ======
     // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini. Kosong = tidak ada fitur untuk umum.
     // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua).
-    //              Nama fitur: batal, tipeMarketplace, tipePelanggan, tukarTambah, drafKosong.
+    //              Nama fitur: batal, tipeMarketplace, tipePelanggan, tukarTambah, drafKosong, jumlahAngka, peringatanStok.
     // "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
     //              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
     // Fitur yang tidak disebut di "public" maupun "private" ditolak.
@@ -23,7 +23,7 @@
     // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
     const AKSES_JSON = `{
         "public": [],
-        "private": ["batal", "tipeMarketplace", "tipePelanggan", "tukarTambah", "drafKosong"],
+        "private": ["batal", "tipeMarketplace", "tipePelanggan", "tukarTambah", "drafKosong", "jumlahAngka", "peringatanStok"],
         "role": {
           "pusat": {
             "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT", "TIMORITEL"],
@@ -290,13 +290,109 @@
     }
     setInterval(tickPopup, 300);
 
+    /* ========== Kolom Jumlah hanya angka (fitur jumlahAngka) ========== */
+    const SEL_JUMLAH = 'input.jumlah_produk';
+    let jumlahAngkaAktif = false;
+
+    function pasangJumlahAngka() {
+        if (jumlahAngkaAktif) return;
+        jumlahAngkaAktif = true;
+        // Tombol yang diketik: tolak selain angka 0-9
+        document.addEventListener('beforeinput', (e) => {
+            const t = e.target;
+            if (!t.matches || !t.matches(SEL_JUMLAH)) return;
+            if (e.data && /[^0-9]/.test(e.data)) e.preventDefault();
+        }, true);
+        // Nilai yang ditempel atau masuk lewat input: sisakan angka saja
+        document.addEventListener('input', (e) => {
+            const t = e.target;
+            if (!t.matches || !t.matches(SEL_JUMLAH)) return;
+            const c = t.value.replace(/[^0-9]/g, '');
+            if (c !== t.value) {
+                const pos = Math.max(0, (t.selectionStart || c.length) - (t.value.length - c.length));
+                t.value = c;
+                try { t.setSelectionRange(pos, pos); } catch (_) { }
+            }
+        }, true);
+        // Isian yang sudah ada saat fitur dipasang
+        document.querySelectorAll(SEL_JUMLAH).forEach((el) => {
+            const c = el.value.replace(/[^0-9]/g, '');
+            if (c !== el.value) {
+                el.value = c;
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        });
+    }
+
+    /* ========== Peringatan stok minus di bawah Daftar Barang (fitur peringatanStok) ========== */
+    let peringatanBox = null;
+    let peringatanSig = '';
+
+    function pasangPeringatanStok() {
+        if (peringatanBox && peringatanBox.isConnected) return;
+        const anchor = document.querySelector('.div_transaksi_table');
+        if (!anchor) return;
+        const box = document.createElement('div');
+        box.id = 'warning_jumlah_merah';
+        box.setAttribute('role', 'alert');
+        box.style.cssText = 'display:none;margin:10px 0;padding:10px 14px;border:1px solid #d32f2f;border-left:5px solid #d32f2f;background:#fdecea;color:#b71c1c;font-size:14px;font-weight:600;border-radius:4px;';
+        box.innerHTML =
+            '<div style="display:inline-flex;align-items:center;gap:8px;">' +
+                '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" style="flex:none"><path fill="#d32f2f" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>' +
+                '<span>Peringatan : Ada produk stok tidak sesuai. Jika dilanjutkan akan terjadi stok minus</span>' +
+            '</div>' +
+            '<div style="margin-top:4px;font-weight:normal;">Mungkin bisa dilakukan pengecekan ulang.</div>' +
+            '<ul style="margin:6px 0 0 18px;padding:0;font-weight:normal;"></ul>';
+        anchor.insertAdjacentElement('afterend', box);
+        peringatanBox = box;
+        peringatanSig = '';
+    }
+
+    // Hanya mengubah DOM bila isinya berubah, supaya tidak memicu MutationObserver berulang.
+    function cekPeringatanStok() {
+        if (!peringatanBox || !peringatanBox.isConnected) { pasangPeringatanStok(); if (!peringatanBox) return; }
+        const bad = Array.from(document.querySelectorAll(SEL_JUMLAH + '.error'));
+        const baris = bad.map((el) => {
+            const no = (el.id.match(/penjualan_detail(\d+)_jumlah/) || [])[1] || '?';
+            const jumlah = parseFloat(el.value) || 0;
+            const stok = parseFloat((el.title.match(/Jumlah stok\s*=\s*(-?[\d.]+)/) || [])[1]);
+            return Number.isNaN(stok)
+                ? 'Baris ' + no + ' : Jumlah melebihi stok'
+                : 'Baris ' + no + ' : Akan terjadi stok -' + (jumlah - stok);
+        });
+        const sig = baris.join('\n');
+        if (sig === peringatanSig) return;
+        peringatanSig = sig;
+        const list = peringatanBox.querySelector('ul');
+        list.innerHTML = '';
+        baris.forEach((teks) => {
+            const li = document.createElement('li');
+            li.textContent = teks;
+            list.appendChild(li);
+        });
+        peringatanBox.style.display = baris.length ? 'block' : 'none';
+    }
+
     function proses() {
         try { pasangTombolBatal(); } catch (e) { /* dicoba lagi saat halaman berubah */ }
         try { cekTipePelanggan(); } catch (e) { /* dicoba lagi saat halaman berubah */ }
+        try { if (bolehFitur('jumlahAngka')) pasangJumlahAngka(); } catch (e) { /* dicoba lagi */ }
+        try { if (bolehFitur('peringatanStok')) cekPeringatanStok(); } catch (e) { /* dicoba lagi */ }
     }
 
     proses();
 
     const observer = new MutationObserver(proses);
     observer.observe(document.body, { childList: true, subtree: true });
+    // Kelas .error dan title pada kolom Jumlah berubah tanpa mengubah DOM, jadi diamati terpisah.
+    const observerStok = new MutationObserver(() => {
+        try { if (bolehFitur('peringatanStok')) cekPeringatanStok(); } catch (e) { /* dicoba lagi */ }
+    });
+    observerStok.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class', 'title'] });
+    document.addEventListener('input', (e) => {
+        if (e.target && e.target.matches && e.target.matches(SEL_JUMLAH)) {
+            try { if (bolehFitur('peringatanStok')) cekPeringatanStok(); } catch (err) { /* dicoba lagi */ }
+        }
+    }, true);
 })();
