@@ -50,3 +50,4 @@ Setiap audit repo ini disimpan di folder ini, supaya bisa dijadikan acuan audit 
 - [2026-11-06-audit.md](2026-11-06-audit.md): audit awal (keamanan, build Web Store, struktur repo).
 - [2026-11-06-auditanalisa.md](2026-11-06-auditanalisa.md): audit skrip `scripts/auditanalisa.js` 1.1.0 (perhitungan angka, Laba Rugi dan Neraca).
 - [2026-11-06-userscripts.md](2026-11-06-userscripts.md): audit semua skrip di `scripts/` (parsing, HTML dinamis, rekaman, aksi yang mengubah data).
+- [2026-11-08-ekstensi.md](2026-11-08-ekstensi.md): audit ekstensi terhadap checklist Web Store (manifest, kode, build ZIP, privasi), commit e643774.
