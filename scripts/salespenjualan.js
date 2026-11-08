@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Sales Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.9.0
+// @version      1.9.1
 // @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Form Pencatatan Penjualan: Tipe Penjualan otomatis dari nama Pelanggan (shopee/tiktok/tokopedia -> Marketplace, NON-MEMBERSHIP -> Offline/Instore, S+angka -> Antar Outlet). Popup Tukar Tambah: Barang Bekas dinonaktifkan, Dari/Tujuan Outlet, No Faktur setelah outlet diisi, peringatan outlet, tombol 'Retur Antar Outlet'. Popup Draf Penjualan yang kosong tidak ditampilkan. Fitur hanya untuk role yang diatur di AKSES_JSON.
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -378,19 +378,34 @@
     const KODE_ID = 'penjualan_kode';
     const TIPE_PARTDISTRO = '5. PartDistro.com';
     let partdistroAktif = false;
+    let tipeSebelum = '';         // nilai Tipe Penjualan sebelum No Faktur diawali 1
+    let tipeDisimpan = null;      // nilai yang dikembalikan saat angka 1 dihapus
+    let partdistroDiterapkan = false;
 
     function pasangTipePartdistro() {
         if (partdistroAktif) return;
         partdistroAktif = true;
+        // Dicatat sebelum nilai No Faktur berubah, supaya Tipe Penjualan bisa dikembalikan
+        document.addEventListener('beforeinput', (e) => {
+            if (!e.target || e.target.id !== KODE_ID) return;
+            const tipe = document.getElementById('penjualan_idtipe_penjualan');
+            if (tipe && !partdistroDiterapkan) tipeSebelum = tipe.value;
+        }, true);
         // Listener di level document, jadi tetap jalan walau elemen dirender ulang
         document.addEventListener('input', (e) => {
             if (!e.target || e.target.id !== KODE_ID) return;
-            if (!e.target.value.trim().startsWith('1')) return;
             const tipe = document.getElementById('penjualan_idtipe_penjualan');
             if (!tipe) return;
             const opt = Array.from(tipe.options).find((o) => o.text.trim() === TIPE_PARTDISTRO);
             if (!opt) return;
-            setTipePenjualan(opt.value);
+            if (e.target.value.trim().charAt(0) === '1') {
+                if (!partdistroDiterapkan) { tipeDisimpan = tipeSebelum; partdistroDiterapkan = true; }
+                if (tipe.value !== opt.value) setTipePenjualan(opt.value);
+            } else if (partdistroDiterapkan) {
+                partdistroDiterapkan = false;
+                if (tipe.value === opt.value && tipeDisimpan !== null) setTipePenjualan(tipeDisimpan);
+                tipeDisimpan = null;
+            }
         }, true);
     }
 
