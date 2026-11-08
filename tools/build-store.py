@@ -43,7 +43,9 @@ assert len(POLA.findall(src)) == 1, 'penanda FALLBACK-SCRIPT-TAG di content.js t
 content_store = POLA.sub(lambda _: (
     "  function fallbackDynamic() {\n"
     "    console.warn('[Aistim] Engine userScripts belum aktif. Nyalakan \"Izinkan skrip pengguna\" untuk Aistim Tool.');\n"
-    "  }\n"), src)
+    "  }\n"
+    "  // Pemanggil di init() berada di luar blok yang dibuang, jadi definisinya harus tetap ada\n"
+    "  function runDynamicScripts() { fallbackDynamic(); }\n"), src)
 assert 'createElement(\'script\')' not in content_store
 
 zpath = os.path.join(OUT, 'Aistim-dev-store-%s.zip' % m['version'])

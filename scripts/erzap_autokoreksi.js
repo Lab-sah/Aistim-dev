@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Erzap - Auto Koreksi
 // @namespace    http://tampermonkey.net/
-// @version      1.12.2
+// @version      1.13.0
 // @updateURL    https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
 // @downloadURL  https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
-// @description  [v1.12.1] Hanya lanjut otomatis kalau halaman dibuka oleh script sendiri (maks 1 menit) - buka halaman koreksi manual tidak pernah auto jalan. Ganti ID SO = mulai dari awal (isi pengkoreksi & tanggal lagi, tidak auto jalan). Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI, stop & refresh halaman. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
-// @author       You
+// @description  [v1.13.0] Hanya role yang diizinkan (AKSES_JSON, fitur autoKoreksi) yang melihat tombol START AUTO / CEK SIMPAN / STOP. Hanya lanjut otomatis kalau halaman dibuka oleh script sendiri (maks 1 menit) - buka halaman koreksi manual tidak pernah auto jalan. Ganti ID SO = mulai dari awal (isi pengkoreksi & tanggal lagi, tidak auto jalan). Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI, stop & refresh halaman. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
+// @author       Aistim
 // @match        https://*.erzap.com/stok_opnams/proses_koreksi_so/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -15,6 +15,64 @@
 
 (function() {
     'use strict';
+
+    // ====== HAK AKSES & FITUR (JSON) ======
+    // Auto Koreksi mengisi dan MENYIMPAN koreksi stok opname otomatis, jadi dibatasi per role.
+    // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini.
+    // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua). Nama fitur: autoKoreksi
+    //              (tombol START AUTO, CEK SIMPAN, STOP, dan seluruh proses otomatisnya).
+    // "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
+    //              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
+    // Fitur yang tidak disebut di "public" maupun "private" ditolak.
+    // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
+    // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
+    // Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script dan muat ulang halaman ERZAP.
+    const AKSES_JSON = `{
+        "public": [],
+        "private": ["autoKoreksi"],
+        "role": {
+            "pusat": {
+                "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT"],
+                "fitur": ["*"]
+            }
+        }
+    }`;
+
+    function bacaAkses() {
+        try {
+            const a = JSON.parse(AKSES_JSON) || {};
+            const role = a.role && typeof a.role === 'object' ? a.role : {};
+            return {
+                public: Array.isArray(a.public) ? a.public.map(String) : [],
+                role: Object.keys(role).map(function(k) {
+                    const r = role[k] || {};
+                    return {
+                        nama: Array.isArray(r.nama) ? r.nama.map(String) : [],
+                        fitur: Array.isArray(r.fitur) ? r.fitur.map(String) : []
+                    };
+                })
+            };
+        } catch (err) {
+            console.error('[autokoreksi] AKSES_JSON tidak valid -> akses ditutup:', err.message);
+            return { public: [], role: [] };
+        }
+    }
+    const AKSES = bacaAkses();
+
+    // dicek saat dipakai (bukan sekali di awal), karena nama kasir di pojok ERZAP bisa dimuat belakangan.
+    // Role dicocokkan urut dari atas; role pertama yang namanya cocok yang menentukan.
+    function bolehFitur(fitur) {
+        if (AKSES.public.indexOf(fitur) !== -1) return true;
+        const nama = (((document.getElementById('info_kasir') || {}).textContent) || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        for (const r of AKSES.role) {
+            const cocok = r.nama.some(function(u) {
+                u = u.replace(/\s+/g, ' ').trim().toLowerCase();
+                return !!u && nama.indexOf(u) !== -1;
+            });
+            if (cocok) return r.fitur.indexOf('*') !== -1 || r.fitur.indexOf(fitur) !== -1;
+        }
+        return false;
+    }
 
     // ID SO dari URL: /stok_opnams/proses_koreksi_so/<ID>
     function idSO() {
@@ -726,6 +784,9 @@
 
     function initControls() {
         if (document.getElementById('autoKoreksiGroup')) return;
+        // Tanpa hak akses: tidak ada tombol dan proses lanjutan tidak pernah dimulai (resume ada di bawah ini).
+        // Dipanggil ulang oleh observer / load, jadi tombol muncul begitu nama kasir di pojok ERZAP terbaca.
+        if (!bolehFitur('autoKoreksi')) return;
 
         injectResponsiveStyle();
 
@@ -757,6 +818,7 @@
             stopBtn.style.minWidth = '70px';
 
             startBtn.addEventListener('click', function() {
+                if (!bolehFitur('autoKoreksi')) return;
                 if (!isRunning && !cekJalan) {
                     if (!simpanIsianManual()) return;
                     tandaiAutoMulai();
@@ -786,6 +848,7 @@
             cekBtn.style.borderColor = '#fd7e14';
             cekBtn.style.minWidth = '110px';
             cekBtn.addEventListener('click', function() {
+                if (!bolehFitur('autoKoreksi')) return;
                 if (isRunning || cekJalan) return;
                 cariHalamanBelumSimpan(cekBtn);
             });
@@ -821,9 +884,20 @@
         setTimeout(jalan, 1500);
     }
 
+    // Percobaan ulang cek akses (nama kasir bisa terbaca sesaat setelah halaman siap), terpisah dari 'coba' tabel.
+    let izinCoba = 0;
     function runAutoProcess(btnElement, coba) {
         coba = coba || 0;
         if (sessionStorage.getItem('erzap_auto_running') !== 'true') return;
+        if (!bolehFitur('autoKoreksi')) {
+            if (izinCoba++ < 15) { setTimeout(() => runAutoProcess(btnElement, coba), 200); return; }
+            sessionStorage.setItem('erzap_auto_running', 'false');
+            isRunning = false;
+            alurAktif = false;
+            console.warn('[Aistim] Koreksi: tidak punya akses autoKoreksi -> proses dihentikan');
+            return;
+        }
+        izinCoba = 0;
 
         let currentP = getCurrentPageNumber();
         let storedMax = parseInt(sessionStorage.getItem('erzap_max_page') || '1');

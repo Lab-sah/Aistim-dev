@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.23.8
+// @version      1.27.3
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
+// @world        main
 // @grant        none
 // ==/UserScript==
 
@@ -16,8 +17,8 @@
 // Fitur yang tidak disebut di "public" maupun "private" ditolak.
 // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
 var RK_AKSES_JSON = `{
-    "public": ["mapRak", "barcode", "gambar", "hargaJual", "filter"],
-    "private": ["editGambar", "penentuanRak"],
+    "public": ["mapRak", "barcode", "gambar", "hargaJual", "filter", "editGambar", "penentuanRak"],
+    "private": [],
     "role": {
         "pusat": {
             "nama": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
@@ -1187,7 +1188,16 @@ function rkBoleh(fitur) {
     const FILTER_GBR_KEY = 'aistim_gbr_filter';
     let filterRak = '';
     let filterGbr = '';
-    try { const f = sessionStorage.getItem(FILTER_KEY); if (f === 'ada' || f === 'kosong') filterRak = f; } catch (e) { }
+
+    // Filter aktif: 50 baris cocok per klik, lintas halaman. Semua baris tabel dimuat sekali (panjang "Semua"),
+    // blok ke-N = cocok ke-(50*(N-1)+1) sampai 50*N. Baris yang sudah lewat disembunyikan.
+    const BLOK_FILTER = 50;
+    const PER_PUTARAN = 40;    // maks. baris yang diminta statusnya per putaran (sisanya di putaran berikutnya)
+    let blokFilter = 0;        // indeks blok yang sedang tampil (0 = 1-50)
+    let lenAsli = null;        // panjang halaman DataTables sebelum filter memaksa "Semua"
+    let lenSudahDiset = false; // panjang sudah dipaksa untuk filter yang sedang aktif
+    let navRef = null;         // tombol Sebelumnya / Berikutnya
+    try { const f = sessionStorage.getItem(FILTER_KEY); if (f === 'ada' || f === 'kosong' || f === 'multi') filterRak = f; } catch (e) { }
     try { const f = sessionStorage.getItem(FILTER_GBR_KEY); if (f === 'ada' || f === 'kosong') filterGbr = f; } catch (e) { }
     function aktifFilter() { return !!(filterRak || filterGbr); }
 
@@ -1195,15 +1205,21 @@ function rkBoleh(fitur) {
     let jalanFilter = 0;
     const MAKS_FILTER = 6;
 
+    // "RKS-001, RKS-002" -> 2
+    function hitungRak(rak) {
+        return rak ? String(rak).split(/\s*,\s*/).filter(Boolean).length : 0;
+    }
+
     function rakAdaCepat(td) {
         const prd = td.dataset.prd;
         if (!prd) return Promise.resolve(false);
         const gdn = td.dataset.gdn || '';
         if (!gdn) return dataRak(td).then((d) => (d || []).some((x) => x.r));
         const key = prd + '|' + gdn;
-        if (segar(RAKF[key])) return Promise.resolve(RAKF[key].ada);
+        // Filter "Rak lebih dari 1" butuh jumlah rak (n); entri cache lama tanpa n diambil ulang.
+        if (segar(RAKF[key]) && (filterRak !== 'multi' || RAKF[key].n !== undefined)) return Promise.resolve(RAKF[key].ada);
         return rakGudang(prd, gdn, td.dataset.otl || '').then((rak) => {
-            RAKF[key] = { t: Date.now(), ada: !!rak };
+            RAKF[key] = { t: Date.now(), ada: !!rak, n: hitungRak(rak) };
             simpanFilterCache();
             return !!rak;
         });
@@ -1220,7 +1236,7 @@ function rkBoleh(fitur) {
         const terapkan = () => { if (aktifFilter()) terapkanFilter(); };
         if (gdn) {
             rakGudang(prd, gdn, td.dataset.otl || '').then((rak) => {
-                RAKF[prd + '|' + gdn] = { t: Date.now(), ada: !!rak };
+                RAKF[prd + '|' + gdn] = { t: Date.now(), ada: !!rak, n: hitungRak(rak) };
                 simpanFilterCache();
                 terapkan();
             }).catch(() => { });
@@ -1262,6 +1278,25 @@ function rkBoleh(fitur) {
         return td.dataset.rkgagal ? 'gagal' : null;
     }
 
+    // Filter "Rak lebih dari 1": 'ada' bila jumlah rak > 1. Dengan filter gudang = rak di gudang itu;
+    // tanpa filter gudang = jumlah semua rak produk di seluruh gudangnya.
+    function statusRakMulti(td) {
+        const prd = td.dataset.prd;
+        if (!prd) return 'kosong';
+        const gdn = td.dataset.gdn || '';
+        if (gdn) {
+            const c = RAKF[prd + '|' + gdn];
+            if (segar(c) && c.n !== undefined) return c.n > 1 ? 'ada' : 'kosong';
+        } else {
+            const c = cache[prd + '|' + (td.dataset.otl || '')];
+            if (c && Date.now() - c.t < CACHE_TTL) {
+                const n = (c.v || []).reduce((jml, x) => jml + hitungRak(x.r), 0);
+                return n > 1 ? 'ada' : 'kosong';
+            }
+        }
+        return td.dataset.rkgagal ? 'gagal' : null;
+    }
+
     function statusGbr(td) {
         const id = td.dataset.prd;
         if (!id) return 'kosong';
@@ -1274,9 +1309,10 @@ function rkBoleh(fitur) {
     function statusFilter(td) {
         let gagal = false;
         if (filterRak) {
-            const s = statusRak(td);
+            const multi = filterRak === 'multi';
+            const s = multi ? statusRakMulti(td) : statusRak(td);
             if (s === null) return null;
-            if (s === 'gagal') gagal = true; else if (s !== filterRak) return 'tidak';
+            if (s === 'gagal') gagal = true; else if (s !== (multi ? 'ada' : filterRak)) return 'tidak';
         }
         if (filterGbr) {
             const s = statusGbr(td);
@@ -1298,6 +1334,91 @@ function rkBoleh(fitur) {
         }
     }
 
+    // DataTables API (tersedia karena script berjalan di @world main). Null bila tabel bukan DataTables.
+    function dtApi(table) {
+        const jq = window.jQuery;
+        try {
+            if (table && jq && jq.fn && jq.fn.dataTable && jq.fn.dataTable.isDataTable(table)) return jq(table).DataTable();
+        } catch (e) { }
+        return null;
+    }
+
+    // Kotak "tampilkan N data" DataTables
+    function cariSelPanjang(table) {
+        const wrap = table && table.closest('.dataTables_wrapper');
+        return (wrap && wrap.querySelector('.dataTables_length select')) || document.querySelector('.dataTables_length select');
+    }
+    // Pilihan terbesar: "Semua" (-1) kalau ada, kalau tidak angka terbesar
+    function panjangTerbesar(sel) {
+        const nilai = Array.from(sel.options).map((o) => o.value);
+        if (nilai.indexOf('-1') !== -1) return '-1';
+        let best = null, bestN = -Infinity;
+        nilai.forEach((v) => { const n = parseInt(v, 10); if (!isNaN(n) && n > bestN) { bestN = n; best = v; } });
+        return best;
+    }
+    function gantiPanjang(table, nilai) {
+        const sel = cariSelPanjang(table);
+        const tuju = String(nilai);
+        if (!sel || sel.value === tuju || !Array.prototype.some.call(sel.options, (o) => o.value === tuju)) return false;
+        sel.value = tuju;
+        sel.dispatchEvent(new Event('change', { bubbles: true })); // DataTables menggambar ulang halamannya
+        return true;
+    }
+    function paksaPanjang(table) {
+        const sel = cariSelPanjang(table);
+        if (!sel) return false;
+        const tuju = panjangTerbesar(sel);
+        if (tuju === null || sel.value === tuju) return false;
+        if (lenAsli === null) lenAsli = sel.value;
+        return gantiPanjang(table, tuju);
+    }
+    function pulihkanPanjang(table) {
+        if (lenAsli === null) return false;
+        const nilai = lenAsli;
+        lenAsli = null;
+        return gantiPanjang(table, nilai);
+    }
+
+    // Kolom "No": nomor baris yang tampil. Tanpa filter: nomor dari teks "Showing 26 to 50" (seperti bawaan).
+    // Dengan filter: nomor lanjut dari 'offset' (jumlah cocok sebelum blok ini).
+    function nomorUrut(table, rows, offset) {
+        const headRow = table.querySelector('thead tr');
+        if (!headRow) return;
+        const idx = Array.from(headRow.children).findIndex((th) => /^no\.?$/i.test(th.textContent.trim()));
+        if (idx < 0) return;
+        const sel = (tr) => (tr.children.length > idx ? tr.children[idx] : null);
+        rows.forEach((tr) => {
+            const c = sel(tr);
+            if (c && c.dataset.rkNoAsli === undefined) c.dataset.rkNoAsli = c.textContent.trim();
+        });
+        let mulai = NaN;
+        if (typeof offset === 'number') {
+            mulai = offset + 1;
+        } else {
+            const infoDT = document.querySelector('.dataTables_info');
+            const mi = infoDT && /(\d[\d.,]*)/.exec(infoDT.textContent);
+            if (mi) mulai = parseInt(mi[1].replace(/[.,]/g, ''), 10);
+            if (isNaN(mulai) && rows[0]) { const c0 = sel(rows[0]); mulai = c0 ? parseInt(c0.dataset.rkNoAsli, 10) : NaN; }
+        }
+        if (isNaN(mulai) || mulai < 1) mulai = 1;
+        let n = mulai;
+        rows.forEach((tr) => {
+            if (tr.style.display === 'none') return;
+            const c = sel(tr);
+            if (!c || c.children.length) return; // sel berisi elemen lain: jangan ditimpa
+            const teks = String(n++);
+            if (c.textContent !== teks) c.textContent = teks;
+        });
+    }
+
+    // adaLanjut: masih ada cocok (atau pemeriksaan belum selesai) setelah blok ini
+    function segarkanNav(adaLanjut) {
+        if (!navRef) return;
+        navRef.wrap.style.display = aktifFilter() ? 'flex' : 'none';
+        navRef.prev.disabled = blokFilter <= 0;
+        navRef.next.disabled = !adaLanjut;
+    }
+
     function terapkanFilter() {
         const table = document.querySelector(TABLE_SEL);
         if (!table) return;
@@ -1307,28 +1428,60 @@ function rkBoleh(fitur) {
         const rows = Array.from(table.querySelectorAll('tbody tr')).filter((tr) => tr.querySelector(STOK_SEL));
 
         if (!aktifFilter()) {
+            if (lenSudahDiset) { lenSudahDiset = false; if (pulihkanPanjang(table)) return; } // digambar ulang, lalu dihitung lagi
+            blokFilter = 0;
             rows.forEach((tr) => tampilkan(tr, ''));
             tulis('');
+            nomorUrut(table, rows, null);
+            segarkanNav(false);
             return;
         }
-        let menunggu = 0, cocok = 0;
-        rows.forEach((tr) => {
-            const td = tr.querySelector(STOK_SEL);
+        if (!lenSudahDiset) {
+            lenSudahDiset = true;
+            if (paksaPanjang(table)) return; // tabel digambar ulang dengan semua baris, lalu dihitung lagi
+        }
+
+        // Cocok dikumpulkan berurutan sampai cukup untuk blok ini ditambah satu (untuk tahu ada blok berikutnya).
+        // Status baris yang belum ada diminta sebagian per putaran; sisanya diperiksa setelah putaran ini selesai.
+        const batas = (blokFilter + 1) * BLOK_FILTER;
+        const cocok = [];
+        let menunggu = 0, habis = true;
+        for (let i = 0; i < rows.length; i++) {
+            const td = rows[i].querySelector(STOK_SEL);
             const st = statusFilter(td);
             if (st === null) {
                 menunggu++;
-                tampilkan(tr, 'none');
                 if (!td.dataset.rkantri) { td.dataset.rkantri = '1'; antreFilter.push(td); }
-                return;
+                if (menunggu >= PER_PUTARAN) { habis = false; break; }
+                continue;
             }
-            const ok = st === 'cocok' || st === 'gagal';
-            if (ok) cocok++;
-            tampilkan(tr, ok ? '' : 'none');
-        });
+            if (st === 'cocok' || st === 'gagal') {
+                cocok.push(rows[i]);
+                if (cocok.length > batas) { habis = false; break; }
+            }
+        }
+
+        const mulai = blokFilter * BLOK_FILTER;
+        const tampil = new Set(cocok.slice(mulai, mulai + BLOK_FILTER));
+        rows.forEach((tr) => tampilkan(tr, tampil.has(tr) ? '' : 'none'));
+        nomorUrut(table, rows, mulai);
+
+        const adaLanjut = cocok.length > batas || !habis;
+        segarkanNav(adaLanjut);
         pompaFilter();
+        const sampai = Math.min(mulai + BLOK_FILTER, cocok.length);
+        const totalTeks = (habis && menunggu === 0) ? String(cocok.length) : cocok.length + '+';
         tulis(menunggu
-            ? 'Memeriksa ' + (rows.length - menunggu) + '/' + rows.length + ' baris di halaman ini...'
-            : 'Menampilkan ' + cocok + ' dari ' + rows.length + ' baris di halaman ini');
+            ? 'Memeriksa ' + (rows.length - menunggu) + '/' + rows.length + ' baris...' + (cocok.length ? ' (' + cocok.length + ' cocok sejauh ini)' : '')
+            : 'Menampilkan ' + (cocok.length ? mulai + 1 : 0) + '–' + sampai + ' dari ' + totalTeks + ' yang cocok');
+    }
+
+    // Tombol Sebelumnya (-1) / Berikutnya (+1): pindah blok 50 cocok. Halaman tabel tidak berpindah.
+    function navFilter(arah) {
+        if (arah > 0) blokFilter++;
+        else if (blokFilter > 0) blokFilter--;
+        else return;
+        terapkanFilter();
     }
 
     function pasangFilter() {
@@ -1348,7 +1501,7 @@ function rkBoleh(fitur) {
         lb.textContent = 'Status Rak / Gambar';
         const sel = document.createElement('select');
         sel.id = 'rk_filter_status';
-        [['', '-- Semua --'], ['rak_ada', 'Sudah ada rak'], ['rak_kosong', 'Belum ada rak'], ['gbr_ada', 'Sudah bergambar'], ['gbr_kosong', 'Belum ada gambar']].forEach((o) => {
+        [['', '-- Semua --'], ['rak_ada', 'Sudah ada rak'], ['rak_kosong', 'Belum ada rak'], ['rak_multi', 'Rak lebih dari 1'], ['gbr_ada', 'Sudah bergambar'], ['gbr_kosong', 'Belum ada gambar']].forEach((o) => {
             const op = document.createElement('option');
             op.value = o[0];
             op.textContent = o[1];
@@ -1357,6 +1510,7 @@ function rkBoleh(fitur) {
         sel.value = filterRak ? 'rak_' + filterRak : (filterGbr ? 'gbr_' + filterGbr : '');
         sel.addEventListener('change', () => {
             const v = sel.value;
+            blokFilter = 0;
             filterRak = v.indexOf('rak_') === 0 ? v.slice(4) : '';
             filterGbr = v.indexOf('gbr_') === 0 ? v.slice(4) : '';
             try {
@@ -1365,12 +1519,29 @@ function rkBoleh(fitur) {
             } catch (e) { }
             terapkanFilter();
         });
+        const nav = document.createElement('div');
+        nav.id = 'rk_filter_nav';
+        nav.style.cssText = 'display:none;gap:6px;margin-top:4px';
+        const tombolNav = (teks, arah) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = teks;
+            b.style.cssText = 'font-size:11px;padding:2px 8px;border:1px solid #bbb;border-radius:4px;background:#fff;cursor:pointer';
+            b.addEventListener('click', () => navFilter(arah));
+            return b;
+        };
+        const bPrev = tombolNav('‹ ' + BLOK_FILTER + ' sebelumnya', -1);
+        const bNext = tombolNav(BLOK_FILTER + ' berikutnya ›', 1);
+        nav.appendChild(bPrev);
+        nav.appendChild(bNext);
+        navRef = { wrap: nav, prev: bPrev, next: bNext };
         const info = document.createElement('div');
         info.id = 'rk_filter_info';
         info.style.cssText = 'font-size:11px;color:#777;margin-top:3px';
         box.appendChild(lb);
         box.appendChild(document.createElement('br'));
         box.appendChild(sel);
+        box.appendChild(nav);
         box.appendChild(info);
         field.insertAdjacentElement('afterend', box);
         terapkanFilter();
@@ -1526,7 +1697,10 @@ function rkBoleh(fitur) {
     '#rk_aksi_rak{margin-top:18px!important;padding-top:16px;border-top:1px solid #e9eef3}',
     '#btn_update_rak{height:44px;font-size:15px!important;font-weight:600;border-radius:8px!important;padding:0 16px!important}',
     '#rk_batal_rak{height:44px;padding:0 22px!important;font-size:15px!important;font-weight:600;color:#4a5a6a!important;border:1.5px solid #cfd8e3!important;border-radius:8px!important;background:#fff!important;cursor:pointer}',
-    '#rk_batal_rak:hover{background:#f3f6f9!important}'
+    '#rk_batal_rak:hover{background:#f3f6f9!important}',
+    // Hanya nama produk: yang panjang turun ke baris berikutnya (juga kata tanpa spasi). Sengaja tidak menyentuh
+    // overflow halaman, combobox, atau daftar rak, supaya dropdown rak tidak terpotong.
+    '#content_produk p.mb-2{white-space:normal!important;overflow-wrap:anywhere;word-break:break-word;max-width:100%}'
   ].join('');
 
   var mode = 'other';
@@ -1714,16 +1888,35 @@ function rkBoleh(fitur) {
 
     if (!d.__rkSaveHook && w.jQuery) {
       d.__rkSaveHook = 1;
+      console.log('[Penentuan Rak] hook simpan terpasang');
       w.alert = function (m) { state.msg = m; if (!state.saving) toast(m, 'info'); };
-      var cocokUrl = function (o) { return !!(o && String(o.url || '').indexOf('/produks/update_rak_barangs') > -1); };
-      w.jQuery(d).ajaxSend(function (ev, xhr, o) { if (cocokUrl(o)) { state.saving = true; state.msg = ''; } });
+      // Klik "Simpan" menandai jendela 20 detik: permintaan ajax non-GET sesudahnya dianggap penyimpanan rak,
+      // walau alamatnya berbeda dari yang diperkirakan.
+      d.addEventListener('click', function (e) {
+        if (e.target && e.target.closest && e.target.closest('#btn_update_rak')) state.klik = Date.now();
+      }, true);
+      var simpanReq = function (o) {
+        if (!o) return false;
+        if (String(o.url || '').indexOf('update_rak_barang') > -1) return true;
+        return !!state.klik && Date.now() - state.klik < 20000 && /^(post|put|patch|delete)$/i.test(o.type || o.method || '');
+      };
+      w.jQuery(d).ajaxSend(function (ev, xhr, o) { if (simpanReq(o)) { state.saving = true; state.msg = ''; } });
       w.jQuery(d).ajaxComplete(function (ev, xhr, o) {
-        if (!cocokUrl(o)) return;
+        if (!simpanReq(o)) return;
         state.saving = false;
+        state.klik = 0;
         var r = xhr && xhr.responseJSON;
         if (!r) { try { r = JSON.parse(xhr.responseText); } catch (e) { r = null; } }
+        console.log('[Penentuan Rak] simpan selesai:', o && o.url, 'HTTP', xhr && xhr.status, r);
+        var http = xhr && xhr.status;
+        var httpOk = http >= 200 && http < 300;
+        // Berhasil: status "1"/true/success, atau respons tanpa penanda status tetapi HTTP 2xx
+        var ok = r
+          ? (String(r.status) === '1' || r.status === true || r.success === true ||
+             (r.status === undefined && r.success === undefined && httpOk))
+          : httpOk;
         var msg = state.msg || (r && r.message) || '';
-        if (r && String(r.status) === '1') {
+        if (ok) {
           try { document.dispatchEvent(new CustomEvent('rk:rakberubah', { detail: { prd: lastLihat && lastLihat.dataset ? lastLihat.dataset.prd : '' } })); } catch (e) { }
           closeOverlay();
           toast(msg || 'Rak tersimpan', 'ok');

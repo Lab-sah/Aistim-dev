@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.8.0
-// @description  [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
+// @version      1.9.8
+// @description  [v1.9.8] Inspect: sensor juga menyamarkan field JSON password/token/secret. Laporan & JSON terakhir tetap ada saat popup ditutup lalu dibuka lagi; Escape / klik di luar popup minta konfirma laporan & JSON terakhir tetap ada saat popup ditutup lalu dibuka lagi; Escape / klik di luar popup minta konfirmasi bila laporan belum disalin. [v1.9.6] DOM aktif tidak lagi membuang elemen rk_ milik rakstok.js dari analisa; pencarian kata website/partdistro di Rekam dipercepat (lewat text node). [v1.9.5] Kirim GET tidak lagi memasukkan token CSRF & password ke URL; sensor() juga menyamarkan parameter URL bernama token/password/secret/api_key. [v1.9.4] Popup Inspect: tombol di baris atas turun ke baris berikutnya (tidak lagi terpotong ke kanan), sehingga bisa dilihat dengan scroll. [v1.9.3] Pesan "HALAMAN LOGIN" dan catatan kolom password dihapus dari Analisa & Rekam. [v1.9.2] Pesan "HALAMAN LOGIN" dihapus dari hasil Rekam. [v1.9.1] Pesan halaman login menyebut Erzap (bukan partdistro.com). [v1.9.0] Inspect: tombol DOM aktif (analisa setelah JavaScript jalan), Salin/Unduh JSON, jejak request terakhir di laporan, contoh baris tabel, respons JSON dirapikan. [v1.8.2] Ambil & log Rekam menyamarkan token/CSRF (termasuk input tersembunyi). [v1.8.1] Tombol testurl diganti Inspect. [v1.8.0] Form tiruan: tombol Cari (GET, hanya membaca, tanpa konfirmasi) dengan alamat yang bisa dipilih dari skrip halaman, opsi 'sebagai AJAX', laporan komponen hasil, dan 'Pakai input hasil' untuk mengisi field tambahan. Simpan/Enter di form tiruan sekarang menjalankan Cari (bukan POST); Kirim POST tetap terpisah dan dikonfirmasi. [v1.7.0] testurl > Analisa: di bawah laporan muncul FORM TIRUAN (tampilan mengikuti CSS halaman) yang bisa diisi lalu dikirim (GET/POST, selalu dikonfirmasi, hanya ke domain ini) beserta payload dan ringkasan respons; laporan juga memuat proses submit/AJAX di skrip inline dan pencarian id/nama form di skrip eksternal. [v1.6.1] testurl > Analisa: bagian LINK hanya menampilkan link yang sesuai path halaman yang diambil (menu/link path lain tidak ikut, jumlahnya disebut). [v1.6.0] testurl: tombol Analisa - link di-fetch lalu HTML-nya di-parse dan ditampilkan komponennya (form, input/select/textarea beserta name/id/label/nilai, tombol, tabel, modal, link, library). [v1.5.0] Tombol testurl di bawah tombol Rekam: popup input link, fetch (GET) lalu tampilkan outputnya. [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -32,9 +32,16 @@
     const rapih = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
     const sensor = (s) => String(s || '')
         .replace(/(authenticity_token=)[^&\s"']*/gi, '$1***')
+        // parameter URL bernama token/password/secret/api_key (mis. ?token=, &amp;password=)
+        .replace(/([?&;][^=&\s"'<>]*(?:token|passw|secret|api[_-]?key)[^=&\s"'<>]*=)[^&\s"'<>]*/gi, '$1***')
         .replace(/(csrf[-_]?token["']?\s*[:=]\s*["']?)[^&\s"']*/gi, '$1***')
         .replace(/(<meta[^>]*name=["']csrf-token["'][^>]*content=["'])[^"']*/gi, '$1***')
-        .replace(/(<meta[^>]*content=["'])[^"']*(["'][^>]*name=["']csrf-token["'])/gi, '$1***$2');
+        .replace(/(<meta[^>]*content=["'])[^"']*(["'][^>]*name=["']csrf-token["'])/gi, '$1***$2')
+        // input tersembunyi berisi token/password (mis. name="authenticity_token" value="...")
+        .replace(/<input\b[^>]*>/gi, (tag) => /token|csrf|authenticity|passw|secret/i.test(tag)
+            ? tag.replace(/(\bvalue=)(["'])[^"']*\2/i, '$1$2***$2') : tag)
+        // field JSON bernama password/token/secret (mis. {"password":"abc"}); nilai diganti ***
+        .replace(/(["'](?:password|passwd|pass|token|secret|api[_-]?key|access[_-]?token)["']\s*:\s*["'])[^"']*/gi, '$1***');
 
     function snippet(teks) {
         const t = rapih(teks);
@@ -49,20 +56,45 @@
         perbaruiTombol();
     }
 
+    // ----- jejak request same-origin: dicatat selama skrip aktif (dipakai laporan Inspect) -----
+    const jejak = [];
+    let dalamInspect = 0;   // >0 saat Inspect sendiri yang mengambil halaman (tidak masuk jejak)
+    const JEJAK_ABAIKAN = /\.(js|css|png|jpe?g|gif|svg|ico|woff2?|map)(\?|$)/i;
+    function catatJejak(x) {
+        if (JEJAK_ABAIKAN.test(x.u || '')) return;
+        x.w = t0();
+        jejak.push(x);
+        if (jejak.length > 40) jejak.shift();
+    }
+    // fetch untuk pengambilan milik Inspect sendiri (Ambil & telusur skrip): tidak dicatat ke jejak/rekaman
+    const fetchInspect = (...a) => { dalamInspect++; try { return fetch(...a); } finally { dalamInspect--; } };
+
+    // ----- keadaan Inspect yang bertahan saat popup ditutup (dipulihkan saat dibuka lagi) -----
+    let terakhir = null;      // hasil analisa terakhir {doc, meta} (untuk JSON & form tiruan)
+    let outTerakhir = '';     // teks laporan terakhir
+    let teksDisalin = null;   // teks laporan yang sudah disalin/diekspor (untuk konfirmasi saat tutup)
+
     // ----- fetch -----
     const asliFetch = window.fetch;
     window.fetch = function (input, init) {
         const url = typeof input === 'string' ? input : (input && input.url) || '';
         const method = (init && init.method) || (input && input.method) || 'GET';
         const body = init && typeof init.body === 'string' ? sensor(init.body).slice(0, 300) : '';
+        const dariInspect = dalamInspect > 0;
         const p = asliFetch.apply(this, arguments);
-        if (merekam && sama_origin(url)) {
+        if (sama_origin(url) && !dariInspect) {
             p.then((res) => {
-                res.clone().text().then((txt) => {
-                    catat('FETCH ' + method + ' ' + sensor(url) + (body ? ' body=' + body : '') +
-                        ' -> ' + res.status + ' [' + (res.headers.get('content-type') || '') + '] ' + txt.length + ' char | ' + snippet(txt));
-                }).catch(() => {});
-            }).catch((e) => catat('FETCH ' + method + ' ' + sensor(url) + ' -> ERROR ' + e));
+                catatJejak({ m: method, u: sensor(url), s: res.status, ct: (res.headers.get('content-type') || '').split(';')[0] });
+                if (merekam) {
+                    res.clone().text().then((txt) => {
+                        catat('FETCH ' + method + ' ' + sensor(url) + (body ? ' body=' + body : '') +
+                            ' -> ' + res.status + ' [' + (res.headers.get('content-type') || '') + '] ' + txt.length + ' char | ' + snippet(sensor(txt)));
+                    }).catch(() => {});
+                }
+            }).catch((e) => {
+                catatJejak({ m: method, u: sensor(url), s: 'ERROR' });
+                catat('FETCH ' + method + ' ' + sensor(url) + ' -> ERROR ' + e);
+            });
         }
         return p;
     };
@@ -81,13 +113,18 @@
     };
     XMLHttpRequest.prototype.send = function (body) {
         const info = this.__rk;
-        if (merekam && info && sama_origin(info.url)) {
-            const b = typeof body === 'string' ? sensor(body).slice(0, 300) : '';
+        if (info && sama_origin(info.url)) {
+            const rekam = merekam;
+            const b = rekam && typeof body === 'string' ? sensor(body).slice(0, 300) : '';
             this.addEventListener('loadend', function () {
+                let ct = '';
+                try { ct = (this.getResponseHeader('content-type') || '').split(';')[0]; } catch (e) { /* abaikan */ }
+                catatJejak({ m: info.method, u: sensor(info.url), s: this.status, ct: ct });
+                if (!rekam) return;
                 let txt = '';
                 try { txt = typeof this.responseText === 'string' ? this.responseText : ''; } catch (e) { /* abaikan */ }
                 catat('XHR ' + info.method + ' ' + sensor(info.url) + (b ? ' body=' + b : '') +
-                    ' hdr{' + info.headers.join('; ') + '} -> ' + this.status + ' ' + txt.length + ' char | ' + snippet(txt));
+                    ' hdr{' + info.headers.join('; ') + '} -> ' + this.status + ' ' + txt.length + ' char | ' + snippet(sensor(txt)));
             });
         }
         return asliSend.apply(this, arguments);
@@ -115,13 +152,13 @@
     ui.style.cssText = 'position:fixed;left:8px;bottom:70px;z-index:99990;font-family:sans-serif;';
     ui.innerHTML = '<button id="rk_btn" type="button" style="padding:8px 12px;border:none;border-radius:20px;background:#343a40;color:#fff;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.4);">&#9210; Rekam</button>';
     const btn = ui.firstChild;
-    // tombol testurl tepat di bawah tombol Rekam (Rekam tidak bergeser)
+    // tombol Inspect tepat di bawah tombol Rekam (Rekam tidak bergeser)
     const btnUrl = document.createElement('button');
-    btnUrl.id = 'rk_testurl';
+    btnUrl.id = 'rk_inspect';
     btnUrl.type = 'button';
-    btnUrl.textContent = 'testurl';
+    btnUrl.textContent = 'Inspect';
     btnUrl.style.cssText = 'position:absolute;top:100%;left:0;margin-top:6px;padding:6px 12px;border:none;border-radius:20px;background:#343a40;color:#fff;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,.4);';
-    btnUrl.addEventListener('click', tampilTestUrl);
+    btnUrl.addEventListener('click', tampilInspect);
     ui.appendChild(btnUrl);
 
     function perbaruiTombol() {
@@ -157,6 +194,7 @@
 
     function tampilModal(teks, judul) {
         const bd = document.createElement('div');
+        bd.id = 'rk_modal';
         bd.style.cssText = 'position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;';
         bd.innerHTML = '<div style="background:#fff;width:94%;max-width:640px;border-radius:8px;padding:12px;display:flex;flex-direction:column;max-height:88vh;">' +
             '<div id="rk_judul" style="font-weight:bold;margin-bottom:6px;"></div>' +
@@ -176,34 +214,46 @@
         };
     }
 
-    // ----- testurl: popup input link -> fetch (GET, sesi login) -> tampilkan outputnya -----
-    function tampilTestUrl() {
-        if (document.getElementById('rk_testurl_pop')) return;
+    // ----- Inspect: popup input link -> fetch (GET, sesi login) -> tampilkan outputnya -----
+    function tampilInspect() {
+        if (document.getElementById('rk_inspect_pop')) return;
         const gaya = (b) => 'padding:6px 14px;border:0;border-radius:4px;background:' + b + ';color:#fff;cursor:pointer;';
         const bd = document.createElement('div');
-        bd.id = 'rk_testurl_pop';
+        bd.id = 'rk_inspect_pop';
         bd.style.cssText = 'position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;';
         const kotak = document.createElement('div');
         kotak.style.cssText = 'background:#fff;color:#111;width:94%;max-width:900px;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;max-height:90vh;overflow:auto;font:13px sans-serif;';
         const judul = document.createElement('div');
         judul.style.cssText = 'font-weight:bold;';
-        judul.textContent = 'testurl';
+        judul.textContent = 'Inspect';
         const baris = document.createElement('div');
-        baris.style.cssText = 'display:flex;gap:6px;';
+        baris.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;';
         const inp = document.createElement('input');
         inp.type = 'text';
         inp.placeholder = 'Link, mis. /penjualans?pencarian[kode]=PJ131026-PMRA1-0001';
-        inp.style.cssText = 'flex:1;padding:6px;border:1px solid #94a3b8;border-radius:4px;';
+        inp.style.cssText = 'flex:1 1 220px;min-width:160px;padding:6px;border:1px solid #94a3b8;border-radius:4px;';
         const bGo = document.createElement('button');
         bGo.type = 'button'; bGo.textContent = 'Ambil'; bGo.style.cssText = gaya('#2563eb');
         const bAnalisa = document.createElement('button');
         bAnalisa.type = 'button'; bAnalisa.textContent = 'Analisa'; bAnalisa.style.cssText = gaya('#7c3aed');
         bAnalisa.title = 'Ambil link, parse HTML-nya, tampilkan komponen & input';
+        const bDom = document.createElement('button');
+        bDom.type = 'button'; bDom.textContent = 'DOM aktif'; bDom.style.cssText = gaya('#0d9488');
+        bDom.title = 'Analisa halaman yang sedang tampil (setelah JavaScript berjalan), bukan HTML mentah dari server';
         const bSalin = document.createElement('button');
         bSalin.type = 'button'; bSalin.textContent = 'Salin'; bSalin.style.cssText = gaya('#28a745');
         const bTutup = document.createElement('button');
         bTutup.type = 'button'; bTutup.textContent = 'Tutup'; bTutup.style.cssText = gaya('#64748b');
-        baris.appendChild(inp); baris.appendChild(bGo); baris.appendChild(bAnalisa); baris.appendChild(bSalin); baris.appendChild(bTutup);
+        baris.appendChild(inp); baris.appendChild(bGo); baris.appendChild(bAnalisa); baris.appendChild(bDom); baris.appendChild(bSalin); baris.appendChild(bTutup);
+        const barisEks = document.createElement('div');
+        barisEks.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;';
+        const bJson = document.createElement('button');
+        bJson.type = 'button'; bJson.textContent = 'Salin JSON'; bJson.style.cssText = gaya('#0f766e');
+        bJson.title = 'Struktur hasil Analisa / DOM aktif sebagai JSON';
+        const bUnduh = document.createElement('button');
+        bUnduh.type = 'button'; bUnduh.textContent = 'Unduh JSON'; bUnduh.style.cssText = gaya('#0f766e');
+        bUnduh.title = 'Simpan struktur hasil Analisa / DOM aktif sebagai file .json';
+        barisEks.appendChild(bJson); barisEks.appendChild(bUnduh);
         const info = document.createElement('div');
         info.style.cssText = 'color:#475569;';
         const out = document.createElement('textarea');
@@ -211,12 +261,19 @@
         out.style.cssText = 'flex:1;min-height:320px;width:100%;box-sizing:border-box;padding:6px;border:1px solid #cbd5e1;border-radius:4px;font:12px monospace;white-space:pre;';
         const panelForm = document.createElement('div');   // form tiruan hasil Analisa (di bawah laporan)
         let urutan = 0;                                     // penanda analisa terakhir (hasil telusur skrip yang telat dibuang)
-        kotak.appendChild(judul); kotak.appendChild(baris); kotak.appendChild(info); kotak.appendChild(out); kotak.appendChild(panelForm);
+        kotak.appendChild(judul); kotak.appendChild(baris); kotak.appendChild(info); kotak.appendChild(barisEks); kotak.appendChild(out); kotak.appendChild(panelForm);
         bd.appendChild(kotak);
         document.body.appendChild(bd);
         inp.focus();
 
-        const tutup = () => bd.remove();
+        // tutup: simpan laporan terakhir supaya muncul lagi saat Inspect dibuka
+        const tutup = () => { outTerakhir = out.value; bd.remove(); };
+        // Escape / klik di luar popup: minta konfirmasi bila ada laporan yang belum disalin
+        const tutupDenganKonfirmasi = () => {
+            if (out.value.trim() && out.value !== teksDisalin &&
+                !confirm('Tutup Inspect? Laporan yang belum disalin tetap disimpan dan muncul lagi saat Inspect dibuka.')) return;
+            tutup();
+        };
         async function ambil(analisa) {
             const v = inp.value.trim();
             if (!v) { info.textContent = 'Isi link dulu.'; return; }
@@ -228,18 +285,25 @@
             const no = ++urutan;
             const mulai = Date.now();
             try {
-                const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+                const res = await fetchInspect(url, { credentials: 'same-origin', cache: 'no-store' });
                 const teks = await res.text();
-                info.textContent = 'HTTP ' + res.status + ' ' + res.statusText + ' | ' + (res.headers.get('content-type') || '-') + ' | ' + teks.length + ' karakter | ' + (Date.now() - mulai) + ' ms' + (res.redirected ? ' | dialihkan ke ' + res.url : '');
-                if (!analisa) { out.value = teks; return; }
+                const tipe = res.headers.get('content-type') || '';
+                info.textContent = 'HTTP ' + res.status + ' ' + res.statusText + ' | ' + (tipe || '-') + ' | ' + teks.length + ' karakter | ' + (Date.now() - mulai) + ' ms' + (res.redirected ? ' | dialihkan ke ' + res.url : '');
+                if (!analisa) {
+                    let tampil = teks;
+                    if (/json/i.test(tipe)) { try { tampil = JSON.stringify(JSON.parse(teks), null, 2); } catch (e) { /* bukan JSON valid: tampilkan apa adanya */ } }
+                    out.value = sensor(tampil);
+                    return;
+                }
                 try {
                     const doc = new DOMParser().parseFromString(teks, 'text/html');
                     const urlAkhir = res.url || url;
-                    out.value = analisaDoc(doc, urlAkhir, teks.length);
+                    terakhir = { doc: doc, meta: { mode: 'html-server', url: urlAkhir, status: res.status, contentType: tipe } };
+                    out.value = analisaDoc(doc, urlAkhir, teks.length) + '\n\n' + jejakTeks();
                     buatPanelForm(doc, urlAkhir, panelForm);
                     telusuriSkrip(doc, urlAkhir).then((t) => { if (no === urutan && t) out.value += '\n\n' + t; }).catch(() => {});
                 } catch (err) {
-                    out.value = 'Analisa gagal: ' + err.message + '\n\nHTML mentah:\n' + teks;
+                    out.value = 'Analisa gagal: ' + err.message + '\n\nHTML mentah:\n' + sensor(teks);
                 }
             } catch (err) {
                 info.textContent = 'Gagal: ' + err.message + ' (link luar domain biasanya diblokir CORS)';
@@ -247,14 +311,164 @@
         }
         bGo.onclick = () => ambil(false);
         bAnalisa.onclick = () => ambil(true);
+
+        // Analisa halaman yang sedang tampil: DOM setelah JavaScript jalan (termasuk elemen hasil AJAX)
+        function analisaDom() {
+            const no = ++urutan;
+            out.value = '';
+            panelForm.textContent = '';
+            try {
+                const doc = document.cloneNode(true);
+                // hanya buang elemen milik Inspect/Rekam; id rk_ lain (mis. rakstok.js: rk_pending, rk_simpan) tetap ikut dianalisa
+                doc.querySelectorAll('#rk_rekam_ui, #rk_inspect_pop, #rk_modal').forEach((el) => el.remove());
+                const urlNow = location.href;
+                const panjang = document.documentElement.outerHTML.length;
+                terakhir = { doc: doc, meta: { mode: 'dom-aktif', url: urlNow, status: null, contentType: 'text/html' } };
+                out.value = analisaDoc(doc, urlNow, panjang) + '\n\n' + jejakTeks();
+                buatPanelForm(doc, urlNow, panelForm);
+                info.textContent = 'DOM aktif: ' + doc.querySelectorAll('*').length + ' elemen (termasuk yang dibuat JavaScript).';
+                telusuriSkrip(doc, urlNow).then((t) => { if (no === urutan && t) out.value += '\n\n' + t; }).catch(() => {});
+            } catch (err) {
+                out.value = 'Analisa DOM gagal: ' + err.message;
+            }
+        }
+        bDom.onclick = analisaDom;
+
+        // Ekspor JSON dari hasil terakhir
+        const jsonTeks = () => {
+            if (!terakhir) { info.textContent = 'Jalankan Analisa atau DOM aktif dulu.'; return null; }
+            teksDisalin = out.value;
+            return JSON.stringify(strukturJson(terakhir.doc, terakhir.meta), null, 2);
+        };
+        bJson.onclick = async () => {
+            const j = jsonTeks();
+            if (j == null) return;
+            try { await navigator.clipboard.writeText(j); info.textContent = 'JSON disalin (' + j.length + ' karakter).'; }
+            catch (e) { out.value = j; out.select(); document.execCommand('copy'); info.textContent = 'JSON disalin lewat cadangan (' + j.length + ' karakter).'; }
+        };
+        bUnduh.onclick = () => {
+            const j = jsonTeks();
+            if (j == null) return;
+            const a = document.createElement('a');
+            const blobUrl = URL.createObjectURL(new Blob([j], { type: 'application/json' }));
+            a.href = blobUrl;
+            a.download = 'inspect-' + location.hostname + '-' + Date.now() + '.json';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+            info.textContent = 'JSON diunduh: ' + a.download;
+        };
+
         bTutup.onclick = tutup;
         bSalin.onclick = async () => {
             try { await navigator.clipboard.writeText(out.value); } catch (e) { out.select(); document.execCommand('copy'); }
+            teksDisalin = out.value;
             info.textContent = 'Output disalin.';
         };
-        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') ambil(e.shiftKey); if (e.key === 'Escape') tutup(); });
-        bd.addEventListener('mousedown', (e) => { if (e.target === bd) tutup(); });
-        info.textContent = 'Ambil = HTML mentah (Enter). Analisa = komponen & input hasil parse (Shift+Enter).';
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') ambil(e.shiftKey); if (e.key === 'Escape') tutupDenganKonfirmasi(); });
+        bd.addEventListener('mousedown', (e) => { if (e.target === bd) tutupDenganKonfirmasi(); });
+        info.textContent = 'Ambil = HTML mentah / JSON rapi (Enter). Analisa = komponen (Shift+Enter). DOM aktif = halaman setelah JavaScript jalan. Salin/Unduh JSON = struktur untuk dianalisa.';
+        // pulihkan laporan & form tiruan terakhir (jika Inspect pernah ditutup)
+        if (outTerakhir) { out.value = outTerakhir; info.textContent = 'Laporan terakhir dipulihkan. ' + info.textContent; }
+        if (terakhir) buatPanelForm(terakhir.doc, terakhir.meta.url, panelForm);
+    }
+
+    // ----- Jejak request terakhir sebagai teks (ditampilkan di laporan Analisa) -----
+    function jejakTeks() {
+        if (!jejak.length) return '== REQUEST TERAKHIR ==\n(belum ada request same-origin yang tercatat sejak halaman dimuat)';
+        return '== REQUEST TERAKHIR (' + jejak.length + ' tercatat, 15 terakhir) ==\n' +
+            jejak.slice(-15).map((x) => '  ' + x.w + ' ' + x.m + ' ' + x.u + ' -> ' + x.s + (x.ct ? ' [' + x.ct + ']' : '')).join('\n');
+    }
+
+    // ----- Ekspor JSON: struktur hasil Analisa / DOM aktif dalam bentuk tetap -----
+    function strukturJson(doc, m) {
+        const ptg = (s, n) => rapih(s).slice(0, n);
+        const SENS = /token|csrf|authenticity|passw|secret/i;
+        const bukanTombol = (el) => !(el.tagName === 'INPUT' && /^(submit|button|reset|image)$/i.test(el.getAttribute('type') || ''));
+        const labelOf = (el) => {
+            const l = el.labels && el.labels[0];
+            return ptg((l && l.textContent) || '', 40).replace(/\s*:$/, '') || null;
+        };
+        const medan = (el) => {
+            const tag = el.tagName.toLowerCase();
+            const tipe = tag === 'input' ? (el.getAttribute('type') || 'text').toLowerCase() : tag;
+            const nama = el.getAttribute('name') || '';
+            const o = {
+                tag: tag, tipe: tipe, name: nama || null, id: el.id || null, label: labelOf(el),
+                placeholder: el.getAttribute('placeholder') || null,
+                required: el.hasAttribute('required'), disabled: el.hasAttribute('disabled'),
+                maxlength: el.getAttribute('maxlength') || null,
+                tersembunyi: tipe === 'hidden'
+            };
+            if (tag === 'select') {
+                o.opsi = Array.from(el.options).slice(0, 60).map((x) => ({ teks: ptg(x.textContent, 40), nilai: String(x.value).slice(0, 60), terpilih: x.hasAttribute('selected') }));
+            } else {
+                const v = tag === 'textarea' ? el.textContent : el.getAttribute('value');
+                o.nilai = !v ? null : (tipe === 'password' || SENS.test(nama + ' ' + el.id) ? '***' : ptg(v, 80));
+            }
+            return o;
+        };
+        const tombol = (el) => {
+            const tag = el.tagName.toLowerCase();
+            return {
+                tag: tag,
+                teks: ptg(tag === 'input' ? el.getAttribute('value') : el.textContent, 60) || null,
+                id: el.id || null,
+                type: el.getAttribute('type') || null,
+                href: tag === 'a' && el.getAttribute('href') ? sensor(el.getAttribute('href')).slice(0, 120) : null,
+                atribut: Array.from(el.attributes).filter((a) => /^(data-|on[a-z]+$)/.test(a.name)).slice(0, 6).map((a) => a.name + '=' + ptg(a.value, 60))
+            };
+        };
+        const semuaMedan = Array.from(doc.querySelectorAll('input, select, textarea')).filter(bukanTombol);
+        const semuaTombol = Array.from(doc.querySelectorAll('button, input[type=submit], input[type=button], input[type=reset], input[type=image], a.btn, a[role=button], [role=button]'));
+        const forms = Array.from(doc.querySelectorAll('form')).slice(0, 30).map((f) => ({
+            id: f.id || null,
+            method: (f.getAttribute('method') || 'get').toUpperCase(),
+            action: sensor(f.getAttribute('action') || '') || null,
+            input: semuaMedan.filter((el) => el.closest('form') === f).slice(0, 200).map(medan),
+            tombol: semuaTombol.filter((el) => el.closest('form') === f).slice(0, 50).map(tombol)
+        }));
+        const tabel = Array.from(doc.querySelectorAll('table')).slice(0, 20).map((t) => {
+            const baris = Array.from(t.querySelectorAll('tbody tr'));
+            return {
+                id: t.id || null,
+                class: ptg(t.className, 80) || null,
+                kolom: Array.from(t.querySelectorAll('th')).map((x) => ptg(x.textContent, 40)),
+                jumlahBaris: baris.length,
+                contohBaris: baris.slice(0, 5).map((tr) => Array.from(tr.children).map((td) => ptg(td.textContent, 80)))
+            };
+        });
+        const link = [];
+        const seen = {};
+        doc.querySelectorAll('a[href]').forEach((a) => {
+            const t = ptg(a.textContent, 60);
+            const h = a.getAttribute('href') || '';
+            if (!t || !h || h.charAt(0) === '#' || /^javascript/i.test(h)) return;
+            const k = t + '>' + h;
+            if (seen[k] || link.length >= 150) return;
+            seen[k] = 1;
+            link.push({ teks: t, href: sensor(h).slice(0, 160) });
+        });
+        return {
+            inspect: 'devtool',
+            mode: m.mode,
+            url: sensor(m.url),
+            waktu: new Date().toISOString(),
+            status: m.status,
+            contentType: m.contentType || null,
+            judul: ptg(doc.title, 200) || null,
+            heading: Array.from(doc.querySelectorAll('h1,h2,h3,h4')).map((h) => ptg(h.textContent, 80)).filter(Boolean).slice(0, 20),
+            halamanLogin: !!doc.querySelector('input[type=password]'),
+            form: forms,
+            inputDiLuarForm: semuaMedan.filter((el) => !el.closest('form')).slice(0, 200).map(medan),
+            tombolDiLuarForm: semuaTombol.filter((el) => !el.closest('form')).slice(0, 50).map(tombol),
+            tabel: tabel,
+            iframe: Array.from(doc.querySelectorAll('iframe')).map((f) => sensor(f.getAttribute('src') || '').slice(0, 160)),
+            link: link,
+            skripEksternal: Array.from(doc.querySelectorAll('script[src]')).map((s) => sensor(s.getAttribute('src') || '').slice(0, 200)),
+            request: jejak.slice(-30).map((x) => ({ waktu: x.w, metode: x.m, url: x.u, status: x.s, contentType: x.ct || null }))
+        };
     }
 
     // ----- Analisa: komponen & input halaman dari HTML hasil fetch (HTML mentah dari server) -----
@@ -346,11 +560,6 @@
         out.push('Ukuran HTML: ' + panjang + ' karakter | elemen: ' + doc.querySelectorAll('*').length);
         const hs = Array.from(doc.querySelectorAll('h1,h2,h3,h4')).map((h) => rapih(h.textContent)).filter(Boolean).slice(0, 12);
         out.push('Heading: ' + (hs.join(' | ') || '-'));
-        if (doc.querySelector('input[type=password]')) {
-            out.push(tabel.length || forms.length > 2
-                ? 'Catatan: ada kolom password (nilainya disamarkan).'
-                : '!! Tampaknya HALAMAN LOGIN (ada kolom password) - sesi mungkin habis.');
-        }
         if (!forms.length && !semuaMedan.length && doc.querySelectorAll('script').length) {
             out.push('!! Tidak ada form/input di HTML mentah. Komponen yang dibuat lewat JavaScript/AJAX tidak ikut terbaca (analisa memakai HTML dari server).');
         }
@@ -393,6 +602,8 @@
             out.push('TABEL ' + (i + 1) + ' id=' + (t.id || '-') + ' class="' + ptg(t.className, 50) + '" baris=' + t.querySelectorAll('tbody tr').length +
                 ' kotak-centang=' + t.querySelectorAll('input[type=checkbox]').length);
             out.push('  kolom: ' + (th.join(' | ') || '-'));
+            Array.from(t.querySelectorAll('tbody tr')).slice(0, 3).forEach((tr, j) =>
+                out.push('  baris ' + (j + 1) + ': ' + Array.from(tr.children).map((td) => ptg(td.textContent, 30)).join(' | ')));
         });
 
         if (modal.length) {
@@ -499,7 +710,7 @@
             const nama = u.pathname.split('/').pop() || u.pathname;
             let teks = '';
             try {
-                const r = await fetch(u.href, { credentials: 'same-origin' });
+                const r = await fetchInspect(u.href, { credentials: 'same-origin' });
                 if (!r.ok) continue;
                 teks = await r.text();
             } catch (e) { continue; }
@@ -675,11 +886,14 @@
 
             async function kirim() {
                 const p = kumpul();
+                // GET memasukkan isian ke URL (tercatat di log server, riwayat, Referer): token & password tidak ikut
+                const pwNames = new Set(Array.from(salinan.querySelectorAll('input[type=password]')).map((e) => e.getAttribute('name')).filter(Boolean));
+                const pKirim = method === 'GET' ? p.filter((x) => x[0] !== 'utf8' && !SENSITIF_NAMA.test(x[0]) && !pwNames.has(x[0])) : p;
                 let u;
                 try { u = new URL(aksi || url); } catch (e) { alert('Alamat form tidak valid.'); return; }
                 if (u.origin !== location.origin) { alert('Alamat form di luar domain ini, tidak dikirim: ' + u.origin); return; }
                 const ringkasReq = method + ' ' + u.pathname + u.search + '\n' + (method === 'POST' ? 'Content-Type: application/x-www-form-urlencoded\n' : '') +
-                    (cbToken.checked && tokenMeta ? 'X-CSRF-Token: ***\n' : '') + tampilPayload(p).slice(0, 3000);
+                    (cbToken.checked && tokenMeta ? 'X-CSRF-Token: ***\n' : '') + tampilPayload(pKirim).slice(0, 3000);
                 hasil.style.display = '';
                 if (!confirm('KIRIM ' + ringkasReq.slice(0, 1500) + '\n\nIni MENGIRIM data sungguhan ke Erzap. Lanjutkan?')) {
                     hasil.value = '(dibatalkan, tidak ada yang dikirim)';
@@ -687,8 +901,8 @@
                 }
                 const opsi = { method: method, credentials: 'same-origin', headers: {} };
                 if (cbToken.checked && tokenMeta) opsi.headers['X-CSRF-Token'] = tokenMeta;
-                if (method === 'GET') p.forEach((x) => u.searchParams.append(x[0], x[1]));
-                else opsi.body = new URLSearchParams(p);
+                if (method === 'GET') pKirim.forEach((x) => u.searchParams.append(x[0], x[1]));
+                else opsi.body = new URLSearchParams(pKirim);
                 bKirim.disabled = true;
                 hasil.value = 'Mengirim ...';
                 const mulai = Date.now();
@@ -765,7 +979,6 @@
     function ringkasDoc(doc) {
         const out = [];
         out.push('Judul: ' + rapih(doc.title));
-        if (doc.querySelector('input[type=password]')) out.push('!! Tampaknya HALAMAN LOGIN (ada kolom password). Login dulu di partdistro.com, lalu ulangi.');
         const hs = Array.from(doc.querySelectorAll('h1,h2,h3,h4')).map((h) => rapih(h.textContent)).filter(Boolean).slice(0, 12);
         out.push('Heading: ' + (hs.join(' | ') || '-'));
 
@@ -817,14 +1030,21 @@
         });
 
         // Di mana kata "website"/"partdistro" muncul (cara nota dari web dibedakan)
+        // Dicari lewat text node (bukan textContent tiap elemen) supaya tetap cepat di halaman besar
         const cocok = [];
-        doc.querySelectorAll('body *').forEach((el) => {
-            if (cocok.length >= 12 || /^(script|style|noscript|option)$/i.test(el.tagName) || (el.closest && el.closest('#rk_rekam_ui'))) return;
-            const t = rapih(el.textContent);
-            if (t.length > 0 && t.length <= 60 && /website|partdistro|olzap/i.test(t) && !Array.from(el.children).some((c) => /website|partdistro|olzap/i.test(c.textContent || ''))) {
-                cocok.push('<' + el.tagName.toLowerCase() + (el.className ? ' class="' + rapih(el.className).slice(0, 40) + '"' : '') + (el.id ? ' id="' + el.id + '"' : '') + '> "' + t + '"');
-            }
-        });
+        const sudahCocok = new Set();
+        const walker = doc.createTreeWalker(doc.body || doc.documentElement, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node && cocok.length < 12; node = walker.nextNode()) {
+            if (!/website|partdistro|olzap/i.test(node.data)) continue;
+            const el = node.parentElement;
+            if (!el || /^(script|style|noscript|option)$/i.test(el.tagName) || el.closest('#rk_rekam_ui')) continue;
+            const penuh = rapih(el.textContent);
+            const t = penuh.length <= 60 ? penuh : rapih(node.data).slice(0, 60);
+            const baris = '<' + el.tagName.toLowerCase() + (el.className ? ' class="' + rapih(el.className).slice(0, 40) + '"' : '') + (el.id ? ' id="' + el.id + '"' : '') + '> "' + t + '"';
+            if (sudahCocok.has(baris)) continue;
+            sudahCocok.add(baris);
+            cocok.push(baris);
+        }
         out.push('Kata website/partdistro/olzap muncul di: ' + (cocok.length ? '' : '-'));
         cocok.forEach((c) => out.push('  ' + c));
         return out.join('\n');
