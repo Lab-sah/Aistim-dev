@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Sales Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.5.3
+// @version      1.6.0
 // @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Form Pencatatan Penjualan: Pelanggan berisi 'shopee', 'tiktok', atau 'tokopedia' otomatis mengatur Tipe Penjualan ke Marketplace. Fitur hanya untuk role yang diatur di AKSES_JSON (SENTOT, SURYO, MANAJEMEN PUSAT, TIMORITEL).
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -14,7 +14,7 @@
 
     // ====== HAK AKSES & FITUR (JSON) ======
     // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini. Kosong = tidak ada fitur untuk umum.
-    // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua). Nama fitur: batal, tipeMarketplace.
+    // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua). Nama fitur: batal, tipeMarketplace, tipePelanggan.
     // "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
     //              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
     // Fitur yang tidak disebut di "public" maupun "private" ditolak.
@@ -22,7 +22,7 @@
     // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
     const AKSES_JSON = `{
         "public": [],
-        "private": ["batal", "tipeMarketplace"],
+        "private": ["batal", "tipeMarketplace", "tipePelanggan"],
         "role": {
           "pusat": {
             "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT", "TIMORITEL"],
@@ -111,26 +111,34 @@
         wrapper.parentNode.insertBefore(kolom, wrapper.nextSibling);
     }
 
-    /* ========== Pelanggan Shopee -> Tipe Penjualan Marketplace (form Pencatatan Penjualan) ========== */
+    /* ========== Tipe Penjualan otomatis dari Pelanggan (form Pencatatan Penjualan) ========== */
+    // Pelanggan berisi shopee/tiktok/tokopedia -> "3. Marketplace"; Pelanggan NON-MEMBERSHIP -> "1. Offline / Instore"
     const KATA_MARKETPLACE = /shopee|tiktok|tokopedia/i;
+    const PELANGGAN_NON = /^non-membership$/i;
     const TIPE_MARKETPLACE = '3';   // value "3. Marketplace" di select penjualan[idtipe_penjualan]
+    const TIPE_OFFLINE = '6';       // value "1. Offline / Instore" di select penjualan[idtipe_penjualan]
 
-    function cekPelangganShopee() {
-        if (!bolehFitur('tipeMarketplace')) return;
-        const pel = document.querySelector('input[name="penjualan[nama_pelanggan]"]');
+    function setTipePenjualan(nilai) {
         const tipe = document.getElementById('penjualan_idtipe_penjualan');
-        if (!pel || !tipe) return;
-        if (!KATA_MARKETPLACE.test(pel.value) || tipe.value === TIPE_MARKETPLACE) return;
-        if (window.jQuery) window.jQuery(tipe).val(TIPE_MARKETPLACE).trigger('change');   // select yang memakai plugin
-        else { tipe.value = TIPE_MARKETPLACE; tipe.dispatchEvent(new Event('change', { bubbles: true })); }
+        if (!tipe || tipe.value === nilai) return;
+        if (window.jQuery) window.jQuery(tipe).val(nilai).trigger('change');   // select yang memakai plugin
+        else { tipe.value = nilai; tipe.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
+
+    function cekTipePelanggan() {
+        const pel = document.querySelector('input[name="penjualan[nama_pelanggan]"]');
+        if (!pel) return;
+        const nilai = pel.value.trim();
+        if (KATA_MARKETPLACE.test(nilai) && bolehFitur('tipeMarketplace')) setTipePenjualan(TIPE_MARKETPLACE);
+        else if (PELANGGAN_NON.test(nilai) && bolehFitur('tipePelanggan')) setTipePenjualan(TIPE_OFFLINE);
     }
     ['input', 'change', 'focusout'].forEach((t) => document.addEventListener(t, (e) => {
-        if (e.target && e.target.name === 'penjualan[nama_pelanggan]') { try { cekPelangganShopee(); } catch (err) { /* abaikan */ } }
+        if (e.target && e.target.name === 'penjualan[nama_pelanggan]') { try { cekTipePelanggan(); } catch (err) { /* abaikan */ } }
     }, true));
 
     function proses() {
         try { pasangTombolBatal(); } catch (e) { /* dicoba lagi saat halaman berubah */ }
-        try { cekPelangganShopee(); } catch (e) { /* dicoba lagi saat halaman berubah */ }
+        try { cekTipePelanggan(); } catch (e) { /* dicoba lagi saat halaman berubah */ }
     }
 
     proses();
