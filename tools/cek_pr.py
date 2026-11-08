@@ -4,7 +4,7 @@
   - sintaks semua file .js (node --check; dilewati kalau node tidak ada)
   - scripts/index.json: file terdaftar ada, semua .js terdaftar, "hapus" bagian dari "scripts", tanpa duplikat
   - script aktif: header ==UserScript== dengan @name, @version x.y.z, @match; @name tidak ganda
-  - stub (di "hapus"): @version 99.0.0, isi kosong
+  - stub (di "hapus"): @version >= 99.0.0 (lebih tinggi dari salinan lama), isi kosong
   - dibanding base: @version script yang diubah naik, @name script lama tidak diganti,
     "version" ekstensi naik bila file ekstensi berubah, VERSION di background/content = manifest
 
@@ -83,8 +83,8 @@ for f in S:
         galat.append('`%s` tanpa header ==UserScript==' % f)
         continue
     if f in H:
-        if m['version'] != '99.0.0':
-            galat.append('Stub `%s` harus @version 99.0.0 (sekarang %s)' % (f, m['version']))
+        if angka(m['version']) < angka('99.0.0'):
+            galat.append('Stub `%s` harus @version >= 99.0.0 (sekarang %s)' % (f, m['version']))
         if re.sub(r'//.*', '', m['isi']).strip():
             galat.append('Stub `%s` tidak kosong' % f)
         continue

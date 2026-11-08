@@ -1,0 +1,11 @@
+// ==UserScript==
+// @name         Erzap - Penjualan
+// @namespace    http://tampermonkey.net/
+// @version      101.0.0
+// @description  DINONAKTIFKAN (stub kosong). Tombol Batal sudah dipindah ke salespenjualan.js. Dipertahankan agar salinan lama bawaan ekstensi (versi 100.0.0) tidak jalan lagi (dedupe by @name, versi tertinggi menang). Jangan dihapus & jangan turunkan versinya.
+// @match        https://*.erzap.com/__dihapus__*
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
+// @grant        none
+// ==/UserScript==
+
+// Sengaja kosong: fitur Batal pindah ke salespenjualan.js.
