@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Sales Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.6.0
-// @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Form Pencatatan Penjualan: Pelanggan berisi 'shopee', 'tiktok', atau 'tokopedia' otomatis mengatur Tipe Penjualan ke Marketplace. Fitur hanya untuk role yang diatur di AKSES_JSON (SENTOT, SURYO, MANAJEMEN PUSAT, TIMORITEL).
+// @version      1.7.0
+// @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Form Pencatatan Penjualan: Tipe Penjualan otomatis dari nama Pelanggan (shopee/tiktok/tokopedia -> Marketplace, NON-MEMBERSHIP -> Offline/Instore, S+angka -> Antar Outlet). Popup Tukar Tambah: Barang Bekas dinonaktifkan, Dari/Tujuan Outlet, No Faktur setelah outlet diisi, peringatan outlet, tombol 'Retur Antar Outlet'. Popup Draf Penjualan yang kosong tidak ditampilkan. Fitur hanya untuk role yang diatur di AKSES_JSON.
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -14,7 +14,8 @@
 
     // ====== HAK AKSES & FITUR (JSON) ======
     // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini. Kosong = tidak ada fitur untuk umum.
-    // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua). Nama fitur: batal, tipeMarketplace, tipePelanggan.
+    // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua).
+    //              Nama fitur: batal, tipeMarketplace, tipePelanggan, tukarTambah, drafKosong.
     // "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
     //              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
     // Fitur yang tidak disebut di "public" maupun "private" ditolak.
@@ -22,7 +23,7 @@
     // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
     const AKSES_JSON = `{
         "public": [],
-        "private": ["batal", "tipeMarketplace", "tipePelanggan"],
+        "private": ["batal", "tipeMarketplace", "tipePelanggan", "tukarTambah", "drafKosong"],
         "role": {
           "pusat": {
             "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT", "TIMORITEL"],
@@ -112,11 +113,12 @@
     }
 
     /* ========== Tipe Penjualan otomatis dari Pelanggan (form Pencatatan Penjualan) ========== */
-    // Pelanggan berisi shopee/tiktok/tokopedia -> "3. Marketplace"; Pelanggan NON-MEMBERSHIP -> "1. Offline / Instore"
-    const KATA_MARKETPLACE = /shopee|tiktok|tokopedia/i;
-    const PELANGGAN_NON = /^non-membership$/i;
-    const TIPE_MARKETPLACE = '3';   // value "3. Marketplace" di select penjualan[idtipe_penjualan]
-    const TIPE_OFFLINE = '6';       // value "1. Offline / Instore" di select penjualan[idtipe_penjualan]
+    // Urutan aturan penting: aturan pertama yang cocok yang dipakai.
+    const TIPE_RULES = [
+        { test: n => /shopee|tokopedia|tiktok/.test(n), tipe: '3', fitur: 'tipeMarketplace' },   // 3. Marketplace
+        { test: n => n.includes('non-membership'),       tipe: '6', fitur: 'tipePelanggan' },    // 1. Offline / Instore
+        { test: n => /^s\d{2,}\b/.test(n),               tipe: '8', fitur: 'tipePelanggan' }     // 4. Antar Outlet (Internal)
+    ];
 
     function setTipePenjualan(nilai) {
         const tipe = document.getElementById('penjualan_idtipe_penjualan');
@@ -128,13 +130,165 @@
     function cekTipePelanggan() {
         const pel = document.querySelector('input[name="penjualan[nama_pelanggan]"]');
         if (!pel) return;
-        const nilai = pel.value.trim();
-        if (KATA_MARKETPLACE.test(nilai) && bolehFitur('tipeMarketplace')) setTipePenjualan(TIPE_MARKETPLACE);
-        else if (PELANGGAN_NON.test(nilai) && bolehFitur('tipePelanggan')) setTipePenjualan(TIPE_OFFLINE);
+        const n = pel.value.trim().toLowerCase();
+        const rule = TIPE_RULES.find(r => r.test(n));
+        if (!rule || !bolehFitur(rule.fitur)) return;
+        setTipePenjualan(rule.tipe);
     }
     ['input', 'change', 'focusout'].forEach((t) => document.addEventListener(t, (e) => {
         if (e.target && e.target.name === 'penjualan[nama_pelanggan]') { try { cekTipePelanggan(); } catch (err) { /* abaikan */ } }
     }, true));
+    // pemilihan dari daftar autocomplete (jQuery UI)
+    document.addEventListener('autocompleteselect', () => {
+        setTimeout(() => { try { cekTipePelanggan(); } catch (err) { /* abaikan */ } }, 50);
+    }, true);
+
+    /* ========== Popup Tukar Tambah (fitur tukarTambah) ========== */
+    // Barang Bekas: hanya informasi, pilihannya dinonaktifkan
+    function disableBarangBekas() {
+        document.querySelectorAll('.card').forEach(card => {
+            const h5 = card.querySelector('h5');
+            if (!h5 || !/Barang Bekas/.test(h5.textContent)) return;
+            card.querySelectorAll('input').forEach(i => { i.disabled = true; });
+            card.querySelectorAll('label, button, a').forEach(el => {
+                if (el.textContent.trim() === 'Pilih') {
+                    el.style.pointerEvents = 'none';
+                    el.style.opacity = '0.45';
+                    el.setAttribute('aria-disabled', 'true');
+                }
+            });
+        });
+    }
+
+    // Dari Outlet & Tujuan Outlet di atas No Faktur
+    function addOutletFields() {
+        if (document.getElementById('erzap_outlet_block')) return;
+        const heads = Array.from(document.querySelectorAll('*')).filter(e =>
+            e.textContent.trim() === 'Informasi Penjualan' &&
+            !Array.from(e.children).some(c => c.textContent.trim() === 'Informasi Penjualan') &&
+            e.offsetParent !== null);
+        const head = heads[heads.length - 1];
+        if (!head) return;
+        const src = document.querySelector('#penjualan_idoutlet_own');
+        const opts = src ? Array.from(src.options).filter(o => o.value) : [];
+        const block = document.createElement('div');
+        block.id = 'erzap_outlet_block';
+        block.style.cssText = 'display:flex;gap:12px;margin:8px 0 14px 0;';
+        function field(label, id) {
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'flex:1;';
+            const lb = document.createElement('label');
+            lb.textContent = label;
+            lb.style.cssText = 'display:block;font-weight:600;margin-bottom:4px;';
+            const sel = document.createElement('select');
+            sel.id = id;
+            sel.style.cssText = 'width:100%;padding:6px;';
+            const ph = document.createElement('option');
+            ph.value = ''; ph.textContent = 'Pilih Outlet';
+            sel.appendChild(ph);
+            opts.forEach(o => {
+                const op = document.createElement('option');
+                op.value = o.value; op.textContent = o.textContent;
+                sel.appendChild(op);
+            });
+            wrap.appendChild(lb);
+            wrap.appendChild(sel);
+            return wrap;
+        }
+        block.appendChild(field('Dari Outlet', 'erzap_dari_outlet'));
+        block.appendChild(field('Tujuan Outlet', 'erzap_ke_outlet'));
+        head.parentNode.insertBefore(block, head);
+    }
+
+    // No Faktur baru tampil setelah Dari Outlet dan Tujuan Outlet terisi
+    function gateNoFaktur() {
+        const dari = document.getElementById('erzap_dari_outlet');
+        const ke = document.getElementById('erzap_ke_outlet');
+        if (!dari || !ke) return;
+        const ready = !!dari.value && !!ke.value;
+        const head = Array.from(document.querySelectorAll('h5, div, span, label, p, strong, b')).filter(x =>
+            x.textContent.trim() === 'Informasi Penjualan' &&
+            !Array.from(x.children).some(c => c.textContent.trim() === 'Informasi Penjualan') &&
+            x.parentElement && x.parentElement.contains(dari)).pop();
+        if (!head) return;
+        let s = head;
+        while (s) {
+            if (s.textContent.trim().startsWith('Informasi Produk')) break;
+            s.style.display = ready ? '' : 'none';
+            s = s.nextElementSibling;
+        }
+    }
+
+    // Peringatan di footer popup: outlet faktur harus sama dengan Dari Outlet, dan tidak boleh sama dengan tujuan
+    function checkOutletMatch() {
+        const dari = document.getElementById('erzap_dari_outlet');
+        if (!dari) return;
+        const footer = Array.from(document.querySelectorAll('.modal-footer')).filter(f =>
+            f.offsetParent !== null && f.parentElement && f.parentElement.contains(dari)).pop();
+        if (!footer) return;
+        let warn = document.getElementById('erzap_outlet_warn');
+        if (!warn) {
+            warn = document.createElement('div');
+            warn.id = 'erzap_outlet_warn';
+            warn.style.cssText = 'color:#b45309;background:#fef3c7;border:1px solid #f59e0b;padding:6px 10px;border-radius:4px;font-size:13px;line-height:1.3;align-self:center;max-width:60%;margin-right:auto;flex:0 1 auto;display:none;';
+            footer.style.alignItems = 'center';
+            footer.insertBefore(warn, footer.firstChild);
+        }
+        if (warn.parentElement !== footer) footer.insertBefore(warn, footer.firstChild);
+        const lab = Array.from(document.querySelectorAll('*')).filter(e =>
+            e.children.length === 0 && /^Outlet\s*:?$/.test(e.textContent.trim()) && e.offsetParent !== null).pop();
+        const faktur = lab && lab.nextElementSibling ? lab.nextElementSibling.textContent.trim() : '';
+        const dariTxt = dari.options[dari.selectedIndex] ? dari.options[dari.selectedIndex].textContent.trim() : '';
+        const ke = document.getElementById('erzap_ke_outlet');
+        if (!dari.value || !ke || !ke.value) { warn.textContent = ''; warn.style.display = 'none'; return; }
+        const tujuanTxt = ke.options[ke.selectedIndex] ? ke.options[ke.selectedIndex].textContent.trim() : '';
+        const samaTujuan = !!faktur && faktur.toUpperCase() === tujuanTxt.toUpperCase();
+        const beda = !!faktur && faktur.toUpperCase() !== dariTxt.toUpperCase();
+        let msg = '';
+        if (samaTujuan) msg = '⚠ Outlet Faktur tidak boleh sama dengan outlet tujuan';
+        else if (beda) msg = '⚠ Outlet Faktur Harus sama dengan outlet dari';
+        warn.textContent = msg;
+        warn.style.display = msg ? '' : 'none';
+    }
+
+    // Tulisan tombol "Tukar Tambah" diganti "Retur Antar Outlet" (ikon tetap)
+    function renameTukarTambahBtn() {
+        const b = document.getElementById('btn_tukar_tambah');
+        if (!b) return;
+        const walker = document.createTreeWalker(b, NodeFilter.SHOW_TEXT);
+        let n;
+        while ((n = walker.nextNode())) {
+            if (/Tukar Tambah/i.test(n.nodeValue)) n.nodeValue = n.nodeValue.replace(/Tukar Tambah/i, 'Retur Antar Outlet');
+        }
+    }
+
+    /* ========== Popup Draf Penjualan kosong (fitur drafKosong) ========== */
+    function hideEmptyDraftPopup() {
+        document.querySelectorAll('.modal').forEach(m => {
+            if (getComputedStyle(m).display === 'none') return;
+            const t = m.querySelector('.modal-title, h3, h4, h5');
+            if (!t || !/Draf Penjualan/i.test(t.textContent)) return;
+            if (!/Belum ada draf/i.test(m.textContent)) return;
+            const close = Array.from(m.querySelectorAll('button')).find(b => /Tutup|Close/i.test(b.textContent));
+            if (close) close.click();
+            else m.style.display = 'none';
+        });
+    }
+
+    // Satu pengecekan ringan untuk semua popup di atas (tanpa request ke server); masing-masing dijaga aksesnya
+    function tickPopup() {
+        try {
+            if (bolehFitur('tukarTambah')) {
+                disableBarangBekas();
+                addOutletFields();
+                gateNoFaktur();
+                checkOutletMatch();
+                renameTukarTambahBtn();
+            }
+        } catch (e) { /* dicoba lagi di pengecekan berikutnya */ }
+        try { if (bolehFitur('drafKosong')) hideEmptyDraftPopup(); } catch (e) { /* dicoba lagi */ }
+    }
+    setInterval(tickPopup, 300);
 
     function proses() {
         try { pasangTombolBatal(); } catch (e) { /* dicoba lagi saat halaman berubah */ }
