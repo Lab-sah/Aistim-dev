@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AISTIM TOOL
 // @namespace    http://tampermonkey.net/
-// @version      1.0.3
+// @version      1.0.4
 // @description  Header Cek Selisih + filter Ada Selisih + hasil jadi text (tidak bisa diubah). Tidak aktif di halaman Koreksi SO & Pengisian Hasil SO
 // @author       arimonox
 // @match        https://*.erzap.com/stok_opnams*
@@ -27,6 +27,64 @@
     const CONFIG = {
         autoRefreshSeconds: 60
     };
+
+    // ====== HAK AKSES (JSON) ======
+    // "public"  -> fitur yang boleh dipakai SEMUA user. Kosong = tidak ada fitur untuk umum.
+    // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua).
+    //              Nama fitur: kolomCekSelisih, menuFilter, autoRefresh.
+    // "role"    -> "nama" dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil, cukup sebagian nama),
+    //              "fitur" = fitur private yang boleh dipakai role itu.
+    // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
+    // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
+    const AKSES_JSON = `{
+        "public": [],
+        "private": ["kolomCekSelisih", "menuFilter", "autoRefresh"],
+        "role": {
+          "pusat": {
+            "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT"],
+            "fitur": ["*"]
+          }
+        }
+    }`;
+
+    function bacaAkses() {
+        try {
+            const a = JSON.parse(AKSES_JSON) || {};
+            const role = a.role && typeof a.role === 'object' ? a.role : {};
+            return {
+                public: Array.isArray(a.public) ? a.public.map(String) : [],
+                role: Object.keys(role).map(k => {
+                    const r = role[k] || {};
+                    return {
+                        nama: Array.isArray(r.nama) ? r.nama.map(String) : [],
+                        fitur: Array.isArray(r.fitur) ? r.fitur.map(String) : [],
+                    };
+                }),
+            };
+        } catch (err) {
+            return { public: [], role: [] };
+        }
+    }
+    const AKSES = bacaAkses();
+
+    // Nama kasir di #info_kasir dibaca saat dipakai, karena bisa dimuat belakangan.
+    function namaKasir() {
+        return (((document.getElementById('info_kasir') || {}).textContent) || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    }
+
+    function bolehFitur(fitur) {
+        if (AKSES.public.indexOf(fitur) !== -1) return true;
+        const nama = namaKasir();
+        if (!nama) return false;
+        for (const r of AKSES.role) {
+            const cocok = r.nama.some(u => {
+                u = u.replace(/\s+/g, ' ').trim().toLowerCase();
+                return !!u && nama.indexOf(u) !== -1;
+            });
+            if (cocok) return r.fitur.indexOf('*') !== -1 || r.fitur.indexOf(fitur) !== -1;
+        }
+        return false;
+    }
 
     const STORAGE_KEY = 'erzap_filter';
     const PANEL_STATE_KEY = 'erzap_panel_collapsed';
@@ -82,6 +140,7 @@
 
     function addKoreksiColumn() {
         if (isFiltering) return;
+        if (!bolehFitur('kolomCekSelisih')) return;
         const table = document.querySelector('table.no_data_table.table');
         if (!table) return;
 
@@ -301,6 +360,7 @@
 
     function createPanel() {
         if (document.getElementById('erzap-panel')) return;
+        if (!bolehFitur('menuFilter')) return;
 
         // Cari menu Administrator
         let adminEl = null;
@@ -527,6 +587,7 @@
     }
 
     function startAutoRefresh() {
+        if (!bolehFitur('autoRefresh')) return;
         if (!CONFIG.autoRefreshSeconds || CONFIG.autoRefreshSeconds <= 0) return;
         const intervalMs = CONFIG.autoRefreshSeconds * 1000;
         nextRefreshTime = Date.now() + intervalMs;
@@ -558,16 +619,21 @@
     }
 
     // Hanya satu penunggu tabel yang aktif pada satu waktu (sebelumnya bisa menumpuk tiap detik).
+    // Init menunggu tabel DAN nama kasir (#info_kasir), karena hak akses dicek dari nama itu.
+    function siapInit() {
+        return !!document.querySelector('table.no_data_table.table') && !!namaKasir();
+    }
+
     function waitAndInit() {
         if (initDone || waitingTable) return;
-        if (document.querySelector('table.no_data_table.table')) {
+        if (siapInit()) {
             init();
             return;
         }
         waitingTable = true;
-        log('Table not found, waiting...');
+        log('Table or kasir not ready, waiting...');
         const checkTimer = setInterval(() => {
-            if (document.querySelector('table.no_data_table.table')) {
+            if (siapInit()) {
                 clearInterval(checkTimer);
                 waitingTable = false;
                 init();
