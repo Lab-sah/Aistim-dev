@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Auto Koreksi
 // @namespace    http://tampermonkey.net/
-// @version      1.13.1
+// @version      1.13.2
 // @updateURL    https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
 // @downloadURL  https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
 // @description  [v1.13.0] Hanya role yang diizinkan (AKSES_JSON, fitur autoKoreksi) yang melihat tombol START AUTO / CEK SIMPAN / STOP. Hanya lanjut otomatis kalau halaman dibuka oleh script sendiri (maks 1 menit) - buka halaman koreksi manual tidak pernah auto jalan. Ganti ID SO = mulai dari awal (isi pengkoreksi & tanggal lagi, tidak auto jalan). Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI, stop & refresh halaman. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
@@ -32,7 +32,7 @@
         "private": ["autoKoreksi"],
         "role": {
             "pusat": {
-                "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT"],
+                "nama": ["SENTOT", "SURYO"],
                 "fitur": ["*"]
             }
         }
