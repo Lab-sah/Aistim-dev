@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AISTIM TOOL
 // @namespace    http://tampermonkey.net/
-// @version      1.0.2
+// @version      1.0.3
 // @description  Header Cek Selisih + filter Ada Selisih + hasil jadi text (tidak bisa diubah). Tidak aktif di halaman Koreksi SO & Pengisian Hasil SO
 // @author       arimonox
 // @match        https://*.erzap.com/stok_opnams*
@@ -25,8 +25,7 @@
     }
 
     const CONFIG = {
-        autoRefreshSeconds: 60,
-        version: 'v2026-09-05.20.5'
+        autoRefreshSeconds: 60
     };
 
     const STORAGE_KEY = 'erzap_filter';
@@ -55,6 +54,7 @@
     let countdownInterval = null;
     let refreshTimer = null;
     let initDone = false;
+    let waitingTable = false;
 
     function log(...args) {
         console.log('[AistimTool]', ...args);
@@ -112,7 +112,7 @@
                     th.className = 'table-header-so koreksi-col';
                     th.style.textAlign = 'center';
                     th.style.verticalAlign = 'middle';
-                    th.innerHTML = '<div>Cek Selisih</div>'; // <-- GANTI: Koreksi → Cek Selisih
+                    th.innerHTML = '<div>Cek Selisih</div>';
                     if (headerRowSpan > 1) th.rowSpan = headerRowSpan;
                     row.appendChild(th);
                     headerAdded = true;
@@ -145,14 +145,15 @@
                 td.style.border = 'none';
                 status = 'blank';
             } else {
-                let nilaiPerhitungan = 0;
-                let nilaiStokSO = 0;
+                // NaN = sel tidak terbaca. Baris seperti ini tidak boleh dianggap nol (Real).
+                let nilaiPerhitungan = NaN;
+                let nilaiStokSO = NaN;
                 let teksPerhitunganCell = '';
 
                 if (row.cells[5] && row.cells[6]) {
                     teksPerhitunganCell = row.cells[5].textContent.trim();
-                    nilaiPerhitungan = parseFloat(teksPerhitunganCell.replace(/[^\d.-]/g, '')) || 0;
-                    nilaiStokSO = parseFloat(row.cells[6].textContent.replace(/[^\d.-]/g, '')) || 0;
+                    nilaiPerhitungan = parseFloat(teksPerhitunganCell.replace(/[^\d.-]/g, ''));
+                    nilaiStokSO = parseFloat(row.cells[6].textContent.replace(/[^\d.-]/g, ''));
                 }
 
                 const isUncalculated = teksPerhitunganCell === 'PCS' || teksPerhitunganCell === '0.0 PCS';
@@ -160,15 +161,16 @@
                 if (isUncalculated) {
                     td.innerHTML = '';
                     status = 'uncalculated';
+                } else if (Number.isNaN(nilaiPerhitungan) || Number.isNaN(nilaiStokSO)) {
+                    td.innerHTML = `<span style="font-weight: bold; color: gray;">?</span>`;
+                    status = 'unknown';
                 } else {
                     let hasilKoreksi = nilaiPerhitungan - nilaiStokSO;
                     if (hasilKoreksi === 0) {
-                        // <-- GANTI: input number → span text (tidak bisa diubah)
                         td.innerHTML = `<span style="font-weight: bold; color: gray;">0</span>`;
                         status = 'nol';
                     } else {
                         let warnaTeks = hasilKoreksi < 0 ? 'red' : 'green';
-                        // <-- GANTI: input number → span text (tidak bisa diubah)
                         td.innerHTML = `<span style="font-weight: bold; color: ${warnaTeks};">${hasilKoreksi}</span>`;
                         status = hasilKoreksi < 0 ? 'negatif' : 'positif';
                     }
@@ -209,7 +211,7 @@
             if (status === 'negatif') counts.negatif++;
             else if (status === 'positif') counts.positif++;
             else if (status === 'nol') counts.nol++;
-            else if (status === 'blank' || status === 'uncalculated') counts.blank++;
+            else if (status === 'blank' || status === 'uncalculated' || status === 'unknown') counts.blank++;
             if (status === 'negatif' || status === 'positif') counts.koreksi++;
         });
 
@@ -219,7 +221,7 @@
             positif: 'Positif (+)',
             nol: 'Real',
             blank: 'Belum dicek',
-            koreksi: 'Ada Selisih (-/+)' // <-- GANTI: Ada Koreksi → Ada Selisih
+            koreksi: 'Ada Selisih (-/+)'
         };
 
         Array.from(select.options).forEach(opt => {
@@ -268,7 +270,7 @@
                 case 'negatif': show = status === 'negatif'; break;
                 case 'positif': show = status === 'positif'; break;
                 case 'nol': show = status === 'nol'; break;
-                case 'blank': show = status === 'blank' || status === 'uncalculated'; break;
+                case 'blank': show = status === 'blank' || status === 'uncalculated' || status === 'unknown'; break;
                 case 'koreksi': show = status === 'negatif' || status === 'positif'; break;
                 case 'semua':
                 default: show = true; break;
@@ -555,19 +557,26 @@
         log('Init complete. Rows:', allRows.length);
     }
 
+    // Hanya satu penunggu tabel yang aktif pada satu waktu (sebelumnya bisa menumpuk tiap detik).
     function waitAndInit() {
+        if (initDone || waitingTable) return;
         if (document.querySelector('table.no_data_table.table')) {
             init();
-        } else {
-            log('Table not found, waiting...');
-            const checkTimer = setInterval(() => {
-                if (document.querySelector('table.no_data_table.table')) {
-                    clearInterval(checkTimer);
-                    init();
-                }
-            }, 500);
-            setTimeout(() => clearInterval(checkTimer), 15000);
+            return;
         }
+        waitingTable = true;
+        log('Table not found, waiting...');
+        const checkTimer = setInterval(() => {
+            if (document.querySelector('table.no_data_table.table')) {
+                clearInterval(checkTimer);
+                waitingTable = false;
+                init();
+            }
+        }, 500);
+        setTimeout(() => {
+            clearInterval(checkTimer);
+            waitingTable = false;
+        }, 15000);
     }
 
     observer = new MutationObserver(() => {
@@ -585,9 +594,13 @@
         waitAndInit();
     }
 
-    setInterval(() => {
-        if (!initDone) waitAndInit();
-        else addKoreksiColumn();
+    // Polling hanya sampai init selesai. Setelah itu MutationObserver yang menangani baris baru.
+    const pollInit = setInterval(() => {
+        if (initDone) {
+            clearInterval(pollInit);
+            return;
+        }
+        waitAndInit();
     }, 1000);
 
 })();
