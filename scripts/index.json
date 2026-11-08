@@ -39,7 +39,8 @@
     "searchable_select.js",
     "crmrak.js",
     "antrianservis.js",
-    "beban.js"
+    "beban.js",
+    "erzap_trans_beban.js"
   ],
   "hapus": [
     "pemindahan.js",
@@ -55,6 +56,7 @@
     "rekapstokmin.js",
     "smart_repair.js",
     "grafik.js",
-    "olzap.js"
+    "olzap.js",
+    "beban.js"
   ]
 }
