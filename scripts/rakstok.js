@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.27.6
+// @version      1.27.7
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -1719,14 +1719,20 @@ function rkBoleh(fitur) {
     '#content_produk .callout{margin:0!important;padding:10px 14px!important;background:#f2f8fd!important;border:1px solid #d6e8f6!important;border-left:4px solid #3498db!important;border-radius:8px!important;font-size:14px;line-height:1.6;color:#33475b}',
     '#content_produk .callout strong{display:inline;color:#0b5c8a}',
     '#content_produk h4{margin:18px 0 8px!important;font-size:12px!important;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#7b8794}',
-    '#rk_inp{padding:11px 14px 11px 40px!important;font-size:15px!important;border:1.5px solid #cfd8e3!important;border-radius:8px!important;outline:0;transition:border-color .15s,box-shadow .15s}',
+    '#rk_inp{height:24.5px!important;min-height:24.5px!important;box-sizing:border-box!important;font-size:12px!important;line-height:18px!important;padding:2px 8px 2px 30px!important;border:1px solid #ccc!important;border-radius:3px!important;width:100%!important;max-width:100%!important;outline:0;transition:border-color .15s,box-shadow .15s}',
     '#rk_inp:focus{border-color:#3498db!important;box-shadow:0 0 0 3px rgba(52,152,219,.2)}',
-    '#rk_chips span{background:#e3f2fd!important;color:#0b5c8a!important;border:1px solid #b6dcf5;border-radius:16px!important;font-size:13px!important}',
+    '#rk_chips > span{display:inline-flex!important;align-items:center!important;gap:4px!important;height:22px!important;padding:0 3px 0 8px!important;margin:0 6px 6px 0!important;background:#e3f2fd!important;border:1px solid #b6dcf5!important;border-radius:4px!important;color:#0b5c8a!important;font-size:11px!important;line-height:16px!important;font-weight:500!important;box-sizing:border-box!important;white-space:nowrap!important;vertical-align:middle!important}',
+    '#rk_chips > span > span{display:inline-flex!important;align-items:center!important;justify-content:center!important;width:14px!important;height:14px!important;flex:0 0 14px!important;margin-left:0!important;border-radius:3px!important;font-size:11px!important;line-height:1!important;font-weight:600!important;color:#0b5c8a!important;cursor:pointer}',
+    '#rk_chips > span > span:hover{background:#b6dcf5!important}',
     '#rk_list{border:1px solid #cfd8e3!important;border-radius:8px!important;margin-top:4px;box-shadow:0 8px 20px rgba(0,0,0,.15)!important}',
     '#rk_list div:hover{background:#eef6fd}',
     '#rk_aksi_rak{margin-top:18px!important;padding-top:16px;border-top:1px solid #e9eef3}',
-    '#btn_update_rak{height:44px;font-size:15px!important;font-weight:600;border-radius:8px!important;padding:0 16px!important}',
-    '#rk_batal_rak{height:44px;padding:0 22px!important;font-size:15px!important;font-weight:600;color:#4a5a6a!important;border:1.5px solid #cfd8e3!important;border-radius:8px!important;background:#fff!important;cursor:pointer}',
+    '#rk_aksi_rak{flex-wrap:wrap!important;justify-content:flex-start!important}',
+    '#btn_update_rak.btn.w-100{width:120px!important;min-width:0!important;flex:0 0 auto!important}',
+    '#btn_update_rak{background:#fff!important;border:1px solid #337ab7!important;color:#337ab7!important;font-size:12px!important;line-height:18px!important;font-weight:400!important;padding:2px 8px!important;height:24.5px!important;border-radius:3px!important;box-shadow:none!important}',
+    '#rk_batal_rak{background:#fff!important;border:1px solid #ccc!important;color:#444!important;font-size:12px!important;line-height:18px!important;font-weight:400!important;padding:3px 10px!important;height:24.5px!important;border-radius:4px!important;box-shadow:none!important;flex:0 0 auto!important;cursor:pointer}',
+    '#rk_batal_rak::before{content:"✖ "}',
+    '@media (max-width: 480px){#btn_update_rak.btn.w-100,#rk_batal_rak{flex:1 1 0!important;width:auto!important}}',
     '#rk_batal_rak:hover{background:#f3f6f9!important}',
     // Hanya nama produk: yang panjang turun ke baris berikutnya (juga kata tanpa spasi). Sengaja tidak menyentuh
     // overflow halaman, combobox, atau daftar rak, supaya dropdown rak tidak terpotong.
@@ -1979,6 +1985,31 @@ function rkBoleh(fitur) {
       btn.parentNode.insertBefore(row, btn);
       row.appendChild(btn); row.appendChild(bt);
       btn.style.flex = '1 1 auto'; btn.style.width = 'auto';
+    }
+
+    // Ikon disket di tombol Update (sama dengan desain fixrak).
+    if (btn && !btn.querySelector('.rk_ikon_simpan')) {
+      var NSS = 'http://www.w3.org/2000/svg';
+      var ikon = d.createElementNS(NSS, 'svg');
+      ikon.setAttribute('class', 'rk_ikon_simpan');
+      ikon.setAttribute('width', '14');
+      ikon.setAttribute('height', '14');
+      ikon.setAttribute('viewBox', '0 0 24 24');
+      ikon.setAttribute('fill', 'none');
+      ikon.setAttribute('stroke', 'currentColor');
+      ikon.setAttribute('stroke-width', '2');
+      ikon.setAttribute('stroke-linecap', 'round');
+      ikon.setAttribute('stroke-linejoin', 'round');
+      ikon.style.verticalAlign = '-2px';
+      ikon.style.marginRight = '6px';
+      [['path', 'd', 'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z'],
+       ['polyline', 'points', '17 21 17 13 7 13 7 21'],
+       ['polyline', 'points', '7 3 7 8 15 8']].forEach(function (s) {
+        var el = d.createElementNS(NSS, s[0]);
+        el.setAttribute(s[1], s[2]);
+        ikon.appendChild(el);
+      });
+      btn.insertBefore(ikon, btn.firstChild);
     }
 
     if (ready && btn && btn.offsetParent !== null) {
