@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.27.7
+// @version      1.27.8
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -1844,7 +1844,7 @@ function rkBoleh(fitur) {
     var box = d.createElement('div'); box.id = 'rk_combo'; box.style.cssText = 'margin:4px 0 14px;position:relative';
     box.innerHTML =
       '<div id="rk_chips" style="margin-bottom:8px"></div>' +
-      '<input id="rk_inp" type="text" autocomplete="off" placeholder="Cari / pilih rak..." style="width:100%;padding:8px 10px;font-size:16px;border:1px solid #ced4da;border-radius:4px;background:#fff;box-sizing:border-box">' +
+      '<input id="rk_inp" type="text" autocomplete="off" placeholder="Tulis nama rak..." style="width:100%;padding:8px 10px;font-size:16px;border:1px solid #ced4da;border-radius:4px;background:#fff;box-sizing:border-box">' +
       '<div id="rk_list" style="display:none;position:absolute;left:0;right:0;z-index:50;background:#fff;border:1px solid #ced4da;border-top:0;border-radius:0 0 4px 4px;box-shadow:0 4px 10px rgba(0,0,0,.15);max-height:240px;overflow:auto"></div>';
     table.parentNode.insertBefore(box, table);
     var chips = box.querySelector('#rk_chips'), inp = box.querySelector('#rk_inp'), list = box.querySelector('#rk_list');
