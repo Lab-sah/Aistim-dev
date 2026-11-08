@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.27.5
+// @version      1.27.6
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -392,7 +392,7 @@ function rkBoleh(fitur) {
         '[id^="edit_produk_"],#produkTabContent{margin:0!important;padding:0!important;border:0!important;box-shadow:none!important;background:none!important;width:auto!important;max-width:none!important}' +
         '#tabs_produk{margin:0!important;padding:12px!important;border:0!important}' +
         'html{overflow:hidden!important}' +
-        'body{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:62px!important;overflow-x:hidden!important;overflow-y:auto!important}' +
+        'body{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:62px!important;overflow-x:hidden!important;overflow-y:auto!important;padding-bottom:80px!important}' +
         '#rk_aksi{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;align-items:center;justify-content:flex-end;gap:8px;box-sizing:border-box;padding:12px 16px;background:#f7f8fa;border-top:1px solid #d5d9e0;box-shadow:0 -3px 8px rgba(0,0,0,.06)}' +
         'label.btn[for="fileupload"]{position:static!important;width:auto!important;margin:0!important;' +
         'padding:9px 18px!important;font-size:13px!important;font-weight:600;line-height:1.2;color:#fff!important;background:#0d6efd!important;border:0!important;' +
@@ -416,8 +416,15 @@ function rkBoleh(fitur) {
         '#tab_produk_gambar .row.row-gap-3{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),340px));gap:12px!important;justify-content:center;margin:0!important}' +
         '#tab_produk_gambar .row.row-gap-3 > *{width:100%!important;max-width:340px;min-width:0;flex:none!important;padding:0!important;margin:0!important}' +
         '#tab_produk_gambar .row.row-gap-3 > #new_photo{display:none!important}' +
-        '#tab_produk_gambar .card-img-top{height:auto!important;max-height:none!important}' +
-        '#tab_produk_gambar img.card-img-top{display:block;width:100%!important;height:auto!important;aspect-ratio:1/1;object-fit:contain!important;background:#fafafa}' +
+        '#tab_produk_gambar .card{border:1px solid #ccc!important;border-radius:6px!important;box-shadow:0 2px 8px rgba(0,0,0,.08)!important;overflow:hidden!important}' +
+        '#tab_produk_gambar .card-img-top{height:200px!important;max-height:none!important;display:flex!important;align-items:center!important;justify-content:center!important;background:#f7f8fa!important;border-bottom:1px solid #eee!important}' +
+        '#tab_produk_gambar .card-img-top a{display:flex!important;align-items:center!important;justify-content:center!important;width:100%!important;height:100%!important}' +
+        '#tab_produk_gambar img.card-img-top{display:block;width:100%!important;height:200px!important;object-fit:contain!important;background:#fafafa}' +
+        '#tab_produk_gambar .produk-gambar-informasi{padding:10px 12px!important}' +
+        '#tab_produk_gambar .card-title{font-size:12px!important;font-weight:600!important;color:#444!important;margin:0 0 8px!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}' +
+        '#tab_produk_gambar .produk-gambar-informasi .btn{font-size:11px!important;line-height:1.2!important;padding:3px 10px!important;height:25px!important;border-radius:4px!important}' +
+        '#rk_aksi > button,#rk_aksi > label{font-size:11px!important;font-weight:400!important;padding:3px 10px!important;height:25px!important;line-height:1.2!important;border-radius:4px!important}' +
+        'label.btn[for="fileupload"]{display:inline-flex!important;align-items:center!important;justify-content:center!important}' +
         '#rk_kosong{display:none;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:340px;max-width:100%;aspect-ratio:1/1;margin:12px auto 0;' +
         'border:2px dashed #cfd6e4;border-radius:8px;background:#fafafa;color:#9aa4b5;font-size:13px}' +
         '#rk_kosong .fa{font-size:64px;line-height:1}' +
@@ -425,7 +432,7 @@ function rkBoleh(fitur) {
         '@media (max-width:560px){' +
         '#tabs_produk{padding:8px!important}' +
         '#rk_aksi{padding:10px 12px}' +
-        '#rk_aksi > *{flex:1 1 0;min-width:0;box-sizing:border-box;text-align:center;white-space:nowrap;padding:12px 6px!important;font-size:14px!important;box-shadow:none!important}' +
+        '#rk_aksi > *{flex:1 1 0;min-width:0;box-sizing:border-box;text-align:center;white-space:nowrap;box-shadow:none!important}' +
         '#rk_pending .rk_p,#rk_kosong,#tab_produk_gambar .row.row-gap-3 > *{max-width:none}' +
         '}';
 
