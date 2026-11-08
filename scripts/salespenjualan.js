@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Sales Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.5.2
-// @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Form Pencatatan Penjualan: Pelanggan berisi 'shopee' otomatis mengatur Tipe Penjualan ke Marketplace. Fitur hanya untuk role yang diatur di AKSES_JSON (SENTOT, SURYO, MANAJEMEN PUSAT, TIMORITEL).
+// @version      1.5.3
+// @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Form Pencatatan Penjualan: Pelanggan berisi 'shopee', 'tiktok', atau 'tokopedia' otomatis mengatur Tipe Penjualan ke Marketplace. Fitur hanya untuk role yang diatur di AKSES_JSON (SENTOT, SURYO, MANAJEMEN PUSAT, TIMORITEL).
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -112,7 +112,7 @@
     }
 
     /* ========== Pelanggan Shopee -> Tipe Penjualan Marketplace (form Pencatatan Penjualan) ========== */
-    const KATA_SHOPEE = /shopee/i;
+    const KATA_MARKETPLACE = /shopee|tiktok|tokopedia/i;
     const TIPE_MARKETPLACE = '3';   // value "3. Marketplace" di select penjualan[idtipe_penjualan]
 
     function cekPelangganShopee() {
@@ -120,7 +120,7 @@
         const pel = document.querySelector('input[name="penjualan[nama_pelanggan]"]');
         const tipe = document.getElementById('penjualan_idtipe_penjualan');
         if (!pel || !tipe) return;
-        if (!KATA_SHOPEE.test(pel.value) || tipe.value === TIPE_MARKETPLACE) return;
+        if (!KATA_MARKETPLACE.test(pel.value) || tipe.value === TIPE_MARKETPLACE) return;
         if (window.jQuery) window.jQuery(tipe).val(TIPE_MARKETPLACE).trigger('change');   // select yang memakai plugin
         else { tipe.value = TIPE_MARKETPLACE; tipe.dispatchEvent(new Event('change', { bubbles: true })); }
     }
