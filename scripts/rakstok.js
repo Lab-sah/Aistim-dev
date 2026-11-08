@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.27.3
+// @version      1.27.4
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -510,7 +510,11 @@ function rkBoleh(fitur) {
         };
         fu.on('fileuploadadd', (e, data) => {
             (data.files || []).forEach((file) => {
-                if (file.type && !/^image\/(jpeg|png)$/i.test(file.type)) return;
+                // Kalau MIME type kosong, pakai ekstensi nama file. Tipe yang tidak cocok ditolak.
+                const cocok = file.type
+                    ? /^image\/(jpeg|png)$/i.test(file.type)
+                    : /\.(jpe?g|png)$/i.test(file.name || '');
+                if (!cocok) return;
                 if (pending.some((p) => p.file.name === file.name && p.file.size === file.size && p.file.lastModified === file.lastModified)) return;
                 const item = { data: data, file: file, nama: file.name || 'gambar', url: '', gagal: false, proses: false };
                 pending.push(item);
