@@ -17,6 +17,7 @@
     "erzap_rak_barang.js",
     "rakstok.js",
     "rekam.js",
+    "pesanan_web.js",
     "ppob.js",
     "rekapbeban.js",
     "analisastok.js",
@@ -55,7 +56,6 @@
     "smart_repair.js",
     "grafik.js",
     "olzap.js",
-    "pesanan_web.js",
     "pembatalan.js",
     "penjualan.js"
   ]
