@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         ERZAP - Transfer Kas/Bank (Dropdown Cari & Format Nominal)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.4
-// @description  Halaman Transfer Kas/Bank: kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); saldo sesudah Kas Asal (sebelum - nominal) dan Kas Tujuan (sebelum + nominal) dihitung, dengan info penambahan Kas Tujuan; Simpan dan Rekam diblokir bila saldo Kas Asal minus; tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
+// @version      1.6.0
+// @description  Halaman Transfer Kas/Bank dan Kas Masuk/Keluar (kolom Sesudah, Keterangan wajib diisi, Simpan nonaktif bila saldo minus): kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); saldo sesudah Kas Asal (sebelum - nominal) dan Kas Tujuan (sebelum + nominal) dihitung, dengan info penambahan Kas Tujuan; Simpan dan Rekam diblokir bila saldo Kas Asal minus; tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/jurnals/form_transfer_kas_bank*
+// @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
+// @match        https://*.erzap.com/jurnals/form_transaksi_kas_keluar*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @run-at       document-idle
 // @grant        none
@@ -360,4 +362,250 @@
   } else {
     init();
   }
+})();
+
+// ===== Kas Masuk & Kas Keluar: kolom Sesudah, Keterangan wajib, Simpan nonaktif bila saldo minus =====
+// Dipindah dari script terpisah (v2.0.0). Berjalan hanya di halaman Kas Masuk / Kas Keluar.
+(function () {
+  'use strict';
+  if (!/\/jurnals\/form_transaksi_kas_(masuk|keluar)/.test(location.pathname)) return;
+
+  var IS_KELUAR = /form_transaksi_kas_keluar/.test(location.pathname);
+  var IS_MASUK = !IS_KELUAR;
+
+  var SELECT_ID = 'jurnal_idperkiraan_kas_bank';
+  var NOMINAL_ID = 'jurnal_nominal';
+  var KET_ID = 'jurnal_keterangan';
+  var FORM_ID = 'new_jurnal';
+  var HEAD_CLASS = 'erzap-saldo-sesudah-head';
+  var CELL_CLASS = 'erzap-saldo-sesudah-cell';
+  var WARN_ID = 'erzap-saldo-minus-warning';
+  var SAVE_ID = 'simpan';
+  var SAVE_DISABLE_ID = 'simpan_disable';
+
+  var COLOR_PLUS = '#1a7f37';
+  var COLOR_MINUS = '#c0392b';
+
+  var blocked = false;   // Kas Keluar: saldo akan minus
+  var blockMsg = '';
+
+  function parseRp(s) {
+    if (s === null || s === undefined) return NaN;
+    var t = String(s).replace(/Rp/i, '').replace(/\s/g, '').replace(/,/g, '');
+    var n = parseFloat(t);
+    return isNaN(n) ? NaN : n;
+  }
+
+  function fmtRp(n) {
+    return 'Rp ' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function inDialog(el) {
+    return !!(el && el.closest && el.closest('.modal, dialog, [role=dialog]'));
+  }
+
+  function findSaldoTable() {
+    var tables = document.querySelectorAll('table');
+    for (var i = 0; i < tables.length; i++) {
+      // Abaikan kolom "Sesudah" buatan script ini saat mencari header asli
+      var ths = Array.prototype.filter.call(tables[i].querySelectorAll('thead th'),
+                  function (th) { return !th.classList.contains(HEAD_CLASS); });
+      if (ths.length >= 5 &&
+          ths[1].textContent.trim() === 'Nama Perkiraan' &&
+          ths[ths.length - 1].textContent.trim() === 'Saldo') {
+        return tables[i];
+      }
+    }
+    return null;
+  }
+
+  // Peringatan (Kas Keluar) tepat di atas tabel Saldo, di bawah judul "Saldo"
+  function placeWarning(table) {
+    var warn = document.getElementById(WARN_ID);
+    if (!warn) {
+      warn = document.createElement('div');
+      warn.id = WARN_ID;
+      warn.setAttribute('role', 'alert');
+      warn.style.cssText = 'display:none;box-sizing:border-box;width:100%;clear:both;' +
+                           'background:#fdecea;border:1px solid #e74c3c;color:#c0392b;' +
+                           'padding:10px 14px;margin:0 0 10px 0;border-radius:4px;font-weight:600;text-align:left;';
+    }
+    if (table && warn.nextElementSibling !== table) {
+      table.parentNode.insertBefore(warn, table);
+    }
+    return warn;
+  }
+
+  function setSaveBlocked(on) {
+    var save = document.getElementById(SAVE_ID);
+    var saveDis = document.getElementById(SAVE_DISABLE_ID);
+    if (save) save.style.display = on ? 'none' : '';
+    if (saveDis) saveDis.style.display = on ? 'block' : 'none';
+    var create = document.querySelector('input[type=submit][value="Create Jurnal"]');
+    if (create) create.disabled = on;
+  }
+
+  // Alasan simpan ditolak; kosong berarti boleh disimpan
+  function saveIssue() {
+    if (IS_KELUAR && blocked) return blockMsg;
+    if (IS_MASUK) {
+      var k = document.getElementById(KET_ID);
+      if (k && k.value.trim() === '') return 'Keterangan wajib diisi.';
+    }
+    return '';
+  }
+
+  function guard(e) {
+    var msg = saveIssue();
+    if (!msg) return true;
+    if (e) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+    alert(msg);
+    if (IS_MASUK) {
+      var k = document.getElementById(KET_ID);
+      if (k) k.focus();
+    }
+    return false;
+  }
+
+  function hookForm() {
+    var form = document.getElementById(FORM_ID);
+    if (!form || form.__erzapSaldoHooked) return;
+    form.__erzapSaldoHooked = true;
+
+    form.addEventListener('submit', function (e) { guard(e); }, true);
+
+    var origSubmit = form.submit;
+    form.submit = function () {
+      if (!guard(null)) return;
+      return origSubmit.apply(form, arguments);
+    };
+  }
+
+  // Kas Masuk: Keterangan wajib diisi (tanda * merah di label)
+  function markKeterangan() {
+    var el = document.getElementById(KET_ID);
+    if (!el) return;
+    el.required = true;
+    el.setAttribute('aria-required', 'true');
+    var label = document.querySelector('label[for="' + KET_ID + '"]');
+    if (label && !label.querySelector('.erzap-req-star')) {
+      var star = document.createElement('span');
+      star.className = 'erzap-req-star';
+      star.textContent = '*';
+      star.style.color = 'red';
+      star.style.marginRight = '2px';
+      label.insertBefore(star, label.firstChild);
+    }
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('#simpan, input[type=submit], button');
+    if (!btn || inDialog(btn)) return;
+    if (btn.id === 'simpan' || btn.value === 'Create Jurnal' || /^\s*simpan\s*$/i.test(btn.textContent || '')) {
+      guard(e);
+    }
+  }, true);
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'F2' && !inDialog(document.activeElement) && saveIssue()) guard(e);
+  }, true);
+
+  function renderTable() {
+    var table = findSaldoTable();
+    var warn = IS_KELUAR ? placeWarning(table) : null;
+
+    if (!table) {
+      if (warn) warn.style.display = 'none';
+      blocked = false;
+      if (IS_KELUAR) setSaveBlocked(false);
+      return;
+    }
+
+    var headRow = table.querySelector('thead tr');
+    if (headRow && !headRow.querySelector('.' + HEAD_CLASS)) {
+      var th = document.createElement('th');
+      th.className = HEAD_CLASS;
+      th.textContent = 'Sesudah';
+      th.style.width = 'auto';
+      headRow.appendChild(th);
+    }
+
+    var sel = document.getElementById(SELECT_ID);
+    var targetName = (sel && sel.selectedIndex >= 0) ? sel.options[sel.selectedIndex].text.trim() : '';
+    var nominalEl = document.getElementById(NOMINAL_ID);
+    var sub = parseRp(nominalEl ? nominalEl.value : '');
+    if (isNaN(sub)) sub = 0;
+
+    var sign = IS_KELUAR ? -1 : 1;
+    var color = IS_KELUAR ? COLOR_MINUS : COLOR_PLUS;
+    var minusValue = null;
+    var minusName = '';
+
+    var rows = table.querySelectorAll('tbody tr');
+    for (var r = 0; r < rows.length; r++) {
+      var tds = rows[r].children;
+      if (tds.length < 5) continue;
+
+      var nameCell = tds[1];
+      var saldoCell = tds[4];
+      var cell = rows[r].querySelector('.' + CELL_CLASS);
+      if (!cell) {
+        cell = document.createElement('td');
+        cell.className = CELL_CLASS;
+        rows[r].appendChild(cell);
+      }
+
+      var base = parseRp(saldoCell.textContent);
+      var name = nameCell.textContent.trim();
+      var isTarget = targetName !== '' && name === targetName;
+
+      if (!isTarget) {
+        // Hanya akun Asal Kas/Bank (keluar) atau Kas/Bank penerima (masuk) yang dipilih
+        cell.textContent = '';
+        cell.style.fontWeight = '';
+        cell.style.color = '';
+      } else if (isNaN(base)) {
+        cell.textContent = '-';
+        cell.style.fontWeight = '';
+        cell.style.color = '';
+      } else {
+        var after = base + sign * sub;
+        cell.textContent = fmtRp(after);
+        cell.style.fontWeight = sub !== 0 ? 'bold' : '';
+        cell.style.color = sub !== 0 ? color : '';
+        if (IS_KELUAR && sub > 0 && after < 0) {
+          minusValue = after;
+          minusName = name;
+        }
+      }
+    }
+
+    if (IS_KELUAR) {
+      if (minusValue !== null) {
+        blocked = true;
+        blockMsg = 'Saldo ' + minusName + ' tidak mencukupi. Hasil ' + fmtRp(minusValue) + ' (minus). Transaksi tidak dapat disimpan.';
+        warn.textContent = 'Peringatan: saldo ' + minusName + ' tidak mencukupi. Saldo sesudah transaksi minus (' +
+                           fmtRp(minusValue) + '). Tombol Simpan dinonaktifkan.';
+        warn.style.display = 'block';
+      } else {
+        blocked = false;
+        warn.style.display = 'none';
+      }
+      setSaveBlocked(blocked);
+    }
+  }
+
+  function tick() {
+    renderTable();
+    hookForm();
+    if (IS_MASUK) markKeterangan();
+  }
+
+  document.addEventListener('input', tick, true);
+  document.addEventListener('change', tick, true);
+  setInterval(tick, 500);
+  tick();
 })();
