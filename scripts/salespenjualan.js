@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Sales Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.9.7
-// @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Form Pencatatan Penjualan: Tipe Penjualan otomatis dari nama Pelanggan (shopee/tiktok/tokopedia -> Marketplace, NON-MEMBERSHIP -> Offline/Instore, S+angka -> Antar Outlet). Popup Tukar Tambah: Barang Bekas dinonaktifkan, Dari/Tujuan Outlet, No Faktur setelah outlet diisi, peringatan outlet, tombol 'Retur Antar Outlet'. Popup Draf Penjualan yang kosong tidak ditampilkan. Fitur hanya untuk role yang diatur di AKSES_JSON.
+// @version      1.9.8
+// @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Form Pencatatan Penjualan: Tipe Penjualan otomatis dari nama Pelanggan (shopee/tiktok/tokopedia -> Marketplace, NON-MEMBERSHIP -> Offline/Instore, S+angka -> Antar Outlet). Popup Tukar Tambah: Barang Bekas dinonaktifkan, Dari/Tujuan Outlet, No Faktur setelah outlet diisi, peringatan outlet, tombol 'Retur Antar Outlet'. Popup Draf Penjualan yang kosong tidak ditampilkan. Di halaman Penjualan Baru, popup Draf Penjualan dibuka otomatis dan draf bertanggal hari ini disembunyikan. Fitur hanya untuk role yang diatur di AKSES_JSON.
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -15,7 +15,7 @@
     // ====== HAK AKSES & FITUR (JSON) ======
     // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini. Kosong = tidak ada fitur untuk umum.
     // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua).
-    //              Nama fitur: batal, tipeMarketplace, tipePelanggan, tukarTambah, drafKosong, jumlahAngka, peringatanStok, tipePartdistro.
+    //              Nama fitur: batal, tipeMarketplace, tipePelanggan, tukarTambah, drafKosong, drafHariIni, jumlahAngka, peringatanStok, tipePartdistro.
     // "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
     //              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
     // Fitur yang tidak disebut di "public" maupun "private" ditolak.
@@ -23,7 +23,7 @@
     // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
     const AKSES_JSON = `{
         "public": [],
-        "private": ["batal", "tipeMarketplace", "tipePelanggan", "tukarTambah", "drafKosong", "jumlahAngka", "peringatanStok", "tipePartdistro"],
+        "private": ["batal", "tipeMarketplace", "tipePelanggan", "tukarTambah", "drafKosong", "drafHariIni", "jumlahAngka", "peringatanStok", "tipePartdistro"],
         "role": {
           "pusat": {
             "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT", "TIMORITEL"],
@@ -284,6 +284,84 @@
         });
     }
 
+    /* ========== Draf Penjualan hari ini disembunyikan (fitur drafHariIni) ========== */
+    // Di halaman Penjualan Baru, popup Draf Penjualan dibuka otomatis, lalu draf bertanggal hari ini
+    // dibuang dari daftar. Kalau tidak ada draf lain, popup ditutup.
+    const DH_TOMBOL = 'Draf Penjualan';
+    const DH_TUTUP = 'Tutup';
+    const DH_INTERVAL = 250;
+    const DH_MAKS = 40;   // ~10 detik
+
+    // Tanggal hari ini zona Jakarta, format dd-mm-yyyy (sama dengan kolom Tanggal)
+    const DH_HARI_INI = (() => {
+        const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jakarta', day: '2-digit', month: '2-digit', year: 'numeric' }).formatToParts(new Date());
+        const g = (t) => p.find((x) => x.type === t).value;
+        return g('day') + '-' + g('month') + '-' + g('year');
+    })();
+
+    const dhNorm = (s) => s.replace(/\s+/g, ' ').trim();
+
+    function dhCariTabel() {
+        return [...document.querySelectorAll('table')].find((t) =>
+            t.offsetParent !== null && /No Faktur/i.test(dhNorm(t.textContent)) && /Tanggal/i.test(dhNorm(t.textContent)));
+    }
+
+    function dhTutupPopup() {
+        const b = [...document.querySelectorAll('button')].find((x) => x.offsetParent !== null && dhNorm(x.textContent) === DH_TUTUP);
+        if (b) b.click();
+    }
+
+    // Buang baris draf hari ini; tutup popup kalau tidak ada draf lain
+    function dhSaringTabel(table) {
+        const kolom = [...table.rows[0].cells].findIndex((c) => dhNorm(c.textContent).toLowerCase() === 'tanggal');
+        if (kolom < 0) return;
+        const baris = [...table.rows].slice(1).filter((tr) => tr.cells.length > kolom);
+        if (!baris.length) return;
+        let dibuang = 0;
+        baris.forEach((tr) => {
+            if (dhNorm(tr.cells[kolom].textContent) === DH_HARI_INI) { tr.remove(); dibuang++; }
+        });
+        // Tidak ada draf yang tersisa (semuanya hari ini) -> popup kosong, ditutup
+        if (dibuang === baris.length) dhTutupPopup();
+    }
+
+    // Menunggu daftar draf muncul. Kalau sampai batas waktu tabelnya tetap kosong, popup ditutup.
+    function dhTungguDraf(n) {
+        const table = dhCariTabel();
+        const sudahMuat = table && [...table.rows].slice(1).some((tr) => /\d{2}-\d{2}-\d{4}/.test(tr.textContent));
+        if (sudahMuat) return dhSaringTabel(table);
+        if (n < DH_MAKS) return setTimeout(() => dhTungguDraf(n + 1), DH_INTERVAL);
+        if (table) dhTutupPopup();   // tidak ada draf sama sekali
+    }
+
+    // Daftar draf bisa dimuat ulang (dibuka lagi, atau diperbarui halaman), jadi baris hari ini
+    // disaring setiap pengecekan selama tabelnya terlihat, bukan sekali saja.
+    function dhSaringAktif() {
+        const table = dhCariTabel();
+        if (table) dhSaringTabel(table);
+    }
+
+    let dhSudahDibuka = false;
+    function dhBukaDanSaring() {
+        if (!/^\/penjualans\/new/.test(location.pathname)) return;
+        if (!bolehFitur('drafHariIni')) return;
+        dhSaringAktif();
+        if (dhSudahDibuka) return;
+        dhSudahDibuka = true;
+        let coba = 0;
+        const timer = setInterval(() => {
+            coba++;
+            const btn = [...document.querySelectorAll('button')].find((b) => dhNorm(b.textContent) === DH_TOMBOL);
+            if (btn) {
+                clearInterval(timer);
+                btn.click();
+                setTimeout(() => dhTungguDraf(0), DH_INTERVAL);
+            } else if (coba >= DH_MAKS) {
+                clearInterval(timer);
+            }
+        }, DH_INTERVAL);
+    }
+
     // Satu pengecekan ringan untuk semua popup di atas (tanpa request ke server); masing-masing dijaga aksesnya
     function tickPopup() {
         try {
@@ -296,6 +374,7 @@
             }
         } catch (e) { /* dicoba lagi di pengecekan berikutnya */ }
         try { if (bolehFitur('drafKosong')) hideEmptyDraftPopup(); } catch (e) { /* dicoba lagi */ }
+        try { dhBukaDanSaring(); } catch (e) { /* dicoba lagi */ }
     }
     setInterval(tickPopup, 300);
 
