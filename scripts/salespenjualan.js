@@ -358,14 +358,32 @@
         peringatanSig = '';
     }
 
+    // Membaca angka dari teks ERZAP. Titik dianggap desimal (1.0 -> 1, 1.5 -> 1.5),
+    // kecuali bentuknya pemisah ribuan (1.250 -> 1250). Koma dianggap desimal (1,5 -> 1.5).
+    // Bila ada titik dan koma sekaligus, yang paling kanan adalah desimal.
+    function parseAngka(teks) {
+        let s = String(teks || '').trim().replace(/\s+/g, '');
+        if (!/\d/.test(s)) return NaN;
+        if (s.indexOf(',') !== -1 && s.indexOf('.') !== -1) {
+            s = s.lastIndexOf(',') > s.lastIndexOf('.')
+                ? s.replace(/\./g, '').replace(',', '.')
+                : s.replace(/,/g, '');
+        } else if (s.indexOf(',') !== -1) {
+            s = s.replace(',', '.');
+        } else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) {
+            s = s.replace(/\./g, '');
+        }
+        return Number(s);
+    }
+
     // Hanya mengubah DOM bila isinya berubah, supaya tidak memicu MutationObserver berulang.
     function cekPeringatanStok() {
         if (!peringatanBox || !peringatanBox.isConnected) { pasangPeringatanStok(); if (!peringatanBox) return; }
         const bad = Array.from(document.querySelectorAll(SEL_JUMLAH + '.error'));
         const baris = bad.map((el) => {
             const no = (el.id.match(/penjualan_detail(\d+)_jumlah/) || [])[1] || '?';
-            const jumlah = parseFloat(el.value) || 0;
-            const stok = parseFloat((el.title.match(/Jumlah stok\s*=\s*(-?[\d.]+)/) || [])[1]);
+            const jumlah = parseAngka(el.value) || 0;
+            const stok = parseAngka((el.title.match(/Jumlah stok\s*=\s*(-?[\d.,]+)/) || [])[1]);
             return Number.isNaN(stok)
                 ? 'Baris ' + no + ' : Jumlah melebihi stok'
                 : 'Baris ' + no + ' : Akan terjadi stok -' + (jumlah - stok);
