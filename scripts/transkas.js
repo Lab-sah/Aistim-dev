@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Transfer Kas/Bank (Dropdown Cari & Format Nominal)
 // @namespace    http://tampermonkey.net/
-// @version      1.6.0
+// @version      1.6.2
 // @description  Halaman Transfer Kas/Bank dan Kas Masuk/Keluar (kolom Sesudah, Keterangan wajib diisi, Simpan nonaktif bila saldo minus): kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); saldo sesudah Kas Asal (sebelum - nominal) dan Kas Tujuan (sebelum + nominal) dihitung, dengan info penambahan Kas Tujuan; Simpan dan Rekam diblokir bila saldo Kas Asal minus; tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/jurnals/form_transfer_kas_bank*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
@@ -20,7 +20,7 @@
 
   // ====== HAK AKSES & FITUR (JSON) ======
   // "admin"   -> daftar nama yang SELALU bisa memakai SEMUA fitur (public maupun private).
-  // "private" -> nama fitur yang HANYA boleh dipakai "admin". Nama fitur: formatNominal, responsive, validasiSimpan, cekSaldoMinus.
+  // "private" -> nama fitur yang HANYA boleh dipakai "admin". Saat ini kosong.
   // "public"  -> nama fitur yang boleh dipakai SEMUA user yang membuka halaman ini.
   // Fitur yang tidak disebut di keduanya dianggap private (hanya admin).
   // Nama di "admin" dibaca dari tulisan "NAMA (JABATAN)" di pojok kanan bawah ERZAP. Cukup sebagian nama
@@ -31,7 +31,7 @@
   const AKSES_JSON = `{
     "admin": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
     "private": [],
-    "public": ["formatNominal", "responsive", "validasiSimpan", "cekSaldoMinus"]
+    "public": ["formatNominal", "responsive", "validasiSimpan", "cekSaldoMinus", "kasMasukKeluar"]
   }`;
 
   function bacaAkses() {
