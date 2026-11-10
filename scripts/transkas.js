@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Transfer Kas/Bank (Dropdown Cari & Format Nominal)
 // @namespace    http://tampermonkey.net/
-// @version      1.7.1
+// @version      1.7.2
 // @description  Halaman Transfer Kas/Bank, Kas Masuk/Keluar, dan Pendapatan Lain (Nominal Rp & Sesudah); Kas Masuk/Keluar (kolom Sesudah, Keterangan wajib diisi, Simpan nonaktif bila saldo minus): kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); saldo sesudah Kas Asal (sebelum - nominal) dan Kas Tujuan (sebelum + nominal) dihitung, dengan info penambahan Kas Tujuan; Simpan dan Rekam diblokir bila saldo Kas Asal minus; tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/jurnals/form_transfer_kas_bank*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
@@ -613,40 +613,35 @@
 })();
 
 // ===== Pendapatan Lain: Nominal Rp & Sesudah =====
-// Dipindah dari script terpisah (v1.1.0). Berjalan hanya di halaman form_pendapatan_lain_lain.
-// Memakai jQuery dan fungsi halaman (count_kas, currency_formated), jadi script ini harus di @world main.
+// Format Nominal sama dengan formatNominal di Transfer Kas/Bank (dan dijalankan dengan cara yang sama:
+// listener di window capture, angka mentah di dataset.raw, dikirim saat submit / klik Simpan).
+// Berjalan hanya di halaman form_pendapatan_lain_lain. Memakai jQuery dan fungsi halaman (count_kas, currency_formated),
+// jadi script ini harus di @world main.
 (function () {
   'use strict';
   if (!/\/jurnals\/form_pendapatan_lain_lain/.test(location.pathname)) return;
 
-  // Pecah teks field jadi bagian bulat (ip) dan desimal (dp, null bila tanpa titik)
-  function parts(v) {
-    var s = String(v || '').replace(/^\s*Rp\s*/i, '').replace(/\s/g, '');
-    var i = s.indexOf('.');
-    var ip = (i < 0 ? s : s.slice(0, i)).replace(/\D/g, '');
-    var dp = i < 0 ? null : s.slice(i + 1).replace(/\D/g, '');
-    return { ip: ip, dp: dp };
-  }
+  var ID = 'jurnal_nominal';
 
-  // Tampilan: "Rp 1,234,567" + ".xx" hanya jika user sendiri mengetik titik
-  function fmtRp(v) {
-    var p = parts(v);
-    if (p.ip === '' && (p.dp === null || p.dp === '')) return '';
-    var out = 'Rp ' + (p.ip === '' ? '0' : Number(p.ip).toLocaleString('en-US'));
-    if (p.dp !== null) out += '.' + p.dp;
-    return out;
-  }
-
-  // Angka murni untuk dihitung / dikirim: "2343" atau "2343.50"
-  function rawOf(v) {
-    var p = parts(v);
-    if (p.ip === '' && (p.dp === null || p.dp === '')) return '';
-    return (p.ip === '' ? '0' : p.ip) + (p.dp ? '.' + p.dp : '');
+  // Sama dengan fmtNominal di atas: Rp 3,000,000.5 (desimal maks 2 digit). dataset.raw = angka polos untuk dihitung/dikirim
+  function fmtNominalPend(el) {
+    var v = el.value.replace(/[^\d.]/g, '');
+    var dot = v.indexOf('.');
+    var intPart = dot >= 0 ? v.slice(0, dot).replace(/\./g, '') : v;
+    var decPart = dot >= 0 ? v.slice(dot + 1).replace(/\./g, '').slice(0, 2) : null;
+    intPart = intPart.replace(/^0+(?=\d)/, '');
+    if (dot >= 0 && intPart === '') intPart = '0';
+    var grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    var shown = grouped;
+    if (decPart !== null) shown += '.' + decPart;
+    el.value = shown ? 'Rp ' + shown : '';
+    el.dataset.raw = intPart ? (decPart !== null ? intPart + '.' + decPart : intPart) : '';
   }
 
   // Hitung Sesudah = Sebelum + Nominal, lalu tampilkan di tabel
   function countKas() {
-    var nominal = parseFloat(rawOf($('#jurnal_nominal').val()));
+    var el = document.getElementById(ID);
+    var nominal = parseFloat(el && el.dataset.raw ? el.dataset.raw : '');
     if (isNaN(nominal)) return;
 
     var sebelum = parseFloat(String($('#asal_sebelum').html()).replace(/[^\d.\-]/g, ''));
@@ -659,38 +654,42 @@
     window.status = true;
   }
 
+  // Format saat mengetik dan saat keluar kolom. Didaftarkan di window (capture) dan menghentikan event,
+  // supaya format bawaan ERZAP tidak ikut mengubah nilai.
+  window.addEventListener('input', function (e) {
+    if (e.target && e.target.id === ID) { fmtNominalPend(e.target); e.stopImmediatePropagation(); countKas(); }
+  }, true);
+  window.addEventListener('blur', function (e) {
+    if (e.target && e.target.id === ID) { fmtNominalPend(e.target); e.stopImmediatePropagation(); }
+  }, true);
+
+  // Kirim angka mentah saat form disubmit atau tombol Simpan ditekan
+  function stripForSubmit() {
+    var el = document.getElementById(ID);
+    if (el && el.dataset.raw !== undefined) el.value = el.dataset.raw;
+  }
+  document.addEventListener('submit', function (e) {
+    if (e.target && e.target.querySelector && e.target.querySelector('#' + ID)) stripForSubmit();
+  }, true);
+  ['pointerdown', 'mousedown', 'click'].forEach(function (t) {
+    window.addEventListener(t, function (e) {
+      if (e.target && e.target.closest && e.target.closest('#simpan, #bt_simpan, #image_simpan')) stripForSubmit();
+    }, true);
+  });
+
   function init() {
-    var el = document.getElementById('jurnal_nominal');
+    var el = document.getElementById(ID);
     if (!el || !window.jQuery) return false;
     if (el.dataset.erzapRp) return true;
     el.dataset.erzapRp = '1';
 
     // ERZAP memvalidasi input ber-class "number" sebagai angka, jadi teks "Rp 20,000" ditolak ("Masukan angka").
-    // Class dilepas; nilai angka polos tetap dikirim lewat submit (lihat di bawah).
     el.classList.remove('number');
 
     // Override fungsi halaman; handler keyup asli memanggil count_kas() by name
     window.count_kas = countKas;
 
-    el.value = fmtRp(el.value);
-
-    el.addEventListener('input', function () {
-      el.value = fmtRp(el.value);
-    });
-    el.addEventListener('blur', function () {
-      el.value = fmtRp(el.value);
-    });
-    // Pastikan keyup tetap memicu hitung Sesudah
-    $(el).on('keyup', function () { countKas(); });
-
-    // Saat submit kirim angka murni (mis. 2343 atau 2343.00), lalu kembalikan tampilan Rp
-    if (el.form) {
-      el.form.addEventListener('submit', function () {
-        el.value = rawOf(el.value);
-        setTimeout(function () { el.value = fmtRp(el.value); }, 0);
-      }, true);
-    }
-
+    if (el.value) fmtNominalPend(el);
     countKas();
     return true;
   }
