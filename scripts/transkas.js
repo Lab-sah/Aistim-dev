@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Transfer Kas/Bank (Dropdown Cari & Format Nominal)
 // @namespace    http://tampermonkey.net/
-// @version      1.7.0
+// @version      1.7.1
 // @description  Halaman Transfer Kas/Bank, Kas Masuk/Keluar, dan Pendapatan Lain (Nominal Rp & Sesudah); Kas Masuk/Keluar (kolom Sesudah, Keterangan wajib diisi, Simpan nonaktif bila saldo minus): kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); saldo sesudah Kas Asal (sebelum - nominal) dan Kas Tujuan (sebelum + nominal) dihitung, dengan info penambahan Kas Tujuan; Simpan dan Rekam diblokir bila saldo Kas Asal minus; tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/jurnals/form_transfer_kas_bank*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
@@ -664,6 +664,10 @@
     if (!el || !window.jQuery) return false;
     if (el.dataset.erzapRp) return true;
     el.dataset.erzapRp = '1';
+
+    // ERZAP memvalidasi input ber-class "number" sebagai angka, jadi teks "Rp 20,000" ditolak ("Masukan angka").
+    // Class dilepas; nilai angka polos tetap dikirim lewat submit (lihat di bawah).
+    el.classList.remove('number');
 
     // Override fungsi halaman; handler keyup asli memanggil count_kas() by name
     window.count_kas = countKas;
