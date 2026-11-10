@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         ERZAP - Transfer Kas/Bank (Dropdown Cari & Format Nominal)
 // @namespace    http://tampermonkey.net/
-// @version      1.6.2
-// @description  Halaman Transfer Kas/Bank dan Kas Masuk/Keluar (kolom Sesudah, Keterangan wajib diisi, Simpan nonaktif bila saldo minus): kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); saldo sesudah Kas Asal (sebelum - nominal) dan Kas Tujuan (sebelum + nominal) dihitung, dengan info penambahan Kas Tujuan; Simpan dan Rekam diblokir bila saldo Kas Asal minus; tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
+// @version      1.7.0
+// @description  Halaman Transfer Kas/Bank, Kas Masuk/Keluar, dan Pendapatan Lain (Nominal Rp & Sesudah); Kas Masuk/Keluar (kolom Sesudah, Keterangan wajib diisi, Simpan nonaktif bila saldo minus): kolom Nominal berformat "Rp 3,000" (angka polos yang dikirim saat Rekam/Simpan); saldo sesudah Kas Asal (sebelum - nominal) dan Kas Tujuan (sebelum + nominal) dihitung, dengan info penambahan Kas Tujuan; Simpan dan Rekam diblokir bila saldo Kas Asal minus; tampilan responsive untuk layar sempit; error field wajib hanya muncul saat Simpan ditekan. Fitur diatur lewat AKSES_JSON (admin/private/public).
 // @match        https://*.erzap.com/jurnals/form_transfer_kas_bank*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_keluar*
+// @match        https://*.erzap.com/jurnals/form_pendapatan_lain_lain*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @run-at       document-idle
+// @world        main
 // @grant        none
 // ==/UserScript==
 
@@ -608,4 +610,91 @@
   document.addEventListener('change', tick, true);
   setInterval(tick, 500);
   tick();
+})();
+
+// ===== Pendapatan Lain: Nominal Rp & Sesudah =====
+// Dipindah dari script terpisah (v1.1.0). Berjalan hanya di halaman form_pendapatan_lain_lain.
+// Memakai jQuery dan fungsi halaman (count_kas, currency_formated), jadi script ini harus di @world main.
+(function () {
+  'use strict';
+  if (!/\/jurnals\/form_pendapatan_lain_lain/.test(location.pathname)) return;
+
+  // Pecah teks field jadi bagian bulat (ip) dan desimal (dp, null bila tanpa titik)
+  function parts(v) {
+    var s = String(v || '').replace(/^\s*Rp\s*/i, '').replace(/\s/g, '');
+    var i = s.indexOf('.');
+    var ip = (i < 0 ? s : s.slice(0, i)).replace(/\D/g, '');
+    var dp = i < 0 ? null : s.slice(i + 1).replace(/\D/g, '');
+    return { ip: ip, dp: dp };
+  }
+
+  // Tampilan: "Rp 1,234,567" + ".xx" hanya jika user sendiri mengetik titik
+  function fmtRp(v) {
+    var p = parts(v);
+    if (p.ip === '' && (p.dp === null || p.dp === '')) return '';
+    var out = 'Rp ' + (p.ip === '' ? '0' : Number(p.ip).toLocaleString('en-US'));
+    if (p.dp !== null) out += '.' + p.dp;
+    return out;
+  }
+
+  // Angka murni untuk dihitung / dikirim: "2343" atau "2343.50"
+  function rawOf(v) {
+    var p = parts(v);
+    if (p.ip === '' && (p.dp === null || p.dp === '')) return '';
+    return (p.ip === '' ? '0' : p.ip) + (p.dp ? '.' + p.dp : '');
+  }
+
+  // Hitung Sesudah = Sebelum + Nominal, lalu tampilkan di tabel
+  function countKas() {
+    var nominal = parseFloat(rawOf($('#jurnal_nominal').val()));
+    if (isNaN(nominal)) return;
+
+    var sebelum = parseFloat(String($('#asal_sebelum').html()).replace(/[^\d.\-]/g, ''));
+    if (isNaN(sebelum)) sebelum = 0;
+
+    var sesudah = sebelum + nominal;
+    $('#asal_sesudah').html(sesudah);
+    $('#asal_sesudah_tampil').html('Rp ' + currency_formated(sesudah));
+    $('#simpan_disable').hide();
+    window.status = true;
+  }
+
+  function init() {
+    var el = document.getElementById('jurnal_nominal');
+    if (!el || !window.jQuery) return false;
+    if (el.dataset.erzapRp) return true;
+    el.dataset.erzapRp = '1';
+
+    // Override fungsi halaman; handler keyup asli memanggil count_kas() by name
+    window.count_kas = countKas;
+
+    el.value = fmtRp(el.value);
+
+    el.addEventListener('input', function () {
+      el.value = fmtRp(el.value);
+    });
+    el.addEventListener('blur', function () {
+      el.value = fmtRp(el.value);
+    });
+    // Pastikan keyup tetap memicu hitung Sesudah
+    $(el).on('keyup', function () { countKas(); });
+
+    // Saat submit kirim angka murni (mis. 2343 atau 2343.00), lalu kembalikan tampilan Rp
+    if (el.form) {
+      el.form.addEventListener('submit', function () {
+        el.value = rawOf(el.value);
+        setTimeout(function () { el.value = fmtRp(el.value); }, 0);
+      }, true);
+    }
+
+    countKas();
+    return true;
+  }
+
+  // Halaman memuat jQuery & script-nya sendiri; tunggu sebentar bila belum siap
+  var tries = 0;
+  var timer = setInterval(function () {
+    tries++;
+    if (init() || tries > 50) clearInterval(timer);
+  }, 200);
 })();
