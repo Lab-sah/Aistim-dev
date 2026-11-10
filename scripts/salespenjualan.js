@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Sales Penjualan
 // @namespace    http://tampermonkey.net/
-// @version      1.9.4
+// @version      1.9.6
 // @description  Halaman Data Penjualan (detail): tombol 'Batal' di samping 'Duplikasi Penjualan'. Form Pencatatan Penjualan: Tipe Penjualan otomatis dari nama Pelanggan (shopee/tiktok/tokopedia -> Marketplace, NON-MEMBERSHIP -> Offline/Instore, S+angka -> Antar Outlet). Popup Tukar Tambah: Barang Bekas dinonaktifkan, Dari/Tujuan Outlet, No Faktur setelah outlet diisi, peringatan outlet, tombol 'Retur Antar Outlet'. Popup Draf Penjualan yang kosong tidak ditampilkan. Fitur hanya untuk role yang diatur di AKSES_JSON.
 // @match        https://*.erzap.com/penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -303,20 +303,29 @@
     const SEL_JUMLAH = 'input.jumlah_produk';
     let jumlahAngkaAktif = false;
 
+    // Hanya angka dan satu titik desimal (mis. 1.0 tetap 1.0). Titik kedua dan seterusnya dibuang.
+    function sanitasiJumlah(v) {
+        const bersih = String(v).replace(/[^0-9.]/g, '');
+        const i = bersih.indexOf('.');
+        return i === -1 ? bersih : bersih.slice(0, i + 1) + bersih.slice(i + 1).replace(/\./g, '');
+    }
+
     function pasangJumlahAngka() {
         if (jumlahAngkaAktif) return;
         jumlahAngkaAktif = true;
-        // Tombol yang diketik: tolak selain angka 0-9
+        // Tombol yang diketik: tolak selain angka 0-9 dan titik, serta titik kedua
         document.addEventListener('beforeinput', (e) => {
             const t = e.target;
             if (!t.matches || !t.matches(SEL_JUMLAH)) return;
-            if (e.data && /[^0-9]/.test(e.data)) e.preventDefault();
+            if (!e.data) return;
+            if (/[^0-9.]/.test(e.data)) e.preventDefault();
+            else if (e.data.indexOf('.') !== -1 && t.value.indexOf('.') !== -1) e.preventDefault();
         }, true);
-        // Nilai yang ditempel atau masuk lewat input: sisakan angka saja
+        // Nilai yang ditempel atau masuk lewat input: sisakan angka dan satu titik
         document.addEventListener('input', (e) => {
             const t = e.target;
             if (!t.matches || !t.matches(SEL_JUMLAH)) return;
-            const c = t.value.replace(/[^0-9]/g, '');
+            const c = sanitasiJumlah(t.value);
             if (c !== t.value) {
                 const pos = Math.max(0, (t.selectionStart || c.length) - (t.value.length - c.length));
                 t.value = c;
@@ -325,7 +334,7 @@
         }, true);
         // Isian yang sudah ada saat fitur dipasang
         document.querySelectorAll(SEL_JUMLAH).forEach((el) => {
-            const c = el.value.replace(/[^0-9]/g, '');
+            const c = sanitasiJumlah(el.value);
             if (c !== el.value) {
                 el.value = c;
                 el.dispatchEvent(new Event('input', { bubbles: true }));
