@@ -321,14 +321,17 @@
         baris.forEach((tr) => {
             if (dhNorm(tr.cells[kolom].textContent) === DH_HARI_INI) { tr.remove(); dibuang++; }
         });
+        // Tidak ada draf yang tersisa (semuanya hari ini) -> popup kosong, ditutup
         if (dibuang === baris.length) dhTutupPopup();
     }
 
+    // Menunggu daftar draf muncul. Kalau sampai batas waktu tabelnya tetap kosong, popup ditutup.
     function dhTungguDraf(n) {
         const table = dhCariTabel();
         const sudahMuat = table && [...table.rows].slice(1).some((tr) => /\d{2}-\d{2}-\d{4}/.test(tr.textContent));
         if (sudahMuat) return dhSaringTabel(table);
-        if (n < DH_MAKS) setTimeout(() => dhTungguDraf(n + 1), DH_INTERVAL);
+        if (n < DH_MAKS) return setTimeout(() => dhTungguDraf(n + 1), DH_INTERVAL);
+        if (table) dhTutupPopup();   // tidak ada draf sama sekali
     }
 
     // Daftar draf bisa dimuat ulang (dibuka lagi, atau diperbarui halaman), jadi baris hari ini
