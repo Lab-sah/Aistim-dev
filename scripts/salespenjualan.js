@@ -331,10 +331,19 @@
         if (n < DH_MAKS) setTimeout(() => dhTungguDraf(n + 1), DH_INTERVAL);
     }
 
+    // Daftar draf bisa dimuat ulang (dibuka lagi, atau diperbarui halaman), jadi baris hari ini
+    // disaring setiap pengecekan selama tabelnya terlihat, bukan sekali saja.
+    function dhSaringAktif() {
+        const table = dhCariTabel();
+        if (table) dhSaringTabel(table);
+    }
+
     let dhSudahDibuka = false;
     function dhBukaDanSaring() {
-        if (dhSudahDibuka || !/^\/penjualans\/new/.test(location.pathname)) return;
+        if (!/^\/penjualans\/new/.test(location.pathname)) return;
         if (!bolehFitur('drafHariIni')) return;
+        dhSaringAktif();
+        if (dhSudahDibuka) return;
         dhSudahDibuka = true;
         let coba = 0;
         const timer = setInterval(() => {
