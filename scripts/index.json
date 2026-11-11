@@ -42,7 +42,8 @@
     "beban.js",
     "erzap_trans_beban.js",
     "penjualan.js",
-    "pembatalan.js"
+    "pembatalan.js",
+    "transpembelian.js"
   ],
   "hapus": [
     "pemindahan.js",
