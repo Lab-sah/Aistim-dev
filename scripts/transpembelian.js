@@ -26,7 +26,16 @@
   const AKSES_JSON = `{
     "public": [],
     "private": ["termin_pembelian"],
-    "role": {}
+    "role": {
+        "pusat": {
+            "nama": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
+            "fitur": ["*"]
+        },
+        "cabang": {
+            "nama": ["PRAMUTECH", "ADMINTECH"],
+            "fitur": ["penentuanRak"]
+        }
+    }
   }`;
   const akses = (function () {
     try {
