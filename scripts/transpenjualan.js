@@ -113,8 +113,8 @@
   // ------------------------------------------------------------
   // Fitur 2: tipe_penjualan
   // Aturan tergantung outlet (value di select Outlet):
-  // - Outlet umum (OTOTECH JOMBANG dll.): 4. Service Regular, 5. Pit Express,
-  //   Bawa pulang, dan Makan di tempat nonaktif.
+  // - Outlet umum (OTOTECH JOMBANG dll.): hanya 3. Service Regular dan 10. Pit Express yang aktif
+  //   (sama dengan TIPE_PER_OUTLET_OTOTECH di antrianservis.js). Sebelum Outlet dipilih, semua opsi aktif.
   // - PANDERMAN MALANG (8): hanya 1. Offline/Instore, 2. WhatsApp/Media Sosial,
   //   dan 3. Marketplace yang aktif.
   // - REST UP CAFE (9): hanya Bawa pulang dan Makan di tempat yang aktif.
@@ -132,7 +132,7 @@
       '8': ['1', '2', '9'],   // PANDERMAN MALANG
       '9': ['4', '5']         // REST UP CAFE
     },
-    defaultBlock: ['3', '10', '4', '5'],
+    defaultBlock: ['1', '2', '4', '5', '6', '9'],
     popupItem: '.trk5-pop li',
     mark: 'data-erzap-blokir',
     styleId: 'erzap-tipe-penjualan-style',
@@ -145,6 +145,7 @@
       if (allow) {
         return [...sel.options].map(o => o.value).filter(v => v !== '' && !allow.includes(v));
       }
+      if (!out || !out.value) return [];
       return this.defaultBlock;
     },
 
