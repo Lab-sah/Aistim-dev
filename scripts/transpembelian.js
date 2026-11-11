@@ -28,7 +28,7 @@
     "private": ["termin_pembelian"],
     "role": {
         "pusat": {
-            "nama": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
+            "nama": ["SENTOT ARI HANDOKO", "SURYO"],
             "fitur": ["*"]
         },
         "cabang": {
