@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.84
-// @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, dan Tipe Penjualan = SERVICE (Outlet diisi manual). Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
-// @match        https://*.erzap.com/servis_elektroniks/*
+// @version      1.13.85
+// @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, Tipe Penjualan = SERVICE, dan Outlet = OTOTECH JOMBANG. Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
+// @match        https://ototech.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @run-at       document-idle
 // @world        main
@@ -22,8 +22,6 @@
   //                lacakOtomatis = perilaku otomatis di jendela Lacak Servis: tombol Reset, kolom pencarian terisi
   //                                dari baris yang dipilih, baris pertama otomatis dipilih, Telp dan Alamat dari nota,
   //                                Jenis Servis = Rawat Inap saat jendela dibuka, dan penyesuaian tampilan.
-  //                aturanOutlet = aturan Outlet, Tipe Penjualan, dan Termin khusus trial dan ototech
-  //                                (Outlet default, pembatasan Tipe per Outlet, Termin Tunai otomatis).
   // "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
   //              cukup sebagian nama; isi nama lengkap persis seperti di ERZAP), "fitur" = fitur private yang boleh dipakai role itu.
   // Fitur yang tidak disebut di "public" maupun "private" ditolak.
@@ -32,7 +30,7 @@
   // Untuk mengubah akses/fitur: edit JSON di bawah ini lalu simpan script dan muat ulang halaman ERZAP.
   const AKSES_JSON = `{
     "public": [],
-    "private": ["buatNota", "buatData", "lacakOtomatis", "aturanOutlet"],
+    "private": ["buatNota", "buatData", "lacakOtomatis"],
     "role": {
       "pusat": {
         "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT"],
@@ -787,7 +785,7 @@
   async function ambilDariNota(row, sn) {
     const kosongKontak = { alamat: '', telp: '' };
     const link = row.querySelector('a[href*="nota_tutup_servis"]') || row.querySelector('a[href*="nota_penerimaan"]');
-    if (!link) return { unit: namaBarangSaja(getCellAny(row, ['Unit', 'Nama Barang', 'Barang'])), sn: '', kontak: kosongKontak };
+    if (!link) return { unit: getCellAny(row, ['Unit', 'Nama Barang', 'Barang']), sn: '', kontak: kosongKontak };
     const res = await fetch(link.getAttribute('href'), { credentials: 'same-origin' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const html = await res.text();
@@ -811,11 +809,11 @@
           return c.some((x) => norm(x.textContent) === target);
         });
         if (!match) return kosong;
-        return { unit: namaBarangSaja(cellText(match, iUnit)), sn: '', kontak: kontak };
+        return { unit: cellText(match, iUnit), sn: '', kontak: kontak };
       }
       // SN kosong di Lacak Servis: ambil dari nota, hanya kalau jelas satu barang
       if (rows.length !== 1) return kosong;
-      return { unit: namaBarangSaja(cellText(rows[0], iUnit)), sn: iSn >= 0 ? cellText(rows[0], iSn) : '', kontak: kontak };
+      return { unit: cellText(rows[0], iUnit), sn: iSn >= 0 ? cellText(rows[0], iSn) : '', kontak: kontak };
     }
     return kosong;
   }
@@ -823,39 +821,6 @@
   function cellText(tr, idx) {
     const c = tr.querySelectorAll('td');
     return c[idx] ? c[idx].textContent.trim() : '';
-  }
-
-  // Kotak Kode Servis dibuat lebih pendek (160 px), supaya baris pencarian tidak terasa penuh
-  function ringkasKodeServis(modal) {
-    const kode = modal.querySelector('#pencarian_kode');
-    if (kode && kode.style.width !== '160px') {
-      kode.style.width = '160px';
-      kode.style.maxWidth = '160px';
-    }
-  }
-
-  // Nama Barang pindah ke kanan Serial Number di form pencarian Lacak Servis (sekali per modal)
-  function pindahkanNamaBarang(modal) {
-    const unit = modal.querySelector('#pencarian_unit');
-    const sn = modal.querySelector('#pencarian_serial_number');
-    if (!unit || !sn) return;
-    const cu = unit.closest('[class*="col-"]');
-    const cs = sn.closest('[class*="col-"]');
-    if (!cu || !cs || cu.parentNode !== cs.parentNode || cu === cs.nextElementSibling) return;
-    cs.parentNode.insertBefore(cu, cs.nextSibling);
-  }
-
-  // Kelas tombol Pencarian tanpa status "disabled" (Bootstrap menonaktifkan klik lewat class ini)
-  function kelasTombolAktif(src) {
-    return (src.className || '').split(/\s+/).filter((c) => c && c !== 'disabled').join(' ');
-  }
-
-  // Nama Barang saja: buang keterangan yang ikut di sel nota (Kelengkapan, Kondisi Barang, Deskripsi Kerusakan, Tindakan)
-  function namaBarangSaja(teks) {
-    let s = (teks || '').replace(/\s+/g, ' ').trim();
-    const m = s.search(/\s*(Kelengkapan|Kondisi Barang|Deskripsi Kerusakan|Tindakan)\s*:/i);
-    if (m >= 0) s = s.slice(0, m);
-    return s.trim();
   }
 
   // Isi Nama Barang (unit) di form
@@ -885,14 +850,15 @@
     });
   }
 
-  // Cek dan pasang ulang Termin. Tipe Penjualan dan Outlet tidak diisi di sini (sudah diatur mengikuti Outlet).
-  // Mengembalikan hasil tiap pengaturan.
+  // Cek dan pasang ulang Termin, Tipe Penjualan, dan Outlet. Mengembalikan hasil tiap pengaturan.
   function pastikanPengaturanNota() {
     // Jenis Servis = Rawat Inap (radio)
     const rawat = document.getElementById('servis_elektronik_is_rawat_inap_true');
     if (rawat && !rawat.checked) rawat.click();
     return {
       okTermin: pastikanOpsi('servis_elektronik_idtermin', 'Tunai'),
+      okTipe: pastikanOpsi('servis_elektronik_idtipe_penjualan', 'SERVICE'),
+      okOutlet: pastikanOpsi('servis_elektronik_idoutlet_own', 'OTOTECH JOMBANG'),
       okRawat: !!(rawat && rawat.checked),
     };
   }
@@ -955,7 +921,7 @@
     const okSn = sn ? isiSerialNumber(sn) : false;
     const okUnit = unit ? isiNamaBarang(unit) : false;
 
-    // Termin dan Tipe diisi terakhir, setelah semua ajax dari Pelanggan selesai,
+    // Termin, Tipe, dan Outlet diisi terakhir, setelah semua ajax dari Pelanggan selesai,
     // karena bisa ter-reset oleh halaman. Dicek ulang beberapa kali supaya tidak hilang.
     await tungguAjax();
     let hasil = pastikanPengaturanNota();
@@ -964,11 +930,21 @@
       hasil = pastikanPengaturanNota();
     }
 
-    // Alert "Sebagian data belum terisi" untuk Buat Nota sudah dihapus (permintaan)
+    if (hasilPelanggan !== 'ok' || !okSn || !okUnit || !hasil.okTermin || !hasil.okTipe || !hasil.okOutlet || !hasil.okRawat) {
+      alert(
+        'Sebagian data belum terisi. Pelanggan: ' + teksPelanggan(hasilPelanggan) +
+        ', Serial Number: ' + (okSn ? 'OK' : 'gagal') +
+        ', Nama Barang: ' + (okUnit ? 'OK' : 'gagal') +
+        ', Termin: ' + (hasil.okTermin ? 'OK' : 'gagal') +
+        ', Tipe Penjualan: ' + (hasil.okTipe ? 'OK' : 'gagal') +
+        ', Outlet: ' + (hasil.okOutlet ? 'OK' : 'gagal') +
+        ', Jenis Servis (Rawat Inap): ' + (hasil.okRawat ? 'OK' : 'gagal')
+      );
+    }
   }
 
   // Tanpa data servis (Buat Data): isi form servis dari kolom pencarian
-  // (Pelanggan, Serial Number, Nama Barang), lalu Termin dan Tipe Penjualan diatur seperti Buat Nota.
+  // (Pelanggan, Serial Number, Nama Barang), lalu Termin, Tipe Penjualan, dan Outlet diatur seperti Buat Nota.
   // Tidak ada nota yang dibaca, karena memang belum ada data servis.
   async function buatData(modal) {
     if (!bolehFitur('buatData')) return;
@@ -1002,6 +978,8 @@
     if (!okSn) gagal.push('Serial Number');
     if (!okUnit) gagal.push('Nama Barang');
     if (!hasil.okTermin) gagal.push('Termin');
+    if (!hasil.okTipe) gagal.push('Tipe Penjualan');
+    if (!hasil.okOutlet) gagal.push('Outlet');
     if (!hasil.okRawat) gagal.push('Jenis Servis (Rawat Inap)');
     if (gagal.length) alert('Sebagian data belum terisi: ' + gagal.join(', '));
   }
@@ -1069,209 +1047,7 @@
     }
   }
 
-  // Khusus subdomain trial: daftar Outlet hanya menampilkan S01 dan seterusnya (opsi lain dibuang dari daftar).
-  // Hanya tampilan di browser; pilihan di server tidak diubah.
-  function filterOutletTrial() {
-    if (!/^trial\./i.test(location.hostname)) return;
-    const sel = document.getElementById('servis_elektronik_idoutlet_own');
-    if (!sel || sel.options.length < 2 || sel.dataset.tmTrialOutlet) return;
-    sel.dataset.tmTrialOutlet = '1';
-    [...sel.options].forEach((o) => {
-      if (o.value && !/^S\d{2}\b/.test(o.text.trim())) o.remove();
-    });
-  }
-
-  // Khusus subdomain trial: Tipe Penjualan hanya "1. Offline / Instore" yang bisa dipilih; opsi lain tetap
-  // tampil tapi dinonaktifkan (abu-abu). Hanya tampilan di browser.
-  function nonaktifkanTipeTrial() {
-    if (!/^trial\./i.test(location.hostname)) return;
-    const sel = document.getElementById('servis_elektronik_idtipe_penjualan');
-    if (!sel || sel.options.length < 2 || sel.dataset.tmTrialTipe) return;
-    sel.dataset.tmTrialTipe = '1';
-    [...sel.options].forEach((o) => {
-      if (o.value && !/^1\.\s*OFFLINE\s*\/\s*INSTORE$/i.test(o.text.trim())) o.disabled = true;
-    });
-  }
-
-  // Khusus subdomain trial: setiap Outlet dipilih, Tipe Penjualan ikut menyesuaikan (1. Offline / Instore).
-  function sesuaikanTipeSaatOutlet() {
-    if (!/^trial\./i.test(location.hostname)) return;
-    const outlet = document.getElementById('servis_elektronik_idoutlet_own');
-    if (!outlet || outlet.dataset.tmTrialSync) return;
-    outlet.dataset.tmTrialSync = '1';
-    const h = () => { if (outlet.value) pastikanOpsi('servis_elektronik_idtipe_penjualan', '1. OFFLINE / INSTORE'); };
-    outlet.addEventListener('change', h);
-    if (window.jQuery) window.jQuery(outlet).on('change', h);
-  }
-
-  // Khusus subdomain trial: Termin seperti Tipe Penjualan. Hanya "Tunai" yang bisa dipilih; opsi lain
-  // tampil tapi dinonaktifkan (abu-abu). Hanya tampilan di browser.
-  function nonaktifkanTerminTrial() {
-    if (!/^trial\./i.test(location.hostname)) return;
-    const sel = document.getElementById('servis_elektronik_idtermin');
-    if (!sel || sel.options.length < 2 || sel.dataset.tmTrialTermin2) return;
-    sel.dataset.tmTrialTermin2 = '1';
-    [...sel.options].forEach((o) => {
-      if (o.value && o.text.trim().toUpperCase() !== 'TUNAI') o.disabled = true;
-    });
-  }
-
-  // Khusus subdomain trial: setiap Outlet dipilih, Termin ikut menyesuaikan (Tunai), sama seperti Tipe Penjualan.
-  // Dijalankan sedikit setelah pilihan Outlet supaya tidak tertimpa reset dari halaman.
-  function sesuaikanTerminSaatOutlet() {
-    if (!/^trial\./i.test(location.hostname)) return;
-    const outlet = document.getElementById('servis_elektronik_idoutlet_own');
-    if (!outlet || outlet.dataset.tmTrialTerminSync) return;
-    outlet.dataset.tmTrialTerminSync = '1';
-    const h = () => { if (outlet.value) setTimeout(() => pastikanOpsi('servis_elektronik_idtermin', 'Tunai'), 300); };
-    outlet.addEventListener('change', h);
-    if (window.jQuery) window.jQuery(outlet).on('change', h);
-  }
-
-  // Khusus ototech: Outlet otomatis OTOTECH JOMBANG selama Outlet masih kosong ("Please select").
-  function outletOtotechOtomatis() {
-    if (!/^ototech\./i.test(location.hostname)) return;
-    const sel = document.getElementById('servis_elektronik_idoutlet_own');
-    if (!sel || sel.options.length < 2 || sel.value !== '') return;
-    pastikanOpsi('servis_elektronik_idoutlet_own', 'OTOTECH JOMBANG');
-  }
-
-  // Khusus ototech: aturan Tipe Penjualan per Outlet (sama dengan erzap-servis-ototech.user.js).
-  // Opsi yang tidak diizinkan tampil abu-abu di dropdown dan di popup pencarian, serta tidak bisa diklik.
-  // Sebelum Outlet dipilih, semua opsi tetap aktif. Hanya tampilan di browser.
-  const TIPE_PER_OUTLET_OTOTECH = {
-    'OTOTECH JOMBANG': {
-      boleh: [/^1\.\s*OFFLINE\s*\/\s*INSTORE$/i, /^4\.\s*SERVICE REGULAR$/i, /^5\.\s*PIT EXPRESS$/i],
-      default: '4. SERVICE REGULAR'
-    },
-    'PANDERMAN MALANG': {
-      boleh: [/^2\.\s*WHATSAPP\s*\/\s*MEDIA SOSIAL$/i, /^3\.\s*MARKETPLACE$/i],
-      default: '2. WhatsApp/Media Sosial'
-    },
-    'REST UP CAFE': {
-      boleh: [/^BAWA PULANG$/i, /^MAKAN DI TEMPAT$/i],
-      default: 'Bawa pulang'
-    }
-  };
-
-  function aturanTipeOtotech() {
-    const outlet = document.getElementById('servis_elektronik_idoutlet_own');
-    if (!outlet || !outlet.value || !outlet.options[outlet.selectedIndex]) return null;
-    const teks = outlet.options[outlet.selectedIndex].text.trim().toUpperCase();
-    return TIPE_PER_OUTLET_OTOTECH[teks] || null;
-  }
-
-  function aturTipeOtotech() {
-    if (!/^ototech\./i.test(location.hostname)) return;
-    const sel = document.getElementById('servis_elektronik_idtipe_penjualan');
-    if (!sel || sel.options.length < 2) return;
-    const aturan = aturanTipeOtotech();
-    [...sel.options].forEach((o) => {
-      if (o.value) o.disabled = !!aturan && !aturan.boleh.some((re) => re.test(o.text.trim()));
-    });
-    // Kalau yang terpilih ternyata opsi yang diblokir, kembalikan ke default Outlet itu
-    const terpilih = sel.options[sel.selectedIndex];
-    if (aturan && terpilih && terpilih.disabled) pastikanOpsi('servis_elektronik_idtipe_penjualan', aturan.default);
-  }
-
-  // Popup pencarian Tipe Penjualan (.trk5-pop): opsi yang diblokir ditandai redup dan klik-nya diabaikan.
-  // Hanya opsi yang namanya sama dengan opsi Tipe Penjualan yang diatur (item dropdown lain tidak terpengaruh).
-  const TIPE_MARK_OTOTECH = 'data-erzap-blokir';
-  function tandaiPopupTipeOtotech() {
-    if (!/^ototech\./i.test(location.hostname)) return;
-    const sel = document.getElementById('servis_elektronik_idtipe_penjualan');
-    if (!sel) return;
-    const aturan = aturanTipeOtotech();
-    const teksOpsi = [...sel.options].map((o) => o.text.trim().toUpperCase());
-    document.querySelectorAll('.trk5-pop li').forEach((li) => {
-      const s = li.textContent.trim();
-      const blok = !!aturan && !!s && !/^please select$/i.test(s) && teksOpsi.includes(s.toUpperCase()) &&
-        !aturan.boleh.some((re) => re.test(s));
-      if (blok && !li.hasAttribute(TIPE_MARK_OTOTECH)) {
-        li.setAttribute(TIPE_MARK_OTOTECH, '1');
-        li.setAttribute('aria-disabled', 'true');
-        li.title = 'Tidak tersedia';
-      } else if (!blok && li.hasAttribute(TIPE_MARK_OTOTECH)) {
-        li.removeAttribute(TIPE_MARK_OTOTECH);
-        li.removeAttribute('aria-disabled');
-        li.removeAttribute('title');
-      }
-    });
-  }
-
-  function pasangBlokirPopupTipeOtotech() {
-    if (!/^ototech\./i.test(location.hostname) || window.__tmBlokirPopupOtotech) return;
-    window.__tmBlokirPopupOtotech = true;
-    const st = document.createElement('style');
-    st.textContent = '.trk5-pop li[' + TIPE_MARK_OTOTECH + ']{opacity:.45 !important;color:#8a8a8a !important;cursor:not-allowed !important;background:transparent !important}';
-    document.head.appendChild(st);
-    const tahan = (e) => {
-      const li = e.target.closest && e.target.closest('.trk5-pop li');
-      if (li && li.hasAttribute(TIPE_MARK_OTOTECH)) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        e.stopPropagation();
-      }
-    };
-    document.addEventListener('mousedown', tahan, true);
-    document.addEventListener('click', tahan, true);
-  }
-
-  // Khusus ototech: setiap Outlet dipilih, Tipe Penjualan = default Outlet itu dan Termin = Tunai,
-  // lalu aturan Tipe Penjualan diterapkan.
-  function outletDipilihOtototech() {
-    aturTipeOtotech();
-    tandaiPopupTipeOtotech();
-    const outlet = document.getElementById('servis_elektronik_idoutlet_own');
-    if (!outlet || !outlet.value) return;
-    setTimeout(() => {
-      const aturan = aturanTipeOtotech();
-      if (aturan) pastikanOpsi('servis_elektronik_idtipe_penjualan', aturan.default);
-      pastikanOpsi('servis_elektronik_idtermin', 'Tunai');
-      aturTipeOtotech();
-      tandaiPopupTipeOtotech();
-    }, 300);
-  }
-
-  // Outlet bisa dipilih dari popup pencarian tanpa memicu event change, jadi nilainya dipantau berkala
-  let outletTerakhirOtototech = null;
-  function pantauOutletOtotech() {
-    if (!/^ototech\./i.test(location.hostname)) return;
-    const outlet = document.getElementById('servis_elektronik_idoutlet_own');
-    if (!outlet || outlet.options.length < 2) return;
-    if (outlet.value === outletTerakhirOtototech) return;
-    outletTerakhirOtototech = outlet.value;
-    outletDipilihOtototech();
-  }
-
-  function sesuaikanOtotechSaatOutlet() {
-    if (!/^ototech\./i.test(location.hostname)) return;
-    const outlet = document.getElementById('servis_elektronik_idoutlet_own');
-    if (!outlet || outlet.dataset.tmOtotechSync) return;
-    outlet.dataset.tmOtotechSync = '1';
-    const h = () => outletDipilihOtototech();
-    outlet.addEventListener('change', h);
-    if (window.jQuery) window.jQuery(outlet).on('change', h);
-    if (!window.__tmPantauOutletOtotech) {
-      window.__tmPantauOutletOtotech = setInterval(pantauOutletOtotech, 400);
-    }
-  }
-
   function ensureButton() {
-    // Aturan Outlet, Tipe Penjualan, dan Termin hanya untuk role yang punya fitur aturanOutlet
-    if (bolehFitur('aturanOutlet')) {
-      outletOtotechOtomatis();
-      sesuaikanOtotechSaatOutlet();
-      pantauOutletOtotech();
-      pasangBlokirPopupTipeOtotech();
-      tandaiPopupTipeOtotech();
-      aturTipeOtotech();
-      nonaktifkanTerminTrial();
-      sesuaikanTerminSaatOutlet();
-      filterOutletTrial();
-      nonaktifkanTipeTrial();
-      sesuaikanTipeSaatOutlet();
-    }
     const modal = findModal();
     if (!modal) return;
 
@@ -1310,7 +1086,7 @@
       btnReset.title = 'Reset';
       btnReset.setAttribute('aria-label', 'Reset');
       btnReset.style.width = '30px';
-      btnReset.className = kelasTombolAktif(btnCari);
+      btnReset.className = btnCari.className;
       btnReset.style.marginRight = '8px';
       btnReset.style.background = '#ffc107';
       btnReset.style.borderColor = '#ffc107';
@@ -1329,14 +1105,6 @@
     const btnNota = modal.querySelector('#' + BTN_ID);
     const btnDataAda = modal.querySelector('#' + BTN_DATA_ID);
 
-    pindahkanNamaBarang(modal);
-    ringkasKodeServis(modal);
-
-    // Tombol yang sudah ada dibersihkan dari status "disabled" (bisa terbawa dari tombol Pencarian saat dibuat)
-    [btnNota, btnDataAda, modal.querySelector('#' + BTN_RESET_ID)].forEach((b) => {
-      if (b) { b.classList.remove('disabled'); b.disabled = false; }
-    });
-
     if (adaData) {
       if (btnDataAda) btnDataAda.remove();
       if (!btnNota && bolehFitur('buatNota')) {
@@ -1346,7 +1114,7 @@
           btnNotaBaru.id = BTN_ID;
           btnNotaBaru.type = 'button';
           btnNotaBaru.textContent = 'Buat Nota';
-          btnNotaBaru.className = kelasTombolAktif(btnCari);
+          btnNotaBaru.className = btnCari.className;
           btnNotaBaru.style.marginRight = '8px';
           btnNotaBaru.style.background = '#28a745';
           btnNotaBaru.style.borderColor = '#28a745';
@@ -1366,7 +1134,7 @@
         btnDataBaru.id = BTN_DATA_ID;
         btnDataBaru.type = 'button';
         btnDataBaru.textContent = 'Buat Data';
-        btnDataBaru.className = kelasTombolAktif(btnCari);
+        btnDataBaru.className = btnCari.className;
         btnDataBaru.style.marginRight = '8px';
         btnDataBaru.style.background = '#0d6efd';
         btnDataBaru.style.borderColor = '#0d6efd';
@@ -1471,4 +1239,3 @@
   console.log('[antrianservis.js] v1.13.79 aktif');
   ensureButton();
 })();
-
