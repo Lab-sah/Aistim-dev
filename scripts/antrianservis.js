@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Tombol Buat Nota di Lacak Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.13.86
+// @version      1.13.87
 // @description  Menambah tombol "Buat Nota" (jika ada data servis) atau "Buat Data" (jika tidak ada data) di baris pencarian Lacak Servis, serta tombol Reset. Buat Nota mengisi Pelanggan, Serial Number, Nama Barang, Termin = Tunai, dan Tipe Penjualan = SERVICE (Outlet diisi manual). Buat Data mengisi form servis dari kolom pencarian dengan pengaturan yang sama. Fitur diatur lewat AKSES_JSON.
 // @match        https://*.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -1141,7 +1141,7 @@
   // Sebelum Outlet dipilih, semua opsi tetap aktif. Hanya tampilan di browser.
   const TIPE_PER_OUTLET_OTOTECH = {
     'OTOTECH JOMBANG': {
-      boleh: [/^1\.\s*OFFLINE\s*\/\s*INSTORE$/i, /^4\.\s*SERVICE REGULAR$/i, /^5\.\s*PIT EXPRESS$/i],
+      boleh: [/^4\.\s*SERVICE REGULAR$/i, /^5\.\s*PIT EXPRESS$/i],
       default: '4. SERVICE REGULAR'
     },
     'PANDERMAN MALANG': {
