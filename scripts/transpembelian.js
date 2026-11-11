@@ -30,10 +30,6 @@
         "pusat": {
             "nama": ["SENTOT ARI HANDOKO", "SURYO"],
             "fitur": ["*"]
-        },
-        "cabang": {
-            "nama": ["PRAMUTECH", "ADMINTECH"],
-            "fitur": ["penentuanRak"]
         }
     }
   }`;
