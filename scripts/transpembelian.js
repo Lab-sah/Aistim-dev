@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name ERZAP - Faktur Pembelian (fitur)
 // @namespace claude
-// @version 1.3.0
+// @version 1.3.1
 // @description Kumpulan fitur halaman faktur pembelian. Fitur 1: termin_pembelian (KONSINASI & Tempo Marketplace tampil redup, tidak bisa dipilih)
 // @match https://trial.erzap.com/faktur_pembelians/*
 // @grant none
@@ -15,12 +15,57 @@
   window.__erzapFakturPembelian = true;
 
   // ------------------------------------------------------------
+  // Sistem Akses JSON (sama dengan script lain di repo ini).
+  // "public"  -> fitur yang boleh dipakai SEMUA user.
+  // "private" -> fitur yang dibatasi; hanya role yang "fitur"-nya berisi nama fitur itu (atau "*") yang boleh.
+  // "role"    -> "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
+  //              cukup sebagian nama), "fitur" = fitur private yang boleh dipakai role itu.
+  // Fitur yang tidak disebut di "public" maupun "private" ditolak.
+  // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
+  // ------------------------------------------------------------
+  const AKSES_JSON = `{
+    "public": [],
+    "private": ["termin_pembelian"],
+    "role": {}
+  }`;
+  const akses = (function () {
+    try {
+      const a = JSON.parse(AKSES_JSON) || {};
+      const role = a.role && typeof a.role === 'object' ? a.role : {};
+      return {
+        public: Array.isArray(a.public) ? a.public.map(String) : [],
+        role: Object.keys(role).map(k => {
+          const r = role[k] || {};
+          return {
+            nama: Array.isArray(r.nama) ? r.nama.map(String) : [],
+            fitur: Array.isArray(r.fitur) ? r.fitur.map(String) : []
+          };
+        })
+      };
+    } catch (err) {
+      console.error('[transpembelian] AKSES_JSON tidak valid -> akses ditutup:', err.message);
+      return { public: [], role: [] };
+    }
+  })();
+  // true bila fitur boleh dipakai user yang sedang login (dicek saat dipakai, karena nama kasir dimuat belakangan)
+  function bolehFitur(fitur) {
+    if (akses.public.indexOf(fitur) !== -1) return true;
+    const nama = String((document.getElementById('info_kasir') || {}).textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    for (const r of akses.role) {
+      const cocok = r.nama.some(u => { u = u.replace(/\s+/g, ' ').trim().toLowerCase(); return !!u && nama.indexOf(u) !== -1; });
+      if (cocok) return r.fitur.indexOf('*') !== -1 || r.fitur.indexOf(fitur) !== -1;
+    }
+    return false;
+  }
+
+  // ------------------------------------------------------------
   // Fitur 1: termin_pembelian
   // Opsi KONSINASI dan Tempo Marketplace di dropdown Termin tetap tampil,
   // tetapi redup dan tidak bisa dipilih.
   // ------------------------------------------------------------
   const termin_pembelian = {
     id: '1.termin_pembelian',
+    fitur: 'termin_pembelian',
     enabled: true,
     select: 'faktur_pembelian_idtermin',
     blocked: /^\s*(KONSINASI|Tempo Marketplace)\s*$/i,
@@ -56,6 +101,7 @@
 
     blockClicks() {
       document.addEventListener('click', e => {
+        if (!bolehFitur(this.fitur)) return;
         const li = e.target.closest && e.target.closest(this.popupItem);
         if (li && this.blocked.test(li.textContent)) {
           e.preventDefault();
@@ -66,6 +112,7 @@
     },
 
     apply() {
+      if (!bolehFitur(this.fitur)) return;
       this.disableNativeOptions();
       this.markPopupItems();
     },
