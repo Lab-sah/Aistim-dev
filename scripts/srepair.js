@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Smart Repair - Format Rp & Jumlah angka saja
 // @namespace    devtim-lab
-// @version      2.7.4
+// @version      2.7.5
 // @description  Harga Jual Servis, Harga, Diskon, Total (baris part), Ongkos Kirim, dan Potongan tampil Rp 2,000.00 tetapi tetap dibaca angka murni oleh aplikasi. Uang Muka menampilkan Informasi Saldo Kas/Bank. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai otomatis hari ini. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai di popup Pengambilan Servis otomatis hari ini.
 // @match        https://*.erzap.com/servis_elektroniks/*
 // @grant        none
@@ -168,7 +168,13 @@
 
   // ===== Event kolom Rp =====
   document.addEventListener('input', (e) => {
-    if (isTarget(e.target)) formatEl(e.target);
+    if (!isTarget(e.target)) return;
+    const el = e.target;
+    const sebelum = String(rawGet(el) || '');
+    formatEl(el);
+    // Tampilan berubah: kirim input supaya perhitungan ERZAP ikut berubah saat mengetik.
+    // Tidak berulang: event kedua tidak mengubah tampilan lagi, jadi tidak dikirim ulang.
+    if (String(rawGet(el) || '') !== sebelum) el.dispatchEvent(new Event('input', { bubbles: true }));
   });
 
   document.addEventListener('focusin', (e) => {
