@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Smart Repair - Format Rp & Jumlah angka saja
 // @namespace    devtim-lab
-// @version      2.7.8
-// @description  Format Rp pada Harga Jual Servis, Harga, Diskon, Total, Ongkos Kirim, dan Potongan (tampil Rp 2,000, sen tetap terbaca). Uang Muka menampilkan Informasi Saldo Kas/Bank. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai di popup Pengambilan Servis otomatis hari ini. Status Servis tampil di daftar Kelola Servis.
+// @version      2.7.9
+// @description  Harga Jual Servis, Harga, Diskon, Total, Ongkos Kirim, dan Potongan tampil Rp 2,000.00 tetapi tetap dibaca angka murni oleh aplikasi. Uang Muka menampilkan Informasi Saldo Kas/Bank. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai di popup Pengambilan Servis otomatis hari ini. Status Servis tampil di daftar Kelola Servis.
 // @match        https://*.erzap.com/servis_elektroniks/*
 // @grant        none
 // @run-at       document-idle
@@ -84,36 +84,35 @@
   const rawGet = (el) => NATIVE.get.call(el);
   const rawSet = (el, v) => NATIVE.set.call(el, v);
 
-  // Pecah teks jadi bagian bulat (ip) dan desimal (dp, null jika tidak ada titik). Mengikuti erzap_trans_beban.js.
-  function rpParts(text) {
-    const t = String(text == null ? '' : text).replace(/Rp/gi, '').replace(/\s+/g, '').replace(/,/g, '');
-    const i = t.indexOf('.');
-    const ip = (i >= 0 ? t.slice(0, i) : t).replace(/\D/g, '').slice(0, 15);
-    const dp = i >= 0 ? t.slice(i + 1).replace(/\D/g, '').slice(0, 2) : null;
-    return { ip, dp };
-  }
+  // Ekor desimal di akhir teks: "." diikuti 0-2 digit, mis. ".", ".5", ".00"
+  const DECIMAL_TAIL = /\.\d{0,2}$/;
 
-  // Tampilan: "Rp 2,000" / "Rp 2,000." / "Rp 2,000.50". Desimal hanya tampil kalau memang diketik.
-  function rpFmt(p) {
-    if (p.ip === '' && (p.dp === null || p.dp === '')) return '';
-    const ip = p.ip === '' ? '0' : String(parseInt(p.ip, 10));
-    let s = PREFIX + ip.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    if (p.dp !== null) s += '.' + p.dp;
-    return s;
-  }
+  // Ambil angka rupiah saja. Ekor desimal dibuang.
+  const digitsOnly = (v) => String(v || '').replace(DECIMAL_TAIL, '').replace(/\D/g, '');
 
-  // Angka yang dibaca aplikasi dan dikirim ke server: "2000" atau "2000.50". Sen tidak dibuang.
-  function rpRaw(p) {
-    if (p.ip === '' && (p.dp === null || p.dp === '')) return '';
-    const ip = p.ip === '' ? '0' : String(parseInt(p.ip, 10));
-    return (p.dp !== null && p.dp !== '') ? ip + '.' + p.dp : ip;
-  }
+  // "1500000" -> "Rp 1,500,000"
+  const formatRp = (digits) => {
+    if (!digits) return '';
+    const n = digits.replace(/^0+(?=\d)/, '');
+    return PREFIX + n.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  };
 
-  // Tampilan selalu mengikuti rpFmt. Dipanggil saat mengetik, masuk, keluar kolom, dan saat halaman dibuka.
-  const formatEl = (el) => {
-    const cur = String(rawGet(el) || '');
-    const out = rpFmt(rpParts(cur));
-    if (cur !== out) rawSet(el, out);
+  // mode:
+  //  'typing' -> saat mengetik, ekor desimal yang sedang diketik tetap tampil
+  //  'blur'   -> saat keluar kolom / halaman dibuka: selalu "Rp 2,000.00"
+  //  'focus'  -> saat masuk kolom: bilangan bulat saja supaya mudah diedit
+  const formatEl = (el, mode) => {
+    const raw = String(rawGet(el) || '');
+    const digits = digitsOnly(raw);
+    let out = formatRp(digits);
+    if (digits) {
+      if (mode === 'blur') out += '.00';
+      else if (mode === 'typing') {
+        const m = raw.match(DECIMAL_TAIL);
+        if (m && m[0]) out += m[0];
+      }
+    }
+    if (raw !== out) rawSet(el, out);
   };
 
   const isTarget = (el) => !!(el && el.matches && el.matches(SEL));
@@ -125,8 +124,8 @@
     el.__srepairPatched = true;
     Object.defineProperty(el, 'value', {
       configurable: true,
-      get() { return rpRaw(rpParts(rawGet(this))); },
-      set(v) { rawSet(this, v); formatEl(this); }
+      get() { return digitsOnly(rawGet(this)); },
+      set(v) { rawSet(this, v); formatEl(this, 'blur'); }
     });
   };
 
@@ -171,7 +170,7 @@
     if (!isTarget(e.target)) return;
     const el = e.target;
     const sebelum = String(rawGet(el) || '');
-    formatEl(el);
+    formatEl(el, 'typing');
     // Tampilan berubah: kirim input supaya perhitungan ERZAP ikut berubah saat mengetik.
     // Tidak berulang: event kedua tidak mengubah tampilan lagi, jadi tidak dikirim ulang.
     if (String(rawGet(el) || '') !== sebelum) el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -180,18 +179,18 @@
   document.addEventListener('focusin', (e) => {
     if (isTarget(e.target)) {
       patch(e.target);
-      formatEl(e.target);
+      formatEl(e.target, 'focus');
     }
   });
 
   document.addEventListener('focusout', (e) => {
-    if (isTarget(e.target)) formatEl(e.target);
+    if (isTarget(e.target)) formatEl(e.target, 'blur');
   });
 
   // Sebelum form dikirim, pastikan nilai asli berupa angka murni
   document.addEventListener('submit', (e) => {
     e.target.querySelectorAll(SEL).forEach((el) => {
-      rawSet(el, rpRaw(rpParts(rawGet(el))));
+      rawSet(el, digitsOnly(rawGet(el)));
     });
   }, true);
 
@@ -346,7 +345,7 @@
   const init = () => {
     document.querySelectorAll(SEL).forEach((el) => {
       patch(el);
-      formatEl(el);
+      formatEl(el, 'blur');
     });
     renderSaldoUM();
     markRequired();
