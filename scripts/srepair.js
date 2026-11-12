@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Smart Repair - Format Rp & Jumlah angka saja
 // @namespace    devtim-lab
-// @version      2.7.5
-// @description  Harga Jual Servis, Harga, Diskon, Total (baris part), Ongkos Kirim, dan Potongan tampil Rp 2,000.00 tetapi tetap dibaca angka murni oleh aplikasi. Uang Muka menampilkan Informasi Saldo Kas/Bank. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai otomatis hari ini. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai di popup Pengambilan Servis otomatis hari ini.
+// @version      2.7.6
+// @description  Format Rp pada Harga Jual Servis, Harga, Diskon, Total, Ongkos Kirim, dan Potongan (tampil Rp 2,000, sen tetap terbaca). Uang Muka menampilkan Informasi Saldo Kas/Bank. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai di popup Pengambilan Servis otomatis hari ini. Status Servis tampil di daftar Kelola Servis.
 // @match        https://*.erzap.com/servis_elektroniks/*
 // @grant        none
 // @run-at       document-idle
@@ -290,24 +290,41 @@
 
   // ===== Daftar Kelola Servis: Status Servis (dari Proses Servis) di bawah Kode Servis tiap baris =====
   const STATUS_CACHE = {};
+  // Batas permintaan bersamaan supaya daftar yang panjang tidak membebani server
+  const STATUS_PARALEL = 4;
+  let statusAktif = 0;
+  const statusAntrian = [];
+  const statusJalan = () => {
+    while (statusAktif < STATUS_PARALEL && statusAntrian.length) {
+      const kerja = statusAntrian.shift();
+      statusAktif++;
+      kerja().finally(() => { statusAktif--; statusJalan(); });
+    }
+  };
   const fetchStatusServis = (id) => {
     if (!STATUS_CACHE[id]) {
-      STATUS_CACHE[id] = fetch('/servis_elektroniks/kelola_servis/' + id, { credentials: 'same-origin' })
-        .then((r) => r.text())
-        .then((html) => {
-          const doc = new DOMParser().parseFromString(html, 'text/html');
-          const s = doc.getElementById('servis_elektronik_detail1_status_servis');
-          return s && s.selectedIndex >= 0 ? s.options[s.selectedIndex].textContent.trim() : '';
-        })
-        .catch(() => '');
+      STATUS_CACHE[id] = new Promise((resolve) => {
+        statusAntrian.push(() => fetch('/servis_elektroniks/kelola_servis/' + id, { credentials: 'same-origin' })
+          .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+          .then((html) => {
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const s = doc.getElementById('servis_elektronik_detail1_status_servis');
+            return s && s.selectedIndex >= 0 ? s.options[s.selectedIndex].textContent.trim() : '';
+          })
+          .catch(() => { delete STATUS_CACHE[id]; return ''; })   // gagal: tidak disimpan, bisa dicoba lagi
+          .then(resolve));
+        statusJalan();
+      });
     }
     return STATUS_CACHE[id];
   };
   const addStatusKode = () => {
     const table = document.getElementById('data_table');
     if (!table) return;
+    const cari = [...table.querySelectorAll('thead th')].findIndex((th) => th.textContent.trim().toLowerCase() === 'kode servis');
+    const idxKode = cari >= 0 ? cari : 4;   // cadangan: indeks lama kalau header tidak ketemu
     table.querySelectorAll('tbody tr').forEach((tr) => {
-      const kodeTd = tr.children[4]; // kolom Kode Servis
+      const kodeTd = tr.children[idxKode]; // kolom Kode Servis
       const link = tr.querySelector('a[href*="/servis_elektroniks/kelola_servis/"]');
       const m = link && link.getAttribute('href').match(/kelola_servis\/(\d+)/);
       if (!kodeTd || !m || kodeTd.querySelector('.srepair-status-servis')) return;
