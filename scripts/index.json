@@ -63,6 +63,7 @@
     "olzap.js",
     "beban.js",
     "penjualan.js",
-    "pembatalan.js"
+    "pembatalan.js",
+    "srepair.js"
   ]
 }
