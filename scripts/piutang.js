@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         jualpiutang - Potongan Piutang (Jenis Potongan & format Rp)
 // @namespace    claude
-// @version      1.0.0
+// @version      1.0.1
 // @description  Form Potongan Piutang ERZAP: (1) Jenis Potongan hanya bisa memilih "Potongan Penjualan" dan "Beban Admin Marketplace"; (2) kolom Potongan tampil dengan format "Rp 1,000".
-// @match        https://trial.erzap.com/penjualans/form_potongan_piutang_usaha/*
+// @match        https://*.erzap.com/penjualans/form_potongan_piutang_usaha/*
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
