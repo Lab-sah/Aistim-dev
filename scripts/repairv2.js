@@ -22,8 +22,8 @@
   // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
   // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
   const AKSES_JSON = `{
-        "public": [],
-        "private": ["formatRp"],
+        "public": ["formatRp"],
+        "private": [],
         "role": {
           "pusat": {
             "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT", "TIMORITEL"],
