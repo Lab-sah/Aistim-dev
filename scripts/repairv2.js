@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Smart Repair v2 - Format Rp & Jumlah angka saja
 // @namespace    devtim-lab
-// @version      2.7.4
+// @version      2.7.5
 // @description  Harga Jual Servis, Harga, Diskon, Total (baris part), Ongkos Kirim, dan Potongan tampil Rp 2,000.00 tetapi tetap dibaca angka murni oleh aplikasi. Uang Muka menampilkan Informasi Saldo Kas/Bank. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai otomatis hari ini. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai di popup Pengambilan Servis otomatis hari ini.
 // @match        https://trial.erzap.com/servis_elektroniks/*
 // @grant        none
@@ -306,8 +306,8 @@
       if (!kodeTd || !m || kodeTd.querySelector('.srepair-status-servis')) return;
       const span = document.createElement('div');
       span.className = 'srepair-status-servis';
-      span.style.cssText = 'display:block;width:100%;box-sizing:border-box;font-size:11px;line-height:1.3;color:#333;background:#fff176;padding:1px 4px;margin-top:2px;border-radius:3px;white-space:normal;word-break:break-word;';
-      span.textContent = 'Status: memuat...';
+      span.style.cssText = 'font-size:11px;color:#555;margin-top:2px;white-space:normal;';
+      span.textContent = 'Status: ...';
       kodeTd.appendChild(span);
       fetchStatusServis(m[1]).then((st) => { span.textContent = 'Status: ' + (st || '-'); });
     });
