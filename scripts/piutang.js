@@ -11,6 +11,62 @@
 (function () {
   'use strict';
 
+  // ====== HAK AKSES & FITUR (JSON) ======
+  // "public"  -> fitur yang boleh dipakai SEMUA user. Kosong = tidak ada fitur untuk umum.
+  // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua).
+  //              Nama fitur: potonganPiutang (seluruh script ini).
+  // "role"    -> "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil),
+  //              "fitur" = fitur private yang boleh dipakai role itu.
+  // Fitur yang tidak disebut di "public" maupun "private" ditolak.
+  // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
+  // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
+  const AKSES_JSON = `{
+        "public": [],
+        "private": ["potonganPiutang"],
+        "role": {
+          "pusat": {
+            "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT", "TIMORITEL"],
+            "fitur": ["*"]
+          }
+        }
+    }`;
+
+  function bacaAkses() {
+    try {
+      const a = JSON.parse(AKSES_JSON) || {};
+      const role = a.role && typeof a.role === 'object' ? a.role : {};
+      return {
+        public: Array.isArray(a.public) ? a.public.map(String) : [],
+        role: Object.keys(role).map(k => {
+          const r = role[k] || {};
+          return {
+            nama: Array.isArray(r.nama) ? r.nama.map(String) : [],
+            fitur: Array.isArray(r.fitur) ? r.fitur.map(String) : []
+          };
+        })
+      };
+    } catch (err) {
+      return { public: [], role: [] };
+    }
+  }
+  const AKSES = bacaAkses();
+
+  // dicek saat dipakai (bukan sekali di awal), karena nama kasir di pojok ERZAP bisa dimuat belakangan.
+  function bolehFitur(fitur) {
+    if (AKSES.public.indexOf(fitur) !== -1) return true;
+    const nama = (((document.getElementById('info_kasir') || {}).textContent) || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    for (const r of AKSES.role) {
+      const cocok = r.nama.some(u => {
+        u = u.replace(/\s+/g, ' ').trim().toLowerCase();
+        return !!u && nama.indexOf(u) !== -1;
+      });
+      if (cocok) return r.fitur.indexOf('*') !== -1 || r.fitur.indexOf(fitur) !== -1;
+    }
+    return false;
+  }
+
+  // Seluruh fitur script dijalankan dalam mulai(), hanya jika akses potonganPiutang diizinkan.
+  function mulai() {
   /* ---------- 1. Jenis Potongan: hanya opsi tertentu yang bisa dipilih ---------- */
 
   var JENIS_SEL = '#jurnal_jenis_potongan';
@@ -139,4 +195,16 @@
 
   lockJenis();
   initRp();
+  }
+
+  // Nama kasir di #info_kasir bisa dimuat belakangan, jadi tunggu dulu (maks 15 detik).
+  // Kalau akses tidak cocok sampai batas waktu, script tidak dijalankan.
+  const kasirSiap = () => (((document.getElementById('info_kasir') || {}).textContent) || '').trim() !== '';
+  let coba = 0;
+  const timer = setInterval(() => {
+    coba++;
+    if (!kasirSiap() && coba < 50) return;
+    clearInterval(timer);
+    if (bolehFitur('potonganPiutang')) mulai();
+  }, 300);
 })();
