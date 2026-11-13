@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Smart Repair v2 - Format Rp & Jumlah angka saja
 // @namespace    devtim-lab
-// @version      2.7.5
+// @version      2.7.9
 // @description  Harga Jual Servis, Harga, Diskon, Total (baris part), Ongkos Kirim, dan Potongan tampil Rp 2,000.00 tetapi tetap dibaca angka murni oleh aplikasi. Uang Muka menampilkan Informasi Saldo Kas/Bank. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai otomatis hari ini. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai di popup Pengambilan Servis otomatis hari ini.
 // @match        https://*.erzap.com/servis_elektroniks/*
 // @world        main
@@ -227,12 +227,13 @@
     return v;
   };
   const saldoTable = (nama, sebelum, sesudah) => {
-    const th = 'style="padding:3px 4px;text-align:right;font-weight:600;"';
-    const td = 'style="padding:3px 4px;border-top:1px solid #e5e5e5;text-align:right;word-break:break-word;"';
-    return '<table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;">' +
+    const th = 'style="padding:3px 4px;text-align:right;font-weight:600;white-space:nowrap;"';
+    const td = 'style="padding:3px 4px;border-top:1px solid #e5e5e5;text-align:right;white-space:nowrap;"';
+    return '<table style="width:100%;border-collapse:collapse;font-size:10.5px;table-layout:fixed;">' +
+      '<colgroup><col style="width:34%;"><col style="width:33%;"><col style="width:33%;"></colgroup>' +
       '<thead><tr><th style="padding:3px 4px;text-align:left;font-weight:600;">Saldo Kas/Bank</th>' +
       '<th ' + th + '>Sebelum</th><th ' + th + '>Sesudah</th></tr></thead>' +
-      '<tbody><tr><td style="padding:3px 4px;border-top:1px solid #e5e5e5;word-break:break-word;">' + escHtml(nama) + '</td>' +
+      '<tbody><tr><td style="padding:3px 4px;border-top:1px solid #e5e5e5;white-space:normal;overflow-wrap:anywhere;text-align:left;">' + escHtml(nama) + '</td>' +
       '<td ' + td + '>' + fmtSaldo(sebelum) + '</td>' +
       '<td ' + td + '>' + fmtSaldo(sesudah) + '</td></tr></tbody></table>';
   };
@@ -267,8 +268,28 @@
   });
   // Pindah Rawat Inap / Quick Servis: tabel ikut tersembunyi bersama kotak Uang Muka.
   // Ditunda sedikit supaya dijalankan setelah aplikasi selesai menampilkan/menyembunyikan kotak.
+  // Pembayaran hanya tampil untuk Rawat Inap; untuk Quick Servis / Klaim Garansi disembunyikan.
+  const togglePembayaran = () => {
+    const dj = document.getElementById('div_jenis_pembayaran');
+    const pb = document.getElementById('field_set_pembayaran');
+    const ri = document.getElementById('servis_elektronik_is_rawat_inap_true');
+    if (!dj || !ri) return;
+    const want = ri.checked ? '' : 'none';
+    if (dj.style.display !== want) dj.style.display = want;
+    if (pb && pb.style.display !== '') pb.style.display = '';
+  };
+  // Aplikasi juga menampilkan Pembayaran saat Uang Muka diisi; hasilnya dikembalikan sesuai Rawat Inap.
+  const UM_LAIN = () => setTimeout(togglePembayaran, 0);
+  document.addEventListener('input', (e) => { if (e.target && e.target.id === UM_ID) UM_LAIN(); });
+  document.addEventListener('change', (e) => { if (e.target && e.target.id === UM_ID) UM_LAIN(); });
+  const djWatch = document.getElementById('div_jenis_pembayaran');
+  if (djWatch && window.MutationObserver) {
+    new MutationObserver(togglePembayaran).observe(djWatch, { attributes: true, attributeFilter: ['style'] });
+  }
   const onJenisServis = (e) => {
-    if (e.target && e.target.name && e.target.name.indexOf('is_rawat_inap') !== -1) setTimeout(renderSaldoUM, 0);
+    if (e.target && e.target.name && e.target.name.indexOf('is_rawat_inap') !== -1) {
+      setTimeout(() => { togglePembayaran(); renderSaldoUM(); }, 0);
+    }
   };
   document.addEventListener('change', onJenisServis);
   document.addEventListener('click', onJenisServis);
@@ -326,6 +347,7 @@
       formatEl(el, 'blur');
     });
     renderSaldoUM();
+    togglePembayaran();
     markRequired();
     initStatusKode();
   };
