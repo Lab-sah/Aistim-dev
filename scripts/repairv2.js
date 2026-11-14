@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Smart Repair v2 - Format Rp & Jumlah angka saja
 // @namespace    devtim-lab
-// @version      2.7.9
+// @version      2.8.0
 // @description  Harga Jual Servis, Harga, Diskon, Total (baris part), Ongkos Kirim, dan Potongan tampil Rp 2,000.00 tetapi tetap dibaca angka murni oleh aplikasi. Uang Muka menampilkan Informasi Saldo Kas/Bank. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai otomatis hari ini. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai di popup Pengambilan Servis otomatis hari ini.
 // @match        https://*.erzap.com/servis_elektroniks/*
 // @world        main
@@ -22,8 +22,8 @@
   // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
   // Jika JSON salah ketik, akses ditutup (tidak ada fitur yang tampil untuk siapa pun).
   const AKSES_JSON = `{
-        "public": [],
-        "private": ["formatRp"],
+        "public": ["formatRp"],
+        "private": [],
         "role": {
           "pusat": {
             "nama": ["SENTOT", "SURYO", "MANAJEMEN PUSAT", "TIMORITEL"],
