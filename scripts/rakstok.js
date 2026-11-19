@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.27.15
+// @version      1.27.16
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -467,7 +467,9 @@ function rkBoleh(fitur) {
     function tutupEditGambar() {
         const ov = document.getElementById('rk_edit_ov');
         if (!ov) return;
-        if (ov._rkAdaPending && ov._rkAdaPending() && !window.confirm('Ada gambar yang sudah dipilih tapi belum disimpan. Tutup tanpa menyimpan?')) return;
+        // Belum disimpan: gambar di daftar Simpan, atau gambar yang masih ditahan karena tombol Simpan belum siap
+        const adaBelum = (ov._rkAdaPending && ov._rkAdaPending()) || (ov._rkTahan && ov._rkTahan.length);
+        if (adaBelum && !window.confirm('Ada gambar yang sudah dipilih tapi belum disimpan. Tutup tanpa menyimpan?')) return;
         if (ov._rkTimer) clearInterval(ov._rkTimer);
         const id = ov.dataset.prd;
         ov.remove();
@@ -544,12 +546,14 @@ function rkBoleh(fitur) {
             simpan.textContent = menyimpan ? 'Menyimpan...' : (pending.length > 1 ? 'Simpan (' + pending.length + ')' : 'Simpan');
         };
         fu.on('fileuploadadd', (e, data) => {
+            const ditolak = [];
             (data.files || []).forEach((file) => {
                 // Kalau MIME type kosong, pakai ekstensi nama file. Tipe yang tidak cocok ditolak.
                 const cocok = file.type
                     ? /^image\/(jpeg|png)$/i.test(file.type)
                     : /\.(jpe?g|png)$/i.test(file.name || '');
-                if (!cocok) return;
+                if (!cocok) { ditolak.push((file.name || 'file') + ' (bukan JPG/PNG)'); return; }
+                if (file.size > MAKS_UKURAN_GAMBAR) { ditolak.push((file.name || 'gambar') + ' (' + teksMB(file.size) + ')'); return; }
                 if (pending.some((p) => p.file.name === file.name && p.file.size === file.size && p.file.lastModified === file.lastModified)) return;
                 const item = { data: data, file: file, nama: file.name || 'gambar', url: '', gagal: false, proses: false };
                 pending.push(item);
@@ -559,6 +563,10 @@ function rkBoleh(fitur) {
                     fr.readAsDataURL(file);
                 } catch (err) { }
             });
+            if (ditolak.length) {
+                tampilNotifEdit(ov, 'Tidak dipakai: ' + ditolak.join(', ') + '. Hanya gambar JPG/PNG maksimal ' +
+                    teksMB(MAKS_UKURAN_GAMBAR) + '.', 8000);
+            }
             render();
         });
         simpan.addEventListener('click', () => {
@@ -583,8 +591,15 @@ function rkBoleh(fitur) {
         return true;
     }
 
+    // Batas ukuran satu gambar yang boleh dipilih di Edit gambar (dicek di browser sebelum dikirim).
+    const MAKS_UKURAN_GAMBAR = 10 * 1024 * 1024;
+    function teksMB(byte) {
+        return (byte / 1048576).toLocaleString('id-ID', { maximumFractionDigits: 1 }) + ' MB';
+    }
+
     // Notifikasi kecil di dalam popup edit gambar (textContent, bukan HTML).
-    function tampilNotifEdit(ov, teks) {
+    // lamaMs: hilang sendiri setelah sekian ms (kalau teksnya belum diganti notifikasi lain); kosong = tetap tampil.
+    function tampilNotifEdit(ov, teks, lamaMs) {
         let n = ov.querySelector('#rk_notif');
         if (!n) {
             n = document.createElement('div');
@@ -594,6 +609,7 @@ function rkBoleh(fitur) {
             ov.appendChild(n);
         }
         n.textContent = teks;
+        if (lamaMs) setTimeout(() => { if (n.parentNode && n.textContent === teks) n.remove(); }, lamaMs);
     }
 
     function bukaEditGambar(id, judul) {
@@ -733,10 +749,12 @@ function rkBoleh(fitur) {
                         doc.body.appendChild(aksi);
                         if (!ov._rkTahan) {
                             ov._rkTahan = [];
+                            // Selama tombol Simpan belum siap, gambar yang dipilih DITAHAN (tidak diteruskan ke unggah
+                            // otomatis bawaan Erzap). Gambar hanya terkirim lewat klik Simpan, berapa lama pun persiapannya.
                             doc.addEventListener('change', (ev) => {
                                 try {
                                     const t = ev.target;
-                                    if (!t || t.id !== 'fileupload' || ov._rkSimpanOK || Date.now() - mulai > 15000) return;
+                                    if (!t || t.id !== 'fileupload' || ov._rkSimpanOK) return;
                                     if (!t.files || !t.files.length) return;
                                     ev.stopImmediatePropagation();
                                     Array.prototype.push.apply(ov._rkTahan, Array.from(t.files));
@@ -767,22 +785,10 @@ function rkBoleh(fitur) {
                     const aksiEl = doc.getElementById('rk_aksi');
                     if (aksiEl && !ov._rkSimpanOK) pasangSimpanGambar(ov, w, doc, aksiEl);
                     try {
-                        if (ov._rkTahan && ov._rkTahan.length) {
-                            const inpEl = doc.getElementById('fileupload');
-                            if (ov._rkSimpanOK) {
-                                const fl = ov._rkTahan.splice(0);
-                                w.jQuery(inpEl).fileupload('add', { files: fl });
-                            } else if (lama > 15000) {
-                                const fl = ov._rkTahan.splice(0);
-                                const dt = new w.DataTransfer();
-                                fl.forEach((x) => dt.items.add(x));
-                                inpEl.files = dt.files;
-                                inpEl.dispatchEvent(new w.Event('change', { bubbles: true }));
-                                const sb = doc.getElementById('rk_simpan');
-                                if (sb) { sb.textContent = 'Simpan'; sb.title = 'Mode bawaan Erzap: gambar langsung terkirim saat dipilih (tahap Simpan belum siap)'; }
-                                ov._rkKirimLangsung = true;
-                                tampilNotifEdit(ov, 'Tombol Simpan belum siap, jadi gambar yang dipilih langsung dikirim. Tidak perlu klik Simpan.');
-                            }
+                        // Gambar yang ditahan masuk ke daftar Simpan begitu Simpan siap (lewat cek tipe dan ukuran yang sama)
+                        if (ov._rkTahan && ov._rkTahan.length && ov._rkSimpanOK) {
+                            const fl = ov._rkTahan.splice(0);
+                            w.jQuery(doc.getElementById('fileupload')).fileupload('add', { files: fl });
                         }
                     } catch (err) { console.warn('[Edit gambar] gagal memproses gambar yang ditahan', err); }
                     if (!siapSejak) siapSejak = Date.now();
@@ -791,7 +797,8 @@ function rkBoleh(fitur) {
                     if (!ov._rkSimpanOK && lama > 15000 && !ov._rkLapor) {
                         ov._rkLapor = true;
                         console.warn('[Edit gambar] Simpan belum bisa dipasang: ' + (ov._rkAlasan || 'belum diketahui') + ' (masih dicoba)');
-                        if (!ov._rkKirimLangsung) tampilNotifEdit(ov, 'Tombol Simpan gambar belum bisa dipasang (' + (ov._rkAlasan || 'belum diketahui') + '). Tutup lalu buka lagi popup ini.');
+                        tampilNotifEdit(ov, 'Tombol Simpan gambar belum bisa dipasang (' + (ov._rkAlasan || 'belum diketahui') +
+                            '). Gambar yang dipilih belum dikirim. Tutup lalu buka lagi popup ini.');
                     }
                     if (ov._rkSimpanOK ? Date.now() - siapSejak > 3000 : lama > 180000) clearInterval(ov._rkTimer);
                     return;
