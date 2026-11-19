@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Auto Koreksi
 // @namespace    http://tampermonkey.net/
-// @version      1.13.4
+// @version      1.13.5
 // @updateURL    https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
 // @downloadURL  https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
 // @description  [v1.13.0] Hanya role yang diizinkan (AKSES_JSON, fitur autoKoreksi) yang melihat tombol START AUTO / CEK SIMPAN / STOP. Hanya lanjut otomatis kalau halaman dibuka oleh script sendiri (maks 1 menit) - buka halaman koreksi manual tidak pernah auto jalan. Ganti ID SO = mulai dari awal (isi pengkoreksi & tanggal lagi, tidak auto jalan). Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI, stop & refresh halaman. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
@@ -177,6 +177,11 @@
     // Berlaku juga kalau Erzap memuat ulang halaman setelah simpan. Halaman yang
     // sudah tersimpan sebelumnya (tanpa tombol Simpan) dilewati tanpa jeda.
     const JEDA_SETELAH_SIMPAN_MS = 3000;
+
+    // Jeda setelah tabel diisi, sebelum menekan Simpan (tombol menghitung mundur
+    // "SIMPAN 4... 3..."). Jeda ini tetap terasa walau Erzap langsung memuat ulang /
+    // pindah halaman begitu disimpan (jeda setelah simpan ikut terpotong kalau begitu).
+    const JEDA_SEBELUM_SIMPAN_MS = 4000;
 
     // Angka Hasil SO dari teks sel, dipakai apa adanya (mis. "12", "-1,5", "1.200").
     // null kalau selnya tidak berisi angka (kosong, "-", "N.A.") -> halaman tidak diisi,
@@ -990,7 +995,7 @@
                     (baruDisimpan ? 'simpan berhasil (halaman dimuat ulang Erzap)' : 'sudah tersimpan, dilewati'));
                 // Halaman yang baru kita simpan tetap dapat jeda setelah simpan; halaman yang
                 // memang sudah tersimpan sebelumnya langsung dilewati.
-                if (baruDisimpan) lanjutSetelahJeda(btnElement);
+                if (baruDisimpan) lanjutSetelahJeda();
                 else lanjutHalamanBerikutnya();
                 return;
             }
@@ -1129,7 +1134,12 @@
             document.querySelectorAll(koreksiSelector).forEach(inp => inp.setAttribute('data-aistim-done', '1'));
 
             // --- TAHAP 2: SIMPAN (Enter di input koreksi terakhir) ---
-            setTimeout(function() {
+            // Ada isian -> hitung mundur JEDA_SEBELUM_SIMPAN_MS dulu baru simpan.
+            // Tabel kosong -> langsung dilewati (tidak ada yang disimpan).
+            if (lastKoreksiInput) hitungMundur('SIMPAN', JEDA_SEBELUM_SIMPAN_MS, '#007bff', simpanHalaman);
+            else setTimeout(simpanHalaman, 150);
+
+            function simpanHalaman() {
                 if (sessionStorage.getItem('erzap_auto_running') !== 'true') return;
 
                 const divSimpan = document.getElementById('simpan');
@@ -1160,7 +1170,7 @@
 
                 function selesai(status) {
                     catatStatus(currentP, status);
-                    lanjutSetelahJeda(btnElement);
+                    lanjutSetelahJeda();
                 }
 
                 pasangDetektorSimpan();
@@ -1192,7 +1202,7 @@
                     tungguSimpanSelesai(selesai);
                 })();
 
-            }, 150);
+            }
 
         }, 100);
     }
@@ -1391,16 +1401,30 @@
         } catch (e) {}
     }
 
+    // Hitung mundur di tombol START ("<label> 3..."), lalu jalankan fn. Tombol dicari
+    // ulang tiap tik (bukan referensi lama), karena tombolnya bisa dibuat ulang oleh
+    // MutationObserver -> tulisan hitung mundur tetap terlihat. Berhenti kalau STOP ditekan.
+    function hitungMundur(label, ms, warna, fn) {
+        const selesaiPada = Date.now() + ms;
+        (function tik() {
+            if (sessionStorage.getItem('erzap_auto_running') !== 'true') return;
+            const sisa = selesaiPada - Date.now();
+            if (sisa <= 0) { fn(); return; }
+            const btn = document.getElementById('startAutoBtn');
+            if (btn) {
+                btn.textContent = label + ' ' + Math.ceil(sisa / 1000) + '...';
+                btn.style.backgroundColor = warna;
+                btn.style.borderColor = warna;
+            }
+            setTimeout(tik, Math.min(250, sisa));
+        })();
+    }
+
     // Jeda setelah halaman disimpan, sebelum pindah ke halaman berikutnya. Status
     // halaman sudah dicatat sebelum jeda, jadi STOP selama jeda tetap menampilkan
-    // rangkuman yang benar. lanjutHalamanBerikutnya sendiri berhenti kalau STOP ditekan.
-    function lanjutSetelahJeda(btnElement) {
-        if (btnElement) {
-            btnElement.textContent = 'JEDA ' + (JEDA_SETELAH_SIMPAN_MS / 1000) + ' DTK...';
-            btnElement.style.backgroundColor = '#007bff';
-            btnElement.style.borderColor = '#007bff';
-        }
-        setTimeout(lanjutHalamanBerikutnya, JEDA_SETELAH_SIMPAN_MS);
+    // rangkuman yang benar.
+    function lanjutSetelahJeda() {
+        hitungMundur('JEDA', JEDA_SETELAH_SIMPAN_MS, '#17a2b8', lanjutHalamanBerikutnya);
     }
 
     // --- TAHAP 3: RELOAD / PINDAH HALAMAN BERIKUTNYA ---
