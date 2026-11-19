@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.27.14
+// @version      1.27.15
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -10,11 +10,13 @@
 // ==/UserScript==
 
 // ====== HAK AKSES & FITUR (JSON) ======
+// Nama fitur: mapRak (tautan Map rak), barcode (ikon QR barcode), gambar (ikon gambar produk), hargaJual (panah harga
+//             jual), filter (filter Status Rak / Gambar), editGambar (Edit gambar), penentuanRak (tombol Penentuan Rak).
 // "public"  -> fitur yang boleh dipakai SEMUA user yang membuka halaman ini.
-// "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua). Nama fitur: editGambar, penentuanRak.
-// "role"    -> nama-nama role: "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil,
-//              cukup sebagian nama), "fitur" = fitur private yang boleh dipakai role itu.
-// Fitur yang tidak disebut di "public" maupun "private" ditolak.
+// "role"    -> "nama" = nama kasir yang dicocokkan dengan #info_kasir, tanpa membedakan huruf besar/kecil dan harus
+//              kata utuh ("ISA" cocok dengan "ISA RAHMA", tidak dengan "LISA"); "fitur" = fitur untuk role itu ("*" = semua).
+// "private" -> catatan fitur yang khusus role. Tidak dibaca kode; yang menentukan adalah "fitur" di tiap role.
+// Fitur yang tidak ada di "public" hanya muncul untuk role yang mencantumkannya (atau "*").
 // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
 var RK_AKSES_JSON = `{
     "public": ["mapRak", "barcode", "gambar", "hargaJual", "filter", "editGambar", "penentuanRak"],
@@ -45,13 +47,17 @@ var rkAkses = (function () {
         return { public: [], role: [] };
     }
 })();
+// Nama dirapikan untuk dicocokkan kata utuh: selain huruf/angka jadi spasi, diapit spasi ("Kasir: ISA" -> " kasir isa ").
+function rkKata(t) {
+    return ' ' + String(t || '').replace(/[^0-9a-z]+/gi, ' ').trim().toLowerCase() + ' ';
+}
 // true bila fitur boleh dipakai user yang sedang login (dicek saat dipakai, karena nama kasir dimuat belakangan).
 function rkBoleh(fitur) {
     if (rkAkses.public.indexOf(fitur) !== -1) return true;
-    var nama = String((document.getElementById('info_kasir') || {}).textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    var nama = rkKata((document.getElementById('info_kasir') || {}).textContent);
     for (var i = 0; i < rkAkses.role.length; i++) {
         var r = rkAkses.role[i];
-        var cocok = r.nama.some(function (u) { u = u.replace(/\s+/g, ' ').trim().toLowerCase(); return !!u && nama.indexOf(u) !== -1; });
+        var cocok = r.nama.some(function (u) { u = rkKata(u); return u.trim() !== '' && nama.indexOf(u) !== -1; });
         if (cocok) return r.fitur.indexOf('*') !== -1 || r.fitur.indexOf(fitur) !== -1;
     }
     return false;
@@ -240,6 +246,7 @@ function rkBoleh(fitur) {
             }
             list.push({
                 id: el.getAttribute('data-gdn') || '',
+                otl: el.getAttribute('data-otl') || '', // outlet milik gudang ini, kalau Erzap menyertakannya
                 nama: gudang || el.getAttribute('data-gudang-nama') || '',
                 outlet: outlet,
                 stok: angka(el.textContent)
@@ -255,7 +262,9 @@ function rkBoleh(fitur) {
             idproduk_harga: '', hide_stok_awal_stok_akhir: 'false'
         });
         const teks = parseHtml(html).body.textContent || '';
-        const m = teks.match(/Penempatan Rak\s*:?\s*([\s\S]*?)(?:Tabel ini dibaca|Tanggal\s+Kode|$)/i);
+        // Akhir daftar rak: "Tabel ini dibaca" atau judul tabel "Tanggal Kode" (boleh tanpa spasi, sama dengan
+        // pengecekan validitas di bawah: sel tabel bisa menempel jadi "TanggalKode").
+        const m = teks.match(/Penempatan Rak\s*:?\s*([\s\S]*?)(?:Tabel ini dibaca|Tanggal\s*Kode|$)/i);
         if (!m) {
             catatLog('RAK tidak ketemu di respons (' + teks.length + ' char): ' + teks.replace(/\s+/g, ' ').trim().slice(0, 150));
             // Respons yang bukan halaman aktivitas stok (halaman login/galat dengan status 200) jangan dianggap
@@ -268,26 +277,37 @@ function rkBoleh(fitur) {
             .filter((s) => s && !/^[-–—.]+$|^(n\/a|tidak ada|belum ada.*|kosong)$/i.test(s)).join(', ');
     }
 
+    const pesanGalat = (e) => (e && e.message) || String(e || 'galat');
+
+    // -> [{ id, g, o, r }] per gudang; gudang yang gagal dimuat tetap ikut dengan r '' dan err (pesan galat).
+    // Keterangan untuk popup ada di hasil.info { total, diperiksa, galatDaftar } (properti array: tidak ikut ke cache).
     async function ambilRakProduk(idproduk, idoutlet, idgudangCell) {
         let gudangs = [];
-        try { gudangs = await daftarGudang(idproduk, idoutlet); } catch (e) { }
-        if (!gudangs.length) gudangs = [{ id: idgudangCell || '', nama: '', outlet: '', stok: NaN }];
+        let galatDaftar = '';
+        try { gudangs = await daftarGudang(idproduk, idoutlet); } catch (e) {
+            galatDaftar = pesanGalat(e);
+            console.error('[Rak] daftar gudang gagal produk=', idproduk, e);
+        }
+        if (!gudangs.length) gudangs = [{ id: idgudangCell || '', otl: '', nama: '', outlet: '', stok: NaN }];
         const target = gudangs.slice(0, MAKS_GUDANG);
         const hasil = [];
         let errTerakhir = null;
         for (const g of target) {
             try {
-                const rak = await rakGudang(idproduk, g.id, idoutlet);
+                const rak = await rakGudang(idproduk, g.id, g.otl || idoutlet);
                 hasil.push({ id: g.id, g: g.nama, o: g.outlet, r: rak });
             } catch (e) {
                 errTerakhir = e;
                 console.error('[Rak] gudang', g.id, g.nama, e);
+                hasil.push({ id: g.id, g: g.nama, o: g.outlet, r: '', err: pesanGalat(e) });
             }
         }
-        if (!hasil.length && errTerakhir) throw errTerakhir;
+        if (!hasil.some((x) => !x.err) && errTerakhir) throw errTerakhir;
+        hasil.info = { total: gudangs.length, diperiksa: target.length, galatDaftar: galatDaftar };
         return hasil;
     }
 
+    const CACHE_TTL_GAGAL = 5 * 60 * 1000;
     function dataRak(td, paksa) {
         const idproduk = td.dataset.prd;
         const idoutlet = td.dataset.otl || '';
@@ -296,7 +316,9 @@ function rkBoleh(fitur) {
         const c = cache[key];
         if (!paksa && c && Date.now() - c.t < CACHE_TTL) return Promise.resolve(c.v);
         return ambilRakProduk(idproduk, idoutlet, td.dataset.gdn).then((v) => {
-            cache[key] = { t: Date.now(), v: v };
+            // Ada gudang yang gagal: entri dibuat kedaluwarsa setelah 5 menit (bukan 1 jam) supaya cepat dicoba lagi
+            const t = v.some((x) => x.err) ? Date.now() - CACHE_TTL + CACHE_TTL_GAGAL : Date.now();
+            cache[key] = { t: t, v: v };
             saveCache();
             return v;
         });
@@ -988,9 +1010,23 @@ function rkBoleh(fitur) {
             segarkanStatusRak(td, true);
             if (!document.body.contains(m.pop)) return;
             data = data || [];
-            if (!data.some((x) => x.r)) return m.info('Produk ini belum punya penempatan rak.');
+            const info = data.info || {};
+            const catatan = [];
+            if (info.galatDaftar) catatan.push('Daftar gudang tidak bisa dimuat (' + info.galatDaftar + '), jadi hanya gudang di baris ini yang diperiksa.');
+            if (info.total > info.diperiksa) catatan.push('Hanya ' + info.diperiksa + ' dari ' + info.total + ' gudang yang diperiksa.');
+            // Semua ID gudang yang diperiksa (termasuk yang tanpa rak), untuk filter gudang di popup
+            m.pop.dataset.gdnSemua = data.map((x) => x.id || '').filter(Boolean).join(',');
+            const tampil = data.filter((x) => x.r || x.err);
+            if (!tampil.length && !catatan.length) return m.info('Produk ini belum punya penempatan rak.');
             m.isi.textContent = '';
-            data.filter((x) => x.r).forEach((x) => {
+            const tulisInfo = (teks, err) => {
+                const t = document.createElement('div');
+                t.className = 'rk_info' + (err ? ' rk_err' : '');
+                t.textContent = teks;
+                return t;
+            };
+            if (!tampil.length) m.isi.appendChild(tulisInfo('Produk ini belum punya penempatan rak.'));
+            tampil.forEach((x) => {
                 const baris = document.createElement('div');
                 baris.className = 'rk_baris';
                 baris.dataset.gdn = x.id || '';
@@ -999,14 +1035,19 @@ function rkBoleh(fitur) {
                 g.className = 'rk_gn';
                 g.textContent = x.g || 'GUDANG';
                 baris.appendChild(g);
-                x.r.split(/\s*,\s*/).filter(Boolean).forEach((nama) => {
-                    const r = document.createElement('div');
-                    r.className = 'rk_rv';
-                    r.textContent = nama;
-                    baris.appendChild(r);
-                });
+                if (x.err) {
+                    baris.appendChild(tulisInfo('Rak tidak bisa dimuat (' + x.err + ').', true));
+                } else {
+                    x.r.split(/\s*,\s*/).filter(Boolean).forEach((nama) => {
+                        const r = document.createElement('div');
+                        r.className = 'rk_rv';
+                        r.textContent = nama;
+                        baris.appendChild(r);
+                    });
+                }
                 m.isi.appendChild(baris);
             });
+            catatan.forEach((teks) => m.isi.appendChild(tulisInfo(teks, true)));
             filterRakPerGudang();
             m.tombolTutup();
             m.taruh();
@@ -1018,13 +1059,16 @@ function rkBoleh(fitur) {
 
     // Filter baris rak di popup Map rak sesuai Gudang yang dipilih di #pencarian_idgudang.
     // "-- Semua --" menampilkan semua gudang. Kalau gudang yang dipilih tidak punya rak, tampilkan pesan di atas tombol.
-    const MSG_RAK_GUDANG_KOSONG = 'Produk ini belum punya penempatan rak.';
+    const MSG_RAK_GUDANG_KOSONG = 'Produk ini belum punya penempatan rak di gudang ini.';
     const kunciGudang = (t) => rapiNamaGudang(t).toUpperCase();
     // Baris rak cocok dengan gudang yang dipilih: ID gudang sama, atau (cadangan) nama sama. Nama di pilihan gudang
     // bisa berbentuk "gudang - outlet" / "outlet - gudang", jadi nama gudang sebagai awalan/akhiran " - " juga diterima.
-    function gudangCocok(baris, idPilih, want) {
+    // pakaiId: ID pilihan ada di daftar gudang produk ini, jadi baris ber-ID cukup dicocokkan lewat ID (gudang bernama
+    // sama di outlet lain tidak ikut). Nama hanya dipakai kalau ID pilihan tidak dikenal atau baris tidak punya ID.
+    function gudangCocok(baris, idPilih, want, pakaiId) {
         const id = baris.dataset.gdn || '';
         if (id && idPilih && id === idPilih) return true;
+        if (pakaiId && id) return false;
         const nama = kunciGudang((baris.querySelector('.rk_gn') || {}).textContent);
         if (!nama || nama === 'GUDANG') return false;
         const outlet = kunciGudang(baris.dataset.outlet);
@@ -1042,10 +1086,12 @@ function rkBoleh(fitur) {
         const want = isAll ? null : kunciGudang(opt.text);
         const idPilih = isAll ? '' : String(sel.value);
 
+        const semuaId = (pop.dataset.gdnSemua || '').split(',').filter(Boolean);
+        const pakaiId = !!idPilih && semuaId.indexOf(idPilih) !== -1;
         const rows = Array.from(pop.querySelectorAll('.rk_baris'));
         let tampil = 0;
         rows.forEach((r) => {
-            const show = !want || gudangCocok(r, idPilih, want);
+            const show = !want || gudangCocok(r, idPilih, want, pakaiId);
             r.style.display = show ? '' : 'none';
             if (show) tampil++;
         });
@@ -1177,7 +1223,7 @@ function rkBoleh(fitur) {
     function pasangBarcode(bcTd, namaTd, prd) {
         if (!bcTd || !prd) return;
         if (namaTd) namaTd.classList.add('rk_nama_td');
-        if (namaTd && !namaTd.querySelector('.gs_ikon')) {
+        if (namaTd && rkBoleh('gambar') && !namaTd.querySelector('.gs_ikon')) {
             const ikon = document.createElement('span');
             ikon.className = 'gs_ikon gs_logo';
             ikon.title = 'Lihat gambar produk';
@@ -1186,9 +1232,15 @@ function rkBoleh(fitur) {
         }
         const lama = bcTd.querySelector('.rk_bc_ikon');
         if (lama && !lama.closest('.rk_bc_baris')) lama.remove();
-        if (!bcTd.querySelector('.rk_bc_rak')) {
-            const baris = document.createElement('div');
-            baris.className = 'rk_bc_baris';
+        const bolehRak = rkBoleh('mapRak'), bolehBc = rkBoleh('barcode');
+        if (!bolehRak && !bolehBc) return;
+        let baris2 = bcTd.querySelector('.rk_bc_baris');
+        if (!baris2) {
+            baris2 = document.createElement('div');
+            baris2.className = 'rk_bc_baris';
+            bcTd.appendChild(baris2);
+        }
+        if (bolehRak && !baris2.querySelector('.rk_bc_rak')) {
             const lihat = document.createElement('span');
             lihat.className = 'rk_bc_rak';
             lihat.title = 'Map rak';
@@ -1198,11 +1250,9 @@ function rkBoleh(fitur) {
             i.setAttribute('aria-hidden', 'true');
             lihat.appendChild(i);
             lihat.appendChild(document.createTextNode(' Map rak'));
-            baris.appendChild(lihat);
-            bcTd.appendChild(baris);
+            baris2.appendChild(lihat);
         }
-        const baris2 = bcTd.querySelector('.rk_bc_baris');
-        if (baris2) {
+        if (bolehBc) {
             let ib = baris2.querySelector('.rk_bc_ikon');
             if (!ib) {
                 ib = document.createElement('i');
@@ -1226,11 +1276,12 @@ function rkBoleh(fitur) {
             const tds = tr.children;
             if (tds.length <= Math.max(namaIdx, barcodeIdx)) return;
             const stok = tr.querySelector(STOK_SEL);
+            if (stok) tr.dataset.rkSiap = '1';
             if (!stok || !stok.dataset.prd || !tds[barcodeIdx].textContent.trim()) return;
             pasangBarcode(tds[barcodeIdx], tds[namaIdx], stok.dataset.prd);
 
             const hd = hjIdx >= 0 ? tds[hjIdx] : null;
-            if (!hd) return;
+            if (!hd || !rkBoleh('hargaJual')) return;
             hd.classList.add('hj_td');
             hd.dataset.hjprd = stok.dataset.prd;
             if (hd.querySelector('i.fa-angle-double-down, .hj_btn')) return;
@@ -1262,9 +1313,9 @@ function rkBoleh(fitur) {
                 if (api && api.columns && api.columns.adjust) api.columns.adjust();
                 return;
             }
-            // Script berjalan di dunia terpisah, jadi jQuery halaman tidak terlihat. DataTables sendiri menyesuaikan
-            // kolom saat jendela di-resize, maka event resize dikirim. Dibatasi 3 kali berturut-turut (jeda 1 detik) dan
-            // 20 kali seumur halaman, supaya tidak berulang kalau kolom tidak bisa disejajarkan.
+            // Cadangan kalau API DataTables tidak terjangkau (jQuery halaman belum ada, atau tabel bukan DataTables):
+            // DataTables sendiri menyesuaikan kolom saat jendela di-resize, maka event resize dikirim. Dibatasi 3 kali
+            // berturut-turut (jeda 1 detik) dan 20 kali seumur halaman, supaya tidak berulang kalau kolom tidak bisa disejajarkan.
             const n = +(table.dataset.rkAdj || 0);
             const t = +(table.dataset.rkAdjT || 0);
             const total = +(table.dataset.rkAdjTot || 0);
@@ -1293,7 +1344,7 @@ function rkBoleh(fitur) {
     let navRef = null;         // tombol Sebelumnya / Berikutnya
     try { const f = sessionStorage.getItem(FILTER_KEY); if (f === 'ada' || f === 'kosong' || f === 'multi') filterRak = f; } catch (e) { }
     try { const f = sessionStorage.getItem(FILTER_GBR_KEY); if (f === 'ada' || f === 'kosong') filterGbr = f; } catch (e) { }
-    function aktifFilter() { return !!(filterRak || filterGbr); }
+    function aktifFilter() { return !!(filterRak || filterGbr) && rkBoleh('filter'); }
 
     const antreFilter = [];
     let jalanFilter = 0;
@@ -1367,7 +1418,12 @@ function rkBoleh(fitur) {
             if (segar(c)) return c.ada ? 'ada' : 'kosong';
         } else {
             const c = cache[prd + '|' + (td.dataset.otl || '')];
-            if (c && Date.now() - c.t < CACHE_TTL) return (c.v || []).some((x) => x.r) ? 'ada' : 'kosong';
+            if (c && Date.now() - c.t < CACHE_TTL) {
+                const v = c.v || [];
+                if (v.some((x) => x.r)) return 'ada';
+                // Ada gudang yang gagal dimuat: belum tentu kosong
+                return v.some((x) => x.err) ? 'gagal' : 'kosong';
+            }
         }
         return td.dataset.rkgagal ? 'gagal' : null;
     }
@@ -1385,7 +1441,8 @@ function rkBoleh(fitur) {
             const c = cache[prd + '|' + (td.dataset.otl || '')];
             if (c && Date.now() - c.t < CACHE_TTL) {
                 const n = (c.v || []).reduce((jml, x) => jml + hitungRak(x.r), 0);
-                return n > 1 ? 'ada' : 'kosong';
+                if (n > 1) return 'ada';
+                return (c.v || []).some((x) => x.err) ? 'gagal' : 'kosong';
             }
         }
         return td.dataset.rkgagal ? 'gagal' : null;
@@ -1565,8 +1622,11 @@ function rkBoleh(fitur) {
         pompaFilter();
         const sampai = Math.min(mulai + BLOK_FILTER, cocok.length);
         const totalTeks = (habis && menunggu === 0) ? String(cocok.length) : cocok.length + '+';
+        // Filter rak tanpa gudang: tiap produk butuh 1 + (maks. 8) permintaan ke Erzap; dengan gudang cukup 1.
+        const gSel = document.getElementById('pencarian_idgudang');
+        const saranGudang = filterRak && !(gSel && gSel.value) ? ' Pilih Gudang di filter supaya pemeriksaan lebih cepat.' : '';
         tulis(menunggu
-            ? 'Memeriksa ' + (rows.length - menunggu) + '/' + rows.length + ' baris...' + (cocok.length ? ' (' + cocok.length + ' cocok sejauh ini)' : '')
+            ? 'Memeriksa ' + (rows.length - menunggu) + '/' + rows.length + ' baris...' + (cocok.length ? ' (' + cocok.length + ' cocok sejauh ini)' : '') + saranGudang
             : 'Menampilkan ' + (cocok.length ? mulai + 1 : 0) + '–' + sampai + ' dari ' + totalTeks + ' yang cocok');
     }
 
@@ -1579,6 +1639,7 @@ function rkBoleh(fitur) {
     }
 
     function pasangFilter() {
+        if (!rkBoleh('filter')) return;
         const cari = document.getElementById('pencarian_nama');
         const field = cari && cari.closest('.field2');
         if (!field) return;
@@ -1744,7 +1805,11 @@ function rkBoleh(fitur) {
     function cepat() {
         const table = document.querySelector(TABLE_SEL);
         if (!table) return;
-        const baru = Array.from(table.querySelectorAll('tbody tr')).some((tr) => tr.querySelector(STOK_SEL) && !tr.querySelector('.rk_bc_ikon'));
+        // Baris yang belum diproses: belum ada ikon QR, atau tautan Map rak kalau QR tidak diizinkan, atau penanda
+        // rkSiap kalau keduanya tidak diizinkan
+        const tanda = rkBoleh('barcode') ? '.rk_bc_ikon' : (rkBoleh('mapRak') ? '.rk_bc_rak' : '');
+        const baru = Array.from(table.querySelectorAll('tbody tr')).some((tr) => tr.querySelector(STOK_SEL) &&
+            (tanda ? !tr.querySelector(tanda) : tr.dataset.rkSiap !== '1'));
         if (baru) enhance(table);
     }
     // cepat() memeriksa semua baris tabel, jadi digabung per frame (DataTables bisa mengubah DOM ratusan kali sekaligus)
@@ -1763,8 +1828,8 @@ function rkBoleh(fitur) {
 
 // =====================================================================================================
 // Bagian 2: Penentuan Rak dari popup Map rak.
-// Perbaikan v1.23.1: outlet multi/single (ambilOutlet), syarat outlet >= 1, dan menunggu pengaturan gudang
-// sampai #selected_idgudang sama dengan gudang (bukan jeda tetap).
+// Outlet diambil dari layout multi/single (ambilOutlet), lalu pengaturan gudang ditunggu sampai #selected_idgudang
+// sama dengan gudang di filter (bukan jeda tetap). Produk dipilih dari autocomplete hanya kalau barcodenya pasti cocok.
 // =====================================================================================================
 (function () {
   if (window.__rkCleanup) { try { window.__rkCleanup(); } catch (e) {} }
@@ -1860,7 +1925,25 @@ function rkBoleh(fitur) {
     var o = document.getElementById('rk_overlay'); if (o) o.remove();
     document.removeEventListener('keydown', onEsc, true);
   }
-  function onEsc(e) { if (e.key === 'Escape') closeOverlay(); }
+  // Esc menutup overlay Penentuan Rak saja. Listener ini fase capture, jadi propagasi dihentikan supaya listener Esc
+  // Bagian 1 (yang menutup popup Map rak di bawahnya) tidak ikut jalan.
+  function onEsc(e) {
+    if (e.key !== 'Escape' || !document.getElementById('rk_overlay')) return;
+    e.stopPropagation();
+    closeOverlay();
+  }
+
+  // Usulan autocomplete yang memuat barcode sebagai kata utuh ("8991" tidak cocok dengan "89912").
+  // Tepat satu yang memuat barcode -> itu. Tidak ada yang memuat barcode tetapi usulannya cuma satu -> itu.
+  // Selain itu null: user memilih sendiri, supaya rak tidak tersimpan ke produk lain.
+  function pilihUsulan(items, bc) {
+    var kunci = rkKata(bc);
+    if (!kunci.trim()) return null;
+    var pas = items.filter(function (x) { return rkKata(x.textContent).indexOf(kunci) !== -1; });
+    if (pas.length === 1) return pas[0];
+    if (!pas.length && items.length === 1) return items[0];
+    return null;
+  }
 
   // Semua tabel yang memuat daftar rak disembunyikan (digantikan combobox), bukan hanya tabel pertama.
   function sembunyikanSemua(d) {
@@ -1992,8 +2075,9 @@ function rkBoleh(fitur) {
       d.__rkSaveHook = 1;
       console.log('[Penentuan Rak] hook simpan terpasang');
       w.alert = function (m) { state.msg = m; if (!state.saving) toast(m, 'info'); };
-      // Klik "Simpan" menandai jendela 20 detik: permintaan ajax non-GET sesudahnya dianggap penyimpanan rak,
-      // walau alamatnya berbeda dari yang diperkirakan.
+      // Request simpan: alamat update_rak_barang, atau (cadangan kalau alamatnya berbeda) request ajax non-GET PERTAMA
+      // dalam 20 detik setelah klik Update. Request itu ditandai di ajaxSend (objek setelan yang sama dipakai lagi di
+      // ajaxComplete) dan jendela 20 detik ditutup, supaya request lain sesudahnya tidak ikut dianggap penyimpanan.
       d.addEventListener('click', function (e) {
         if (e.target && e.target.closest && e.target.closest('#btn_update_rak')) state.klik = Date.now();
       }, true);
@@ -2002,22 +2086,30 @@ function rkBoleh(fitur) {
         if (String(o.url || '').indexOf('update_rak_barang') > -1) return true;
         return !!state.klik && Date.now() - state.klik < 20000 && /^(post|put|patch|delete)$/i.test(o.type || o.method || '');
       };
-      w.jQuery(d).ajaxSend(function (ev, xhr, o) { if (simpanReq(o)) { state.saving = true; state.msg = ''; } });
-      w.jQuery(d).ajaxComplete(function (ev, xhr, o) {
+      w.jQuery(d).ajaxSend(function (ev, xhr, o) {
         if (!simpanReq(o)) return;
-        state.saving = false;
+        o.__rkSimpan = true;
         state.klik = 0;
+        state.saving = true;
+        state.msg = '';
+      });
+      w.jQuery(d).ajaxComplete(function (ev, xhr, o) {
+        if (!o || !o.__rkSimpan) return;
+        state.saving = false;
         var r = xhr && xhr.responseJSON;
         if (!r) { try { r = JSON.parse(xhr.responseText); } catch (e) { r = null; } }
         console.log('[Penentuan Rak] simpan selesai:', o && o.url, 'HTTP', xhr && xhr.status, r);
         var http = xhr && xhr.status;
         var httpOk = http >= 200 && http < 300;
+        // Halaman HTML utuh (mis. halaman login karena sesi habis) bukan tanda berhasil walau HTTP 200
+        var halamanHtml = !r && /^\s*(<!doctype html|<html)/i.test(String((xhr && xhr.responseText) || ''));
         // Berhasil: status "1"/true/success, atau respons tanpa penanda status tetapi HTTP 2xx
         var ok = r
           ? (String(r.status) === '1' || r.status === true || r.success === true ||
              (r.status === undefined && r.success === undefined && httpOk))
-          : httpOk;
-        var msg = state.msg || (r && r.message) || '';
+          : (httpOk && !halamanHtml);
+        var msg = state.msg || (r && r.message) ||
+          (halamanHtml ? 'Respons simpan tidak dikenali (sesi login mungkin habis). Cek ulang raknya.' : '');
         if (ok) {
           try { document.dispatchEvent(new CustomEvent('rk:rakberubah', { detail: { prd: lastLihat && lastLihat.dataset ? lastLihat.dataset.prd : '' } })); } catch (e) { }
           closeOverlay();
@@ -2132,7 +2224,12 @@ function rkBoleh(fitur) {
 
     var state = { t0: Date.now(), revealed: false };
     var iv = setInterval(function () {
-      if (!document.body.contains(ov)) { clearInterval(iv); return; }
+      if (!document.body.contains(ov)) {
+        clearInterval(iv);
+        var i = timers.indexOf(iv);
+        if (i !== -1) timers.splice(i, 1);
+        return;
+      }
       tick(ov, fr, state);
     }, 120);
     timers.push(iv);
@@ -2165,10 +2262,15 @@ function rkBoleh(fitur) {
       if (W.jQuery && W.jQuery.ui) { try { W.jQuery(inp).autocomplete('search', bc); } catch (err) {} }
       inp.dispatchEvent(new W.Event('input', { bubbles: true }));
       ['keydown', 'keyup'].forEach(function (t) { inp.dispatchEvent(new W.KeyboardEvent(t, { key: 'a', bubbles: true })); });
-      var li = await waitFor(function () {
-        return Array.prototype.slice.call(D().querySelectorAll('ul.ui-autocomplete li')).filter(function (x) { return x.offsetParent !== null; })[0];
+      var usulan = await waitFor(function () {
+        var a = Array.prototype.slice.call(D().querySelectorAll('ul.ui-autocomplete li')).filter(function (x) { return x.offsetParent !== null; });
+        return a.length ? a : null;
       }, 8000);
-      if (li) { var t = li.querySelector('.ui-menu-item-wrapper') || li; t.dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true })); t.click(); }
+      if (usulan) {
+        var li = pilihUsulan(usulan, bc);
+        if (li) { var t = li.querySelector('.ui-menu-item-wrapper') || li; t.dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true })); t.click(); }
+        else toast('Ada ' + usulan.length + ' produk yang cocok dengan barcode ' + bc + '. Pilih produknya sendiri di daftar.', 'err');
+      }
     })().catch(function (err) {
       console.warn('[Penentuan Rak] galat otomatisasi:', err);
       gagalOtomatis('halaman Penentuan Rak berubah');
