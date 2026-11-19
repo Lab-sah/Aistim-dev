@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.27.13
+// @version      1.27.14
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -217,6 +217,12 @@ function rkBoleh(fitur) {
         return doc;
     }
 
+    // Nama gudang/outlet dari label popup rincian stok: spasi dirapikan, titik dua di akhir dibuang
+    // ("GUDANG PUSAT :" -> "GUDANG PUSAT"), sama dengan pengisian_so.js.
+    function rapiNamaGudang(t) {
+        return String(t || '').replace(/\s+/g, ' ').replace(/\s*:\s*$/, '').trim();
+    }
+
     async function daftarGudang(idproduk, idoutlet) {
         const html = await ambilHtml('/produk_gudangs/detail_stok/new', { idproduk: idproduk, idgudang: '', idoutlet: idoutlet });
         const doc = parseHtml(html);
@@ -224,8 +230,11 @@ function rkBoleh(fitur) {
         let outlet = '', gudang = '';
         doc.querySelectorAll('label, a.bt_detail_stok_aktifitas').forEach((el) => {
             if (el.tagName === 'LABEL') {
-                const teks = el.textContent.trim();
-                if (/bold|font-weight:\s*[6-9]00/i.test(el.getAttribute('style') || '')) outlet = teks;
+                const teks = rapiNamaGudang(el.textContent);
+                // Judul outlet ditulis tebal: lewat style, class, atau <b>/<strong>
+                const tebal = /bold|font-weight:\s*[6-9]00/i.test(el.getAttribute('style') || '') ||
+                    /bold/i.test(el.className || '') || !!el.querySelector('b, strong');
+                if (tebal) outlet = teks;
                 else gudang = teks;
                 return;
             }
@@ -269,7 +278,7 @@ function rkBoleh(fitur) {
         for (const g of target) {
             try {
                 const rak = await rakGudang(idproduk, g.id, idoutlet);
-                hasil.push({ g: g.nama, o: g.outlet, r: rak });
+                hasil.push({ id: g.id, g: g.nama, o: g.outlet, r: rak });
             } catch (e) {
                 errTerakhir = e;
                 console.error('[Rak] gudang', g.id, g.nama, e);
@@ -984,6 +993,8 @@ function rkBoleh(fitur) {
             data.filter((x) => x.r).forEach((x) => {
                 const baris = document.createElement('div');
                 baris.className = 'rk_baris';
+                baris.dataset.gdn = x.id || '';
+                baris.dataset.outlet = x.o || '';
                 const g = document.createElement('div');
                 g.className = 'rk_gn';
                 g.textContent = x.g || 'GUDANG';
@@ -1008,6 +1019,19 @@ function rkBoleh(fitur) {
     // Filter baris rak di popup Map rak sesuai Gudang yang dipilih di #pencarian_idgudang.
     // "-- Semua --" menampilkan semua gudang. Kalau gudang yang dipilih tidak punya rak, tampilkan pesan di atas tombol.
     const MSG_RAK_GUDANG_KOSONG = 'Produk ini belum punya penempatan rak.';
+    const kunciGudang = (t) => rapiNamaGudang(t).toUpperCase();
+    // Baris rak cocok dengan gudang yang dipilih: ID gudang sama, atau (cadangan) nama sama. Nama di pilihan gudang
+    // bisa berbentuk "gudang - outlet" / "outlet - gudang", jadi nama gudang sebagai awalan/akhiran " - " juga diterima.
+    function gudangCocok(baris, idPilih, want) {
+        const id = baris.dataset.gdn || '';
+        if (id && idPilih && id === idPilih) return true;
+        const nama = kunciGudang((baris.querySelector('.rk_gn') || {}).textContent);
+        if (!nama || nama === 'GUDANG') return false;
+        const outlet = kunciGudang(baris.dataset.outlet);
+        return nama === want ||
+            (!!outlet && (want === nama + ' - ' + outlet || want === outlet + ' - ' + nama)) ||
+            want.startsWith(nama + ' - ') || want.endsWith(' - ' + nama);
+    }
     function filterRakPerGudang() {
         const pop = document.getElementById('gs_rak_pop');
         if (!pop || pop.dataset.tipe !== 'rak') return;
@@ -1015,13 +1039,13 @@ function rkBoleh(fitur) {
         if (!sel) return;
         const opt = sel.options[sel.selectedIndex];
         const isAll = !sel.value || !opt || /semua/i.test(opt.text);
-        const want = isAll ? null : opt.text.trim().toUpperCase();
+        const want = isAll ? null : kunciGudang(opt.text);
+        const idPilih = isAll ? '' : String(sel.value);
 
         const rows = Array.from(pop.querySelectorAll('.rk_baris'));
         let tampil = 0;
         rows.forEach((r) => {
-            const g = ((r.querySelector('.rk_gn') || {}).textContent || '').trim().toUpperCase();
-            const show = !want || g === want;
+            const show = !want || gudangCocok(r, idPilih, want);
             r.style.display = show ? '' : 'none';
             if (show) tampil++;
         });
