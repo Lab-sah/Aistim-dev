@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Auto Koreksi
 // @namespace    http://tampermonkey.net/
-// @version      1.13.2
+// @version      1.13.3
 // @updateURL    https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
 // @downloadURL  https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
 // @description  [v1.13.0] Hanya role yang diizinkan (AKSES_JSON, fitur autoKoreksi) yang melihat tombol START AUTO / CEK SIMPAN / STOP. Hanya lanjut otomatis kalau halaman dibuka oleh script sendiri (maks 1 menit) - buka halaman koreksi manual tidak pernah auto jalan. Ganti ID SO = mulai dari awal (isi pengkoreksi & tanggal lagi, tidak auto jalan). Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI, stop & refresh halaman. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
@@ -88,7 +88,7 @@
         const idLama = sessionStorage.getItem('erzap_so_id');
         if (!idLama || idLama === idSO()) return;
         ['erzap_auto_running', 'erzap_isian_manual', 'erzap_page_logs', 'erzap_max_page',
-         'erzap_rangkuman_tertunda', 'erzap_so_id'].forEach(k => sessionStorage.removeItem(k));
+         'erzap_rangkuman_tertunda', 'erzap_so_id', 'erzap_simpan_terakhir'].forEach(k => sessionStorage.removeItem(k));
         console.log('[Aistim] Koreksi: ID SO berubah (' + idLama + ' -> ' + idSO() + '), status proses direset');
     })();
 
@@ -102,6 +102,29 @@
     const TANDA_LANJUT_MAKS_MS = 60000;
     function tandaiLanjutOlehScript() {
         sessionStorage.setItem(TANDA_LANJUT, JSON.stringify({ so: idSO(), t: Date.now() }));
+    }
+
+    // Penjaga simpan berulang: sebelum menekan Simpan, catat halaman yang disimpan
+    // (SO, URL, nomor halaman). Kalau Erzap memuat ulang halaman itu dan tombol Simpan
+    // MASIH ada, simpannya kemungkinan gagal -> proses dihentikan, bukan diisi & disimpan
+    // lagi tanpa henti.
+    // Tanda TIDAK dihapus saat klik "berikutnya": muat ulang dari Erzap bisa menang
+    // balapan dengan klik itu, dan halaman hasil muat ulang tetap harus dikenali.
+    // Tanda dibuang begitu proses berada di halaman lain, saat halaman berganti tanpa
+    // muat ulang (pagination AJAX), dan saat proses baru dimulai.
+    const TANDA_SIMPAN = 'erzap_simpan_terakhir';
+    function urlHalamanIni() {
+        return bersihkanUrl(location.href, location.href);
+    }
+    function tandaiSimpanHalamanIni(nomor) {
+        sessionStorage.setItem(TANDA_SIMPAN, JSON.stringify({ so: idSO(), url: urlHalamanIni(), nomor: nomor }));
+    }
+    function halamanIniBaruDisimpan(nomor) {
+        let t = null;
+        try { t = JSON.parse(sessionStorage.getItem(TANDA_SIMPAN) || 'null'); } catch (e) {}
+        if (t && t.so === idSO() && t.url === urlHalamanIni() && t.nomor === nomor) return true;
+        sessionStorage.removeItem(TANDA_SIMPAN); // sisa halaman sebelumnya
+        return false;
     }
     (function cekBolehLanjut() {
         let tanda = null;
@@ -150,6 +173,14 @@
 
     const KOREKSI_SELECTOR = 'input[type="text"][name*="jumlah_koreksi"]';
 
+    // Angka Hasil SO dari teks sel, dipakai apa adanya (mis. "12", "-1,5", "1.200").
+    // null kalau selnya tidak berisi angka (kosong, "-", "N.A.") -> halaman tidak diisi,
+    // bukan dianggap 0.
+    function angkaHasilSO(teks) {
+        const m = String(teks || '').match(/-?\d[\d.,]*/);
+        return m ? m[0].replace(/[.,]+$/, '') : null;
+    }
+
     // Kunci satu alur per dokumen: mencegah dua rantai proses jalan barengan
     // (mis. tombol dibuat ulang oleh MutationObserver lalu resume lagi).
     let alurAktif = false;
@@ -187,6 +218,7 @@
         sessionStorage.setItem('erzap_auto_running', 'true');
         sessionStorage.setItem('erzap_max_page', '1');
         sessionStorage.removeItem('erzap_page_logs');
+        sessionStorage.removeItem(TANDA_SIMPAN);
         isRunning = true;
     }
 
@@ -963,6 +995,17 @@
                 return;
             }
 
+            // Halaman yang baru saja disimpan dimuat ulang Erzap, tapi tombol Simpan masih
+            // ada -> simpannya kemungkinan gagal. Jangan isi & simpan lagi: tanpa penjaga
+            // ini halaman yang sama disimpan ulang terus sampai STOP ditekan.
+            if (halamanIniBaruDisimpan(currentP)) {
+                catatStatus(currentP, 'Gagal Save');
+                console.warn('[Aistim] Koreksi: Hal ' + currentP + ' masih ada tombol Simpan setelah disimpan -> berhenti');
+                berhentiDenganRangkuman(btnElement, 'Hal ' + currentP + ' masih ada tombol Simpan setelah disimpan, jadi simpannya kemungkinan gagal. ' +
+                    'Proses dihentikan supaya halaman ini tidak disimpan berulang. Cek pesan ERZAP di halaman ini.');
+                return;
+            }
+
             // 1 & 2. Pengkoreksi & Tanggal Koreksi: pakai isian MANUAL user (disimpan saat
             //        START / CEK SIMPAN, lihat simpanIsianManual) supaya tiap halaman sama.
             //        Tanggal dipakai persis seperti yang diketik/dipilih user, jadi formatnya
@@ -990,13 +1033,17 @@
             // 3. Isi input jumlah koreksi per produk:
             //    - Input PALING ATAS dalam grup produk = nilai Hasil SO
             //    - Input ke-2, ke-3, dst dalam grup yang sama = 0
+            //    Rencana isian disusun dulu tanpa mengubah input apa pun. Kalau ada Hasil SO
+            //    yang tidak terbaca, atau input koreksi yang tidak masuk grup produk mana pun
+            //    (mis. struktur tabel Erzap berubah), halaman TIDAK diisi & TIDAK disimpan.
+            //    Dulu input seperti itu diisi 0, sehingga stoknya ikut tersimpan 0.
             const koreksiSelector = KOREKSI_SELECTOR;
-            const processedInputs = new Set();
+            const masukGrup = new Set();
+            const rencana = [];        // [input, nilai]
+            const tidakTerbaca = [];   // teks sel Hasil SO yang tidak berisi angka
             let lastKoreksiInput = null;
 
             function setInputValue(inp, val) {
-                if (processedInputs.has(inp)) return;
-                processedInputs.add(inp);
                 inp.value = val;
                 inp.dispatchEvent(new Event('input', { bubbles: true }));
                 inp.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1005,11 +1052,6 @@
 
             const soCells = document.querySelectorAll('td[id^="so"]');
             soCells.forEach(soCell => {
-                // Ambil angka Hasil SO (dukung minus & koma, mis. "-1,5" / "12.000")
-                let valText = soCell.textContent.trim();
-                const match = valText.match(/-?[\d.,]+/);
-                let hasilSOVal = match ? match[0] : '0';
-
                 let currentRow = soCell.closest('tr');
                 if (!currentRow) return;
 
@@ -1023,7 +1065,7 @@
                 let rowsChecked = 0;
                 while (row && rowsChecked < span) {
                     let inps = row.querySelectorAll(koreksiSelector);
-                    inps.forEach(i => { if (!processedInputs.has(i)) inputsInGroup.push(i); });
+                    inps.forEach(i => { if (!masukGrup.has(i)) inputsInGroup.push(i); });
                     row = row.nextElementSibling;
                     rowsChecked++;
                 }
@@ -1036,25 +1078,42 @@
                     while (sib && !sib.querySelector('td[id^="so"]')) {
                         let inps = sib.querySelectorAll(koreksiSelector);
                         if (inps.length === 0) break;
-                        inps.forEach(i => { if (!processedInputs.has(i)) inputsInGroup.push(i); });
+                        inps.forEach(i => { if (!masukGrup.has(i)) inputsInGroup.push(i); });
                         sib = sib.nextElementSibling;
                     }
                 }
+                if (!inputsInGroup.length) return;
+                inputsInGroup.forEach(i => masukGrup.add(i));
 
-                // Isi nilai: index 0 (paling atas) = Hasil SO, sisanya = 0
+                // Angka Hasil SO (dukung minus & koma, mis. "-1,5" / "12.000")
+                const hasilSOVal = angkaHasilSO(soCell.textContent);
+                if (hasilSOVal === null) {
+                    tidakTerbaca.push(soCell.textContent.replace(/\s+/g, ' ').trim());
+                    return;
+                }
+
+                // Rencana nilai: index 0 (paling atas) = Hasil SO, sisanya = 0
                 inputsInGroup.forEach((inp, idx) => {
-                    setInputValue(inp, idx === 0 ? hasilSOVal : '0');
+                    rencana.push([inp, idx === 0 ? hasilSOVal : '0']);
                 });
             });
 
-            // Fallback terakhir: input koreksi yang tidak masuk grup mana pun
-            // (mis. struktur tabel tak terduga) -> isi 0 agar tidak ikut terkirim
-            // dengan nilai lama/kosong.
-            document.querySelectorAll(koreksiSelector).forEach(inp => {
-                if (!processedInputs.has(inp)) {
-                    setInputValue(inp, '0');
+            const lepas = Array.from(document.querySelectorAll(koreksiSelector)).filter(inp => !masukGrup.has(inp));
+            if (tidakTerbaca.length || lepas.length) {
+                const sebab = [];
+                if (tidakTerbaca.length) {
+                    const contoh = tidakTerbaca[0] ? '"' + tidakTerbaca[0].slice(0, 30) + '"' : 'kosong';
+                    sebab.push(tidakTerbaca.length + ' produk Hasil SO-nya tidak terbaca (contoh isi sel: ' + contoh + ')');
                 }
-            });
+                if (lepas.length) sebab.push(lepas.length + ' input koreksi tidak punya kolom Hasil SO');
+                catatStatus(currentP, 'Tidak disimpan (Hasil SO tidak terbaca)');
+                console.warn('[Aistim] Koreksi: Hal ' + currentP + ' tidak diisi -> berhenti:', sebab.join('; '));
+                berhentiDenganRangkuman(btnElement, 'Hal ' + currentP + ' TIDAK diisi & TIDAK disimpan: ' + sebab.join('; ') +
+                    '. Isi & simpan halaman ini manual, lalu klik CEK SIMPAN untuk lanjut.');
+                return;
+            }
+
+            rencana.forEach(r => setInputValue(r[0], r[1]));
 
             // Tandai tabel ini sudah diproses (lihat cek "tabel siap" di atas)
             document.querySelectorAll(koreksiSelector).forEach(inp => inp.setAttribute('data-aistim-done', '1'));
@@ -1101,6 +1160,8 @@
                 // Simpan bisa membuat Erzap memuat ulang halaman ini -> titip tanda
                 // supaya proses tetap lanjut di halaman hasil muat ulang itu.
                 tandaiLanjutOlehScript();
+                // Dan catat halaman yang disimpan (lihat halamanIniBaruDisimpan).
+                tandaiSimpanHalamanIni(currentP);
                 tekanEnter(lastKoreksiInput);
 
                 // Enter belum tentu nyangkut di semua halaman. Kalau dalam 400ms gak ada
@@ -1227,6 +1288,9 @@
             const tabelBaru = document.querySelectorAll(KOREKSI_SELECTOR).length > 0 &&
                 !document.querySelector(KOREKSI_SELECTOR + '[data-aistim-done]');
             if (!linkLama.isConnected || tabelBaru) {
+                // Halaman berganti di dokumen yang sama (pagination AJAX): URL bisa tetap
+                // sama, jadi tanda simpan halaman sebelumnya dibuang di sini.
+                sessionStorage.removeItem(TANDA_SIMPAN);
                 setTimeout(() => runAutoProcess(document.getElementById('startAutoBtn')), 300);
                 return;
             }
