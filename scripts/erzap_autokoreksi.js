@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Auto Koreksi
 // @namespace    http://tampermonkey.net/
-// @version      1.13.3
+// @version      1.13.4
 // @updateURL    https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
 // @downloadURL  https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
 // @description  [v1.13.0] Hanya role yang diizinkan (AKSES_JSON, fitur autoKoreksi) yang melihat tombol START AUTO / CEK SIMPAN / STOP. Hanya lanjut otomatis kalau halaman dibuka oleh script sendiri (maks 1 menit) - buka halaman koreksi manual tidak pernah auto jalan. Ganti ID SO = mulai dari awal (isi pengkoreksi & tanggal lagi, tidak auto jalan). Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI, stop & refresh halaman. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
@@ -172,6 +172,11 @@
     let detektorTerpasang = false;
 
     const KOREKSI_SELECTOR = 'input[type="text"][name*="jumlah_koreksi"]';
+
+    // Jeda setelah halaman selesai disimpan, sebelum pindah ke halaman berikutnya.
+    // Berlaku juga kalau Erzap memuat ulang halaman setelah simpan. Halaman yang
+    // sudah tersimpan sebelumnya (tanpa tombol Simpan) dilewati tanpa jeda.
+    const JEDA_SETELAH_SIMPAN_MS = 3000;
 
     // Angka Hasil SO dari teks sel, dipakai apa adanya (mis. "12", "-1,5", "1.200").
     // null kalau selnya tidak berisi angka (kosong, "-", "N.A.") -> halaman tidak diisi,
@@ -974,14 +979,19 @@
                 // Kalau halaman ini tadi kita simpan lalu Erzap memuat ulang halamannya,
                 // hilangnya tombol Simpan = bukti simpannya berhasil.
                 const statusLama = JSON.parse(sessionStorage.getItem('erzap_page_logs') || '{}')[currentP];
-                catatStatus(currentP, (statusLama === 'Tidak Pasti' || statusLama === 'Berhasil') ? 'Berhasil' : 'Sudah tersimpan');
+                const baruDisimpan = statusLama === 'Tidak Pasti' || statusLama === 'Berhasil';
+                catatStatus(currentP, baruDisimpan ? 'Berhasil' : 'Sudah tersimpan');
                 if (btnElement) {
                     btnElement.textContent = 'SKIP...';
                     btnElement.style.backgroundColor = '#6c757d';
                     btnElement.style.borderColor = '#6c757d';
                 }
-                console.log('[Aistim] Koreksi: Hal ' + currentP + ' tidak ada tombol Simpan -> sudah tersimpan, dilewati');
-                lanjutHalamanBerikutnya();
+                console.log('[Aistim] Koreksi: Hal ' + currentP + ' tidak ada tombol Simpan -> ' +
+                    (baruDisimpan ? 'simpan berhasil (halaman dimuat ulang Erzap)' : 'sudah tersimpan, dilewati'));
+                // Halaman yang baru kita simpan tetap dapat jeda setelah simpan; halaman yang
+                // memang sudah tersimpan sebelumnya langsung dilewati.
+                if (baruDisimpan) lanjutSetelahJeda(btnElement);
+                else lanjutHalamanBerikutnya();
                 return;
             }
 
@@ -1150,7 +1160,7 @@
 
                 function selesai(status) {
                     catatStatus(currentP, status);
-                    lanjutHalamanBerikutnya();
+                    lanjutSetelahJeda(btnElement);
                 }
 
                 pasangDetektorSimpan();
@@ -1379,6 +1389,18 @@
             const r = JSON.parse(raw);
             showPaginatedSummaryPopup(r.pesan, r.logs || {});
         } catch (e) {}
+    }
+
+    // Jeda setelah halaman disimpan, sebelum pindah ke halaman berikutnya. Status
+    // halaman sudah dicatat sebelum jeda, jadi STOP selama jeda tetap menampilkan
+    // rangkuman yang benar. lanjutHalamanBerikutnya sendiri berhenti kalau STOP ditekan.
+    function lanjutSetelahJeda(btnElement) {
+        if (btnElement) {
+            btnElement.textContent = 'JEDA ' + (JEDA_SETELAH_SIMPAN_MS / 1000) + ' DTK...';
+            btnElement.style.backgroundColor = '#007bff';
+            btnElement.style.borderColor = '#007bff';
+        }
+        setTimeout(lanjutHalamanBerikutnya, JEDA_SETELAH_SIMPAN_MS);
     }
 
     // --- TAHAP 3: RELOAD / PINDAH HALAMAN BERIKUTNYA ---
