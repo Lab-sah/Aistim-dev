@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AISTIM TOOL
 // @namespace    http://tampermonkey.net/
-// @version      1.0.4
+// @version      1.0.5
 // @description  Header Cek Selisih + filter Ada Selisih + hasil jadi text (tidak bisa diubah). Tidak aktif di halaman Koreksi SO & Pengisian Hasil SO
 // @author       arimonox
 // @match        https://*.erzap.com/stok_opnams*
@@ -87,7 +87,6 @@
     }
 
     const STORAGE_KEY = 'erzap_filter';
-    const PANEL_STATE_KEY = 'erzap_panel_collapsed';
 
     const SafeStorage = {
         _mem: {},
@@ -104,15 +103,15 @@
         }
     };
 
+    // Satu entri per baris data: { element, status, tbody, ikut, disembunyikan }.
+    // ikut = baris lanjutan rowspan milik baris ini; selalu dipindah bersama induknya.
     let allRows = [];
-    let rowCounter = 0;
+    const entriBaris = new WeakMap();
     let observer = null;
     let isFiltering = false;
     let nextRefreshTime = null;
     let countdownInterval = null;
-    let refreshTimer = null;
     let initDone = false;
-    let waitingTable = false;
 
     function log(...args) {
         console.log('[AistimTool]', ...args);
@@ -156,9 +155,14 @@
         let headerAdded = koreksiAlreadyInHeader;
         let addedNew = false;
 
+        // Baris data terakhir. Baris lanjutan rowspan sesudahnya dicatat sebagai "ikut" baris ini,
+        // supaya applyFilter memindah keduanya bersama (tidak terpisah dari induknya).
+        let induk = null;
+
         infos.forEach(({row, covered}) => {
-            if (row.querySelector('.koreksi-col')) return;
-            if (row.getAttribute('data-koreksi-done') === '1') return;
+            const entriLama = entriBaris.get(row);
+            if (entriLama) { induk = entriLama; return; }
+            if (row.getAttribute('data-koreksi-ikut') === '1') return;
 
             const inThead = row.closest('thead') !== null;
             const hasTh = row.querySelector('th') !== null;
@@ -166,6 +170,8 @@
             const isStructural = covered > 0;
 
             if (isHeaderArea) {
+                induk = null;
+                if (row.querySelector('.koreksi-col')) return;
                 if (!headerAdded) {
                     const th = document.createElement('th');
                     th.className = 'table-header-so koreksi-col';
@@ -186,7 +192,15 @@
                 return;
             }
 
-            if (isStructural) return;
+            if (isStructural) {
+                if (induk) {
+                    induk.ikut.push(row);
+                    row.setAttribute('data-koreksi-ikut', '1');
+                }
+                return;
+            }
+
+            if (row.getAttribute('data-koreksi-done') === '1' || row.querySelector('.koreksi-col')) return;
 
             const firstCell = row.cells[0];
             const firstCellText = firstCell ? firstCell.textContent.trim() : '';
@@ -215,7 +229,9 @@
                     nilaiStokSO = parseFloat(row.cells[6].textContent.replace(/[^\d.-]/g, ''));
                 }
 
-                const isUncalculated = teksPerhitunganCell === 'PCS' || teksPerhitunganCell === '0.0 PCS';
+                // Belum dihitung: hanya satuan ("PCS") atau nol dengan satuan apa pun ("0.0 PCS", "0.00 UNIT").
+                // Sebelumnya hanya "PCS" dan "0.0 PCS", jadi "0.0 UNIT" terbaca selisih negatif sebesar stok SO.
+                const isUncalculated = /^(0+(\.0+)?\s*)?[A-Za-z]+$/.test(teksPerhitunganCell);
 
                 if (isUncalculated) {
                     td.innerHTML = '';
@@ -224,7 +240,8 @@
                     td.innerHTML = `<span style="font-weight: bold; color: gray;">?</span>`;
                     status = 'unknown';
                 } else {
-                    let hasilKoreksi = nilaiPerhitungan - nilaiStokSO;
+                    // Dibulatkan 4 desimal: 12.3 - 12.1 tampil 0.2, bukan 0.20000000000000107.
+                    const hasilKoreksi = Math.round((nilaiPerhitungan - nilaiStokSO) * 10000) / 10000;
                     if (hasilKoreksi === 0) {
                         td.innerHTML = `<span style="font-weight: bold; color: gray;">0</span>`;
                         status = 'nol';
@@ -237,11 +254,13 @@
             }
 
             row.appendChild(td);
-            row.setAttribute('data-row-idx', String(rowCounter++));
             row.setAttribute('data-koreksi-status', status);
             row.setAttribute('data-koreksi-done', '1');
 
-            allRows.push({ element: row, status, index: rowCounter - 1 });
+            const entri = { element: row, status, tbody: row.parentNode, ikut: [], disembunyikan: false };
+            allRows.push(entri);
+            entriBaris.set(row, entri);
+            induk = entri;
             addedNew = true;
         });
 
@@ -316,14 +335,23 @@
             return;
         }
 
-        allRows.forEach(({element}) => {
-            if (element.parentNode === tbody) {
-                try { tbody.removeChild(element); } catch(e) {}
+        // Buang entri yang bukan milik tbody ini lagi (tbody diganti), atau yang dilepas dari tabel
+        // oleh halaman, bukan oleh filter ini. Tanpa ini baris lama ditempel lagi dan muncul dobel.
+        allRows = allRows.filter(e => e.tbody === tbody && (e.disembunyikan || e.element.parentNode === tbody));
+
+        const lepas = el => {
+            if (el.parentNode === tbody) {
+                try { tbody.removeChild(el); } catch(e) {}
             }
+        };
+        allRows.forEach(entri => {
+            lepas(entri.element);
+            entri.ikut.forEach(lepas);
         });
 
         let shown = 0;
-        allRows.forEach(({element, status}) => {
+        allRows.forEach(entri => {
+            const {element, status} = entri;
             let show = true;
             switch (filterValue) {
                 case 'negatif': show = status === 'negatif'; break;
@@ -334,8 +362,10 @@
                 case 'semua':
                 default: show = true; break;
             }
+            entri.disembunyikan = !show;
             if (show) {
                 tbody.appendChild(element);
+                entri.ikut.forEach(el => tbody.appendChild(el));
                 shown++;
             }
         });
@@ -350,27 +380,29 @@
         isFiltering = false;
     }
 
-    function getPanelCollapsed() {
-        return SafeStorage.get(PANEL_STATE_KEY, '0') === '1';
-    }
-
-    function savePanelCollapsed(collapsed) {
-        SafeStorage.set(PANEL_STATE_KEY, collapsed ? '1' : '0');
+    // Cari menu "Administrator" lewat node teks, bukan textContent semua elemen halaman.
+    // Hasilnya elemen terluar yang seluruh teksnya "Administrator", sama dengan cara lama.
+    function cariMenuAdministrator() {
+        if (!document.body) return null;
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+            if (node.nodeValue.trim() !== 'Administrator') continue;
+            let el = node.parentElement;
+            while (el && el.parentElement && el.parentElement !== document.body &&
+                   el.parentElement.textContent.trim() === 'Administrator') {
+                el = el.parentElement;
+            }
+            return el;
+        }
+        return null;
     }
 
     function createPanel() {
         if (document.getElementById('erzap-panel')) return;
         if (!bolehFitur('menuFilter')) return;
 
-        // Cari menu Administrator
-        let adminEl = null;
-        const allElements = document.querySelectorAll('*');
-        for (const el of allElements) {
-            if (el.textContent && el.textContent.trim() === 'Administrator') {
-                adminEl = el;
-                break;
-            }
-        }
+        const adminEl = cariMenuAdministrator();
 
         // Buat wrapper menu item + dropdown (seperti menu Administrator)
         const wrapper = document.createElement('div');
@@ -586,27 +618,66 @@
         return `${m}:${s.toString().padStart(2, '0')}`;
     }
 
+    // Isian di kolom yang sedang aktif berbeda dari nilai awalnya = belum dikirim, jadi bisa hilang kalau reload.
+    // Kolom yang sekadar fokus (misalnya autofocus kotak cari) tidak menunda refresh.
+    function isianBelumTersimpan(el) {
+        if (!el || el.closest('#erzap-wrapper')) return false;
+        if (el.tagName === 'TEXTAREA') return el.value !== el.defaultValue;
+        if (el.tagName !== 'INPUT') return false;
+        if (el.type === 'checkbox' || el.type === 'radio') return el.checked !== el.defaultChecked;
+        return el.value !== el.defaultValue;
+    }
+
+    // Saat waktunya tiba, reload ditunda selama ada alasan di bawah ini, lalu jalan begitu alasannya hilang.
+    function alasanTundaRefresh() {
+        if (document.hidden) return 'tab tidak aktif';
+        const panel = document.getElementById('erzap-panel');
+        if (panel && panel.style.display === 'block') return 'menu terbuka';
+        // Popup Hasil Koreksi SO dari tombol_so_list.js (penelusuran halamannya bisa lebih dari 60 detik),
+        // atau modal Bootstrap milik Erzap.
+        if (document.getElementById('popupHasilKoreksiSO') || document.querySelector('.modal.in, .modal.show')) return 'popup terbuka';
+        if (isianBelumTersimpan(document.activeElement)) return 'isian belum disimpan';
+        return null;
+    }
+
     function startAutoRefresh() {
         if (!bolehFitur('autoRefresh')) return;
         if (!CONFIG.autoRefreshSeconds || CONFIG.autoRefreshSeconds <= 0) return;
-        const intervalMs = CONFIG.autoRefreshSeconds * 1000;
-        nextRefreshTime = Date.now() + intervalMs;
+        nextRefreshTime = Date.now() + CONFIG.autoRefreshSeconds * 1000;
 
         countdownInterval = setInterval(() => {
             const el = document.getElementById('erzap-refresh-countdown');
-            if (!el || !nextRefreshTime) return;
             const remainingSec = Math.ceil((nextRefreshTime - Date.now()) / 1000);
-            if (remainingSec <= 0) {
-                el.textContent = 'Refreshing...';
-            } else {
-                el.textContent = 'Next: ' + formatCountdown(remainingSec);
+            if (remainingSec > 0) {
+                if (el) el.textContent = 'Next: ' + formatCountdown(remainingSec);
+                return;
             }
-        }, 1000);
-
-        refreshTimer = setTimeout(() => {
+            const alasan = alasanTundaRefresh();
+            if (alasan) {
+                if (el) el.textContent = 'Ditunda: ' + alasan;
+                return;
+            }
+            if (el) el.textContent = 'Refreshing...';
+            clearInterval(countdownInterval);
             location.reload();
-        }, intervalMs);
+        }, 1000);
     }
+
+    // Perubahan DOM yang perlu dipindai ulang: ada baris/tabel baru, dan bukan di panel Aistim Tool sendiri
+    // (hitung mundur berubah tiap detik dan sebelumnya memicu pemindaian seluruh tabel tiap detik).
+    function adaBarisBaru(mutasi) {
+        return mutasi.some(m => {
+            const target = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+            if (target && target.closest('#erzap-wrapper')) return false;
+            return Array.from(m.addedNodes).some(n => n.nodeType === 1 &&
+                (n.tagName === 'TR' || n.tagName === 'TBODY' || n.tagName === 'TABLE' || !!n.querySelector('tr')));
+        });
+    }
+
+    observer = new MutationObserver(mutasi => {
+        if (!initDone || !adaBarisBaru(mutasi)) return;
+        addKoreksiColumn();
+    });
 
     function init() {
         if (initDone) return;
@@ -614,44 +685,21 @@
         addKoreksiColumn();
         createPanel();
         startAutoRefresh();
+        // Pemantau baris baru hanya untuk user yang boleh memakai kolom Cek Selisih.
+        if (bolehFitur('kolomCekSelisih')) {
+            observer.observe(document.body, { childList: true, subtree: true });
+        }
         initDone = true;
         log('Init complete. Rows:', allRows.length);
     }
 
-    // Hanya satu penunggu tabel yang aktif pada satu waktu (sebelumnya bisa menumpuk tiap detik).
     // Init menunggu tabel DAN nama kasir (#info_kasir), karena hak akses dicek dari nama itu.
     function siapInit() {
         return !!document.querySelector('table.no_data_table.table') && !!namaKasir();
     }
 
     function waitAndInit() {
-        if (initDone || waitingTable) return;
-        if (siapInit()) {
-            init();
-            return;
-        }
-        waitingTable = true;
-        log('Table or kasir not ready, waiting...');
-        const checkTimer = setInterval(() => {
-            if (siapInit()) {
-                clearInterval(checkTimer);
-                waitingTable = false;
-                init();
-            }
-        }, 500);
-        setTimeout(() => {
-            clearInterval(checkTimer);
-            waitingTable = false;
-        }, 15000);
-    }
-
-    observer = new MutationObserver(() => {
-        if (!initDone) return;
-        addKoreksiColumn();
-    });
-
-    if (document.body) {
-        observer.observe(document.body, { childList: true, subtree: true });
+        if (!initDone && siapInit()) init();
     }
 
     if (document.readyState === 'loading') {
@@ -660,13 +708,20 @@
         waitAndInit();
     }
 
-    // Polling hanya sampai init selesai. Setelah itu MutationObserver yang menangani baris baru.
+    // Menunggu paling lama 60 detik. Halaman stok_opnams tanpa tabel ini tidak dipantau terus-menerus.
+    const BATAS_TUNGGU_MS = 60000;
+    const mulaiTunggu = Date.now();
     const pollInit = setInterval(() => {
         if (initDone) {
             clearInterval(pollInit);
             return;
         }
+        if (Date.now() - mulaiTunggu > BATAS_TUNGGU_MS) {
+            clearInterval(pollInit);
+            log('Tabel atau nama kasir tidak ditemukan dalam 60 detik, berhenti menunggu');
+            return;
+        }
         waitAndInit();
-    }, 1000);
+    }, 500);
 
 })();
