@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Auto Koreksi
 // @namespace    http://tampermonkey.net/
-// @version      1.13.7
+// @version      1.13.8
 // @updateURL    https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
 // @downloadURL  https://raw.githubusercontent.com/Lab-sah/Aistim-dev/main/scripts/erzap_autokoreksi.js
 // @description  [v1.13.0] Hanya role yang diizinkan (AKSES_JSON, fitur autoKoreksi) yang melihat tombol START AUTO / CEK SIMPAN / STOP. Hanya lanjut otomatis kalau halaman dibuka oleh script sendiri (maks 1 menit) - buka halaman koreksi manual tidak pernah auto jalan. Ganti ID SO = mulai dari awal (isi pengkoreksi & tanggal lagi, tidak auto jalan). Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI, stop & refresh halaman. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
@@ -179,9 +179,9 @@
     const JEDA_SETELAH_SIMPAN_MS = 3000;
 
     // Jeda setelah tabel diisi, sebelum menekan Simpan (tombol menghitung mundur
-    // "SIMPAN 3... 2... 1..."). Jeda ini tetap terasa walau Erzap langsung memuat ulang /
+    // "SIMPAN 4... 3... 2... 1..."). Jeda ini tetap terasa walau Erzap langsung memuat ulang /
     // pindah halaman begitu disimpan (jeda setelah simpan ikut terpotong kalau begitu).
-    const JEDA_SEBELUM_SIMPAN_MS = 3000;
+    const JEDA_SEBELUM_SIMPAN_MS = 4000;
 
     // Angka Hasil SO dari teks sel, dipakai apa adanya (mis. "12", "-1,5", "1.200").
     // null kalau selnya tidak berisi angka (kosong, "-", "N.A.") -> halaman tidak diisi,
