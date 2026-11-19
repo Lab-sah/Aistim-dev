@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.27.17
+// @version      1.27.18
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -292,7 +292,8 @@ function rkBoleh(fitur) {
             peta[k] = (k in peta && peta[k] !== id) ? null : id;
         };
         const sel = document.getElementById('pencarian_idoutlet');
-        if (sel) Array.from(sel.options).forEach((o) => { if (o.value) tambah(o.textContent, o.value); });
+        // #pencarian_idoutlet tidak selalu <select> (mis. input tersembunyi di halaman "Semua Gudang"): hanya dibaca kalau punya options
+        if (sel && sel.options) Array.from(sel.options).forEach((o) => { if (o.value) tambah(o.textContent, o.value); });
         document.querySelectorAll('.searching_multi_outlet [data-idoutlet]').forEach((el) => tambah(el.textContent, el.dataset.idoutlet));
         return (nama) => peta[kunci(nama)] || '';
     }
@@ -312,7 +313,9 @@ function rkBoleh(fitur) {
         }
         if (!gudangs.length) gudangs = [{ id: idgudangCell || '', otl: '', nama: '', outlet: '', stok: NaN }];
         const target = opsi.semua ? gudangs : gudangs.slice(0, MAKS_GUDANG);
-        const outletDariNama = petaIdOutlet();
+        // Peta outlet hanya bantuan: kalau gagal dibuat, pemuatan rak tetap jalan dengan outlet baris
+        let outletDariNama = () => '';
+        try { outletDariNama = petaIdOutlet(); } catch (e) { console.warn('[Rak] peta outlet tidak bisa dibuat', e); }
         const hasil = new Array(target.length);
         let errTerakhir = null, berikut = 0, selesai = 0;
         const jalur = async () => {
@@ -1133,7 +1136,8 @@ function rkBoleh(fitur) {
         if (!pop || pop.dataset.tipe !== 'rak') return;
         const sel = document.getElementById('pencarian_idgudang');
         if (!sel) return;
-        const opt = sel.options[sel.selectedIndex];
+        // Bukan <select> (mis. input tersembunyi di halaman "Semua Gudang"): tidak ada pilihan gudang, semua rak tampil
+        const opt = sel.options ? sel.options[sel.selectedIndex] : null;
         const isAll = !sel.value || !opt || /semua/i.test(opt.text);
         const want = isAll ? null : kunciGudang(opt.text);
         const idPilih = isAll ? '' : String(sel.value);
