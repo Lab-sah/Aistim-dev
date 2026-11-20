@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Smart Repair v2 - Format Rp & Jumlah angka saja
 // @namespace    devtim-lab
-// @version      2.8.1
-// @description  Harga Jual Servis, Harga, Diskon, Total (baris part), Ongkos Kirim, dan Potongan tampil Rp 2,000.00 tetapi tetap dibaca angka murni oleh aplikasi. Uang Muka menampilkan Informasi Saldo Kas/Bank. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai otomatis hari ini. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai di popup Pengambilan Servis otomatis hari ini.
+// @version      2.8.2
+// @description  Harga Jual Servis, Harga Pokok Servis, Harga, Harga Penyesuaian, Diskon, Ongkos Kirim, Potongan, dan Uang Muka tampil Rp 2,000.00 tetapi tetap dibaca angka murni oleh aplikasi. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai di popup Pengambilan Servis otomatis hari ini. Pembayaran hanya tampil untuk Rawat Inap. Tanda * merah pada Bukti Pembayaran.
 // @match        https://*.erzap.com/servis_elektroniks/*
 // @world        main
 // @grant        none
@@ -208,65 +208,8 @@
     jQuery(document).on('shown.bs.modal', '#modal_pengembalian_servis', fillTanggalSelesai);
   }
 
-  // ===== Uang Muka: Informasi Saldo Kas/Bank =====
-  // Saldo diambil dengan fungsi check_saldo yang sudah ada di halaman (sama seperti halaman Beban).
-  // Sebelum = saldo kas/bank, Sesudah = Sebelum + Jumlah Uang Muka.
-  const KAS_UM_ID = 'servis_elektronik_idperkiraan_kas_bank_uang_muka';
+  // ===== Pembayaran hanya untuk Rawat Inap =====
   const UM_ID = 'servis_elektronik_uang_muka';
-  const saldoCache = {};
-  const fmtSaldo = (n) => PREFIX + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const escHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const getSaldo = (idPerkiraan, tanggal) => {
-    const key = idPerkiraan + '|' + tanggal;
-    if (saldoCache[key] !== undefined) return saldoCache[key];
-    let v = 0;
-    if (typeof window.check_saldo === 'function') {
-      v = parseFloat(String(check_saldo(idPerkiraan, tanggal)).replace(/[^\d.\-]/g, '')) || 0;
-    }
-    saldoCache[key] = v;
-    return v;
-  };
-  const saldoTable = (nama, sebelum, sesudah) => {
-    const th = 'style="padding:3px 4px;text-align:right;font-weight:600;white-space:nowrap;"';
-    const td = 'style="padding:3px 4px;border-top:1px solid #e5e5e5;text-align:right;white-space:nowrap;"';
-    return '<table style="width:100%;border-collapse:collapse;font-size:10.5px;table-layout:fixed;">' +
-      '<colgroup><col style="width:34%;"><col style="width:33%;"><col style="width:33%;"></colgroup>' +
-      '<thead><tr><th style="padding:3px 4px;text-align:left;font-weight:600;">Saldo Kas/Bank</th>' +
-      '<th ' + th + '>Sebelum</th><th ' + th + '>Sesudah</th></tr></thead>' +
-      '<tbody><tr><td style="padding:3px 4px;border-top:1px solid #e5e5e5;white-space:normal;overflow-wrap:anywhere;text-align:left;">' + escHtml(nama) + '</td>' +
-      '<td ' + td + '>' + fmtSaldo(sebelum) + '</td>' +
-      '<td ' + td + '>' + fmtSaldo(sesudah) + '</td></tr></tbody></table>';
-  };
-  const renderSaldoUM = () => {
-    const sel = document.getElementById(KAS_UM_ID);
-    if (!sel) return;
-    // Tabel digabung ke kotak Uang Muka: tepat di bawahnya dengan lebar yang sama.
-    const anchor = document.querySelector('.div_uang_muka') || sel;
-    let panel = document.getElementById('srepair_saldo_um');
-    if (!panel) {
-      panel = document.createElement('div');
-      panel.id = 'srepair_saldo_um';
-    }
-    panel.style.cssText = 'width:100%;margin:6px 0 0;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:12px;background:#fafafa;box-sizing:border-box;';
-    if (panel.previousElementSibling !== anchor) {
-      anchor.insertAdjacentElement('afterend', panel);
-    }
-    if (!sel.value || !anchor.offsetParent) { panel.style.display = 'none'; return; }
-    const tgl = (document.getElementById('servis_elektronik_tanggal_uang_muka') || {}).value || todayDMY();
-    const sebelum = getSaldo(sel.value, tgl);
-    const um = parseFloat(String((document.getElementById(UM_ID) || {}).value || '').replace(/[^\d.]/g, '')) || 0;
-    const sesudah = sebelum + um;
-    const nama = (sel.options[sel.selectedIndex] || {}).textContent || '';
-    panel.style.display = '';
-    panel.innerHTML = saldoTable(nama.trim(), sebelum, sesudah);
-  };
-  document.addEventListener('change', (e) => {
-    if (e.target && (e.target.id === KAS_UM_ID || e.target.id === UM_ID)) renderSaldoUM();
-  });
-  document.addEventListener('input', (e) => {
-    if (e.target && e.target.id === UM_ID) renderSaldoUM();
-  });
-  // Pindah Rawat Inap / Quick Servis: tabel ikut tersembunyi bersama kotak Uang Muka.
   // Ditunda sedikit supaya dijalankan setelah aplikasi selesai menampilkan/menyembunyikan kotak.
   // Pembayaran hanya tampil untuk Rawat Inap; untuk Quick Servis / Klaim Garansi disembunyikan.
   const togglePembayaran = () => {
@@ -288,7 +231,7 @@
   }
   const onJenisServis = (e) => {
     if (e.target && e.target.name && e.target.name.indexOf('is_rawat_inap') !== -1) {
-      setTimeout(() => { togglePembayaran(); renderSaldoUM(); }, 0);
+      setTimeout(togglePembayaran, 0);
     }
   };
   document.addEventListener('change', onJenisServis);
@@ -309,7 +252,6 @@
       patch(el);
       formatEl(el, 'blur');
     });
-    renderSaldoUM();
     togglePembayaran();
     markRequired();
   };
