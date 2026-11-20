@@ -66,6 +66,9 @@
     "beban.js",
     "penjualan.js",
     "pembatalan.js",
-    "srepair.js"
+    "srepair.js",
+    "kelolaservis.js",
+    "erzap_servis_index.js",
+    "antrianservis.js"
   ]
 }
