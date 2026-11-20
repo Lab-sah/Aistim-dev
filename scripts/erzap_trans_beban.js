@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Trans Beban
 // @namespace    http://tampermonkey.net/
-// @version      1.2.12
+// @version      1.2.13
 // @description  Halaman Transaksi Beban, Kas Masuk, dan Kas Keluar: tabel Informasi Saldo Kas/Bank (saldo sebelum dan sesudah dipotong beban, di form Beban baru); kolom Jumlah / Nominal berformat "Rp 25,000" (angka polos yang dikirim ke server, boleh .00) dan Keterangan wajib diisi sebelum Simpan (Simpan, F2, dan submit diblokir bila ada baris berjumlah yang Keterangan-nya kosong). Tombol Simpan juga nonaktif (redup) bila Jumlah belum diisi, saldo Kas/Bank sebelum 0/minus, saldo sesudah minus, atau saldo belum terbaca. Fitur diatur lewat AKSES_JSON (public/private/role).
 // @match        https://*.erzap.com/jurnals/transaksi_beban*
 // @match        https://*.erzap.com/jurnals/form_transaksi_kas_masuk*
@@ -345,7 +345,10 @@
       const ui = uiAktif;
       if (ui && ui.warn && ui.wrap && ui.wrap.isConnected) {
         ui.warn.style.display = on ? 'block' : 'none';
-        if (on) ui.warn.textContent = 'Simpan dinonaktifkan: ' + alasan.join('; ') + '.';
+        // Ditulis hanya bila berubah: fungsi ini dipanggil tiap detik, dan menulis ulang teks yang sama
+        // memicu MutationObserver bagian 1 & 2 tanpa perlu.
+        const teks = 'Simpan dinonaktifkan: ' + alasan.join('; ') + '.';
+        if (on && ui.warn.textContent !== teks) ui.warn.textContent = teks;
       }
       document.querySelectorAll(SAVE_SEL).forEach(el => {
         // Yang diredupkan hanya elemen terluar (mis. #bt_simpan), supaya ikon di dalamnya tidak ikut pudar dua kali
@@ -393,12 +396,17 @@
       clearTimeout(tundaUpdate);
       tundaUpdate = setTimeout(() => { if (updateSaldoFn) updateSaldoFn(); }, 400);
     }
+    // Ini juga jalur untuk Outlet, Kas/Bank, dan Tanggal (dulu punya listener sendiri, sehingga satu kali ganti
+    // Kas bisa mengirim sampai 4 request).
     ['change', 'focusout'].forEach(t => document.addEventListener(t, e => {
       const el = e.target;
       if (!el || !el.matches || !el.matches('input, select, textarea')) return;
       if (el.closest && el.closest('#' + WRAP_ID)) return; // kotak saldo sendiri tidak memicu
       updateSetelahIsi();
     }, true));
+    // Tab tidak aktif: pengambilan berkala dilewati (lihat mulai). Begitu tab dibuka lagi, saldo langsung diambil
+    // ulang supaya cek tombol Simpan tidak memakai saldo lama.
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) updateSetelahIsi(); });
 
     function addStyle() {
       if (document.getElementById(STYLE_ID)) return;
@@ -540,28 +548,26 @@
           .catch(() => { if (id === reqId) { kosong(); saldoGagal = true; terapkanBlokir(); } });
       }
 
-      // Saldo diambil ulang setelah selesai mengisi (lihat updateSetelahIsi), bukan tiap detik.
-      updateSaldoFn = update;
-      ['jurnal_idoutlet_own', 'jurnal_idperkiraan_kas_bank', 'jurnal_tanggal'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el && !el.dataset.iskTerpasang) {
-          el.dataset.iskTerpasang = '1';
-          // memakai tabel yang sedang aktif (ui bisa diganti saat tabel dibangun ulang)
-          el.addEventListener('change', () => { if (aktif() && ui.wrap.isConnected) update(); });
-          el.addEventListener('blur', () => { if (aktif() && ui.wrap.isConnected) update(); });
-        }
-      });
+      // Saldo juga diambil ulang berkala (SALDO_CEK_DETIK), karena bisa berubah dari transaksi lain.
+      // Hitungan berkala mulai dari nol tiap kali saldo diambil, jadi tidak ada request susulan tepat setelahnya.
+      let detikSejakCek = 0;
+      function ambilSaldo() {
+        detikSejakCek = 0;
+        update();
+      }
+      // Saldo diambil ulang setelah selesai mengisi, termasuk ganti Outlet/Kas/Tanggal dan saat tab dibuka lagi
+      // (lihat updateSetelahIsi). Selalu memakai tabel terbaru, karena mulai() dipanggil lagi saat tabel dibangun ulang.
+      updateSaldoFn = ambilSaldo;
       // Tiap detik hanya cek tombol di browser (tanpa request ke server). Kalau tabelnya hilang (halaman
       // menggambar ulang area itu), pencarian tempat dipasang diulang dari awal.
-      // Saldo juga diambil ulang berkala (SALDO_CEK_DETIK), karena bisa berubah dari transaksi lain.
-      let detikSejakCek = 0;
+      // Selama tab tidak aktif (document.hidden) tidak ada request ke server.
       const iv = setInterval(() => {
         if (!document.body.contains(ui.wrap)) { clearInterval(iv); pasang(); return; }
         terapkanBlokir(); // tombol Simpan bisa digambar ulang halaman
-        if (!aktif()) return;
-        if (++detikSejakCek >= SALDO_CEK_DETIK) { detikSejakCek = 0; update(); }
+        if (!aktif() || document.hidden) return;
+        if (++detikSejakCek >= SALDO_CEK_DETIK) ambilSaldo();
       }, 1000);
-      update();
+      ambilSaldo();
     }
 
     // Menunggu kotak DPP muncul (maks. 30 detik), lalu pasang tabelnya
