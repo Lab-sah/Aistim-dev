@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Smart Repair v2 - Format Rp & Jumlah angka saja
 // @namespace    devtim-lab
-// @version      2.8.0
+// @version      2.8.1
 // @description  Harga Jual Servis, Harga, Diskon, Total (baris part), Ongkos Kirim, dan Potongan tampil Rp 2,000.00 tetapi tetap dibaca angka murni oleh aplikasi. Uang Muka menampilkan Informasi Saldo Kas/Bank. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai otomatis hari ini. Kolom Jumlah hanya angka dan titik desimal. Tanggal Selesai di popup Pengambilan Servis otomatis hari ini.
 // @match        https://*.erzap.com/servis_elektroniks/*
 // @world        main
@@ -303,43 +303,6 @@
     lbl.insertAdjacentHTML('afterbegin', '<span class="srepair-req" style="color:#d00;font-weight:bold;">*</span> ');
   };
 
-  // ===== Daftar Kelola Servis: Status Servis (dari Proses Servis) di bawah Kode Servis tiap baris =====
-  const STATUS_CACHE = {};
-  const fetchStatusServis = (id) => {
-    if (!STATUS_CACHE[id]) {
-      STATUS_CACHE[id] = fetch('/servis_elektroniks/kelola_servis/' + id, { credentials: 'same-origin' })
-        .then((r) => r.text())
-        .then((html) => {
-          const doc = new DOMParser().parseFromString(html, 'text/html');
-          const s = doc.getElementById('servis_elektronik_detail1_status_servis');
-          return s && s.selectedIndex >= 0 ? s.options[s.selectedIndex].textContent.trim() : '';
-        })
-        .catch(() => '');
-    }
-    return STATUS_CACHE[id];
-  };
-  const addStatusKode = () => {
-    const table = document.getElementById('data_table');
-    if (!table) return;
-    table.querySelectorAll('tbody tr').forEach((tr) => {
-      const kodeTd = tr.children[4]; // kolom Kode Servis
-      const link = tr.querySelector('a[href*="/servis_elektroniks/kelola_servis/"]');
-      const m = link && link.getAttribute('href').match(/kelola_servis\/(\d+)/);
-      if (!kodeTd || !m || kodeTd.querySelector('.srepair-status-servis')) return;
-      const span = document.createElement('div');
-      span.className = 'srepair-status-servis';
-      span.style.cssText = 'display:block;width:100%;box-sizing:border-box;font-size:11px;line-height:1.3;color:#333;background:#fff176;padding:1px 4px;margin-top:2px;border-radius:3px;white-space:normal;word-break:break-word;';
-      span.textContent = 'Status: memuat...';
-      kodeTd.appendChild(span);
-      fetchStatusServis(m[1]).then((st) => { span.textContent = 'Status: ' + (st || '-'); });
-    });
-  };
-  const initStatusKode = () => {
-    if (!document.getElementById('data_table')) return;
-    addStatusKode();
-    if (window.jQuery) jQuery('#data_table').on('draw.dt', addStatusKode);
-  };
-
   // Format nilai yang sudah ada saat halaman dibuka (mis. "12500.00" dari database)
   const init = () => {
     document.querySelectorAll(SEL).forEach((el) => {
@@ -349,7 +312,6 @@
     renderSaldoUM();
     togglePembayaran();
     markRequired();
-    initStatusKode();
   };
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
