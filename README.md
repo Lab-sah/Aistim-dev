@@ -46,7 +46,7 @@ Aturan script:
 
 ## 🔐 Sistem Akses JSON (per script)
 
-Script yang punya pembatasan fitur menyimpan aturan aksesnya di konstanta `AKSES_JSON` (atau `RK_AKSES_JSON` di `rakstok.js`) di bagian atas file. Format di bawah ini sudah dipakai `rakstok.js`. Script lain (`saldokas.js`, `transkas.js`, `piutanglain.js`, `ppob.js`, `home.js`, `auditanalisa.js`) masih memakai format lama dengan daftar `admin`, `private`, dan `public`, dan belum dipindah. Ini bagian dari isi script, jadi mengubahnya cukup dengan naikkan `@version` dan klik 🔄 (tidak perlu update ZIP).
+Script yang punya pembatasan fitur menyimpan aturan aksesnya di konstanta `AKSES_JSON` (atau `RK_AKSES_JSON` di `rakstok.js`) di bagian atas file. Format di bawah ini sudah dipakai `rakstok.js`. Script lain (`saldokas.js`, `transkas.js`, `piutanglain.js`, `home.js`, `auditanalisa.js`) masih memakai format lama dengan daftar `admin`, `private`, dan `public`, dan belum dipindah. Ini bagian dari isi script, jadi mengubahnya cukup dengan naikkan `@version` dan klik 🔄 (tidak perlu update ZIP).
 
 Bentuknya:
 
