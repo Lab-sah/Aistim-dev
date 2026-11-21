@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.27.20
+// @version      1.27.21
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar (khusus role pusat).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -525,6 +525,12 @@ function rkBoleh(fitur) {
         try { fu.fileupload('option', 'autoUpload', false); } catch (e) { ov._rkSimpanOK = false; ov._rkAlasan = 'gagal mematikan autoUpload: ' + e.message; return false; }
         inp.multiple = true;
         inp.accept = 'image/jpeg,image/png';
+        try {
+            const bawaan = $.blueimp && $.blueimp.fileupload && $.blueimp.fileupload.prototype.options.add;
+            if (bawaan && fu.fileupload('option', 'add') !== bawaan) {
+                console.warn('[Edit gambar] #fileupload memakai fungsi add sendiri dari Erzap: gambar mungkin terkirim tanpa menunggu Simpan dan tanpa cek JPG/PNG/10 MB.');
+            }
+        } catch (e) { }
         const pending = [];
         let menyimpan = false;
         ov._rkAdaPending = () => pending.length;
@@ -588,7 +594,16 @@ function rkBoleh(fitur) {
                 if (!cocok) { ditolak.push((file.name || 'file') + ' (bukan JPG/PNG)'); return; }
                 if (file.size > MAKS_UKURAN_GAMBAR) { ditolak.push((file.name || 'gambar') + ' (' + teksMB(file.size) + ')'); return; }
                 if (pending.some((p) => p.file.name === file.name && p.file.size === file.size && p.file.lastModified === file.lastModified)) return;
-                const item = { data: data, file: file, nama: file.name || 'gambar', url: '', gagal: false, proses: false };
+                // Satu request per gambar. Kalau Erzap mengumpulkan beberapa file dalam satu data (singleFileUploads:false),
+                // data disalin dengan file ini saja, supaya file yang ditolak tidak ikut terkirim dan tidak ada yang terkirim dua kali.
+                let dataItem = data;
+                if (data.files.length > 1) {
+                    const i = data.files.indexOf(file);
+                    dataItem = $.extend({}, data, { files: [file] });
+                    if (Array.isArray(data.paramName)) dataItem.paramName = [data.paramName[i] || data.paramName[0]];
+                    dataItem.jqXHR = undefined;
+                }
+                const item = { data: dataItem, file: file, nama: file.name || 'gambar', url: '', gagal: false, proses: false };
                 pending.push(item);
                 try {
                     const fr = new w.FileReader();
@@ -2146,17 +2161,18 @@ function rkBoleh(fitur) {
     if (!d.__rkSaveHook && w.jQuery) {
       d.__rkSaveHook = 1;
       console.log('[Penentuan Rak] hook simpan terpasang');
-      w.alert = function (m) { state.msg = m; if (!state.saving) toast(m, 'info'); };
+      w.alert = function (m) { state.msg = m; if (!state.saving) { state.klik = 0; toast(m, 'info'); } };
       // Request simpan: alamat update_rak_barang, atau (cadangan kalau alamatnya berbeda) request ajax non-GET PERTAMA
-      // dalam 20 detik setelah klik Update. Request itu ditandai di ajaxSend (objek setelan yang sama dipakai lagi di
-      // ajaxComplete) dan jendela 20 detik ditutup, supaya request lain sesudahnya tidak ikut dianggap penyimpanan.
+      // dalam 5 detik setelah klik Update. Request itu ditandai di ajaxSend (objek setelan yang sama dipakai lagi di
+      // ajaxComplete) dan jendela 5 detik ditutup, supaya request lain sesudahnya tidak ikut dianggap penyimpanan.
+      // Alert dari Erzap sebelum ada request simpan (mis. validasi gagal) juga menutup jendela itu.
       d.addEventListener('click', function (e) {
         if (e.target && e.target.closest && e.target.closest('#btn_update_rak')) state.klik = Date.now();
       }, true);
       var simpanReq = function (o) {
         if (!o) return false;
         if (String(o.url || '').indexOf('update_rak_barang') > -1) return true;
-        return !!state.klik && Date.now() - state.klik < 20000 && /^(post|put|patch|delete)$/i.test(o.type || o.method || '');
+        return !!state.klik && Date.now() - state.klik < 5000 && /^(post|put|patch|delete)$/i.test(o.type || o.method || '');
       };
       w.jQuery(d).ajaxSend(function (ev, xhr, o) {
         if (!simpanReq(o)) return;
@@ -2267,9 +2283,12 @@ function rkBoleh(fitur) {
     var bc = ((pop.querySelector('.rk_judul') || {}).textContent || '').split(' - ')[0].trim();
     var outlet = ambilOutlet();
     var gSel = document.getElementById('pencarian_idgudang');
-    var gudang = gSel && gSel.value;
+    // Hanya pilihan gudang tertentu yang dipakai. Input tersembunyi (halaman "Semua Gudang") atau pilihan "Semua" ditolak
+    // di sini, supaya popup tidak dibuka lalu gagal setelah 30 detik.
+    var gOpt = gSel && gSel.options ? gSel.options[gSel.selectedIndex] : null;
+    var gudang = gOpt && gSel.value && !/semua/i.test(gOpt.text) ? gSel.value : '';
     if (!bc) { toast('Barcode tidak terbaca', 'err'); return; }
-    if (!outlet || !gudang) { toast('Outlet/Gudang di filter belum dipilih', 'err'); return; }
+    if (!gudang) { toast('Pilih satu gudang di filter dulu (bukan Semua Gudang)', 'err'); return; }
 
     closeOverlay();
     if (!document.getElementById('rk_spin_css')) {
@@ -2320,19 +2339,32 @@ function rkBoleh(fitur) {
       var o = await waitFor(function () { var s = D().getElementById('setting_idoutlet'); return s && s.options.length >= 1 && s; }, 15000);
       if (!o) { gagalOtomatis('pilihan outlet tidak muncul'); return; }
       var W = fr.contentWindow, start = Date.now(), done = false;
-      while (!done && Date.now() - start < 30000) {
-        if (o.value !== outlet) { o.value = outlet; fire(W, o); await sleep(800); }
+      // Outlet tebakan (ambilOutlet) dicoba dulu. Kalau gudangnya tidak ada di outlet itu (mis. layout multi outlet
+      // mengambil outlet yang salah), outlet lain di form dicoba satu per satu sampai gudangnya ketemu. Daftar diputar
+      // ulang sampai batas waktu, supaya outlet yang benar tidak terlewat permanen kalau pilihan gudangnya lambat dimuat.
+      var daftarOtl = (outlet ? [outlet] : []).concat(Array.prototype.map.call(o.options, function (x) { return x.value; })
+        .filter(function (v) { return v && v !== outlet; }));
+      var batas = 30000 + 2500 * Math.max(0, daftarOtl.length - 1);
+      if (!daftarOtl.length) { gagalOtomatis('pilihan outlet kosong'); return; }
+      var iOtl = 0, cobaOtl = 0, gudangAda = false;
+      while (!done && Date.now() - start < batas) {
+        var cur = daftarOtl[iOtl];
+        if (o.value !== cur) { o.value = cur; fire(W, o); cobaOtl = 0; await sleep(800); }
         var g = D().getElementById('setting_idgudang');
         if (g && Array.prototype.some.call(g.options, function (x) { return x.value === gudang; })) {
+          gudangAda = true;
           if (g.value !== gudang) { g.value = gudang; fire(W, g); await sleep(300); }
           if (g.value === gudang) {
             D().getElementById('update_settings').click();
             for (var k = 0; k < 25 && D().getElementById('selected_idgudang').value !== gudang; k++) await sleep(300);
             if (D().getElementById('selected_idgudang').value === gudang) done = true;
           }
-        } else await sleep(300);
+        } else {
+          await sleep(300);
+          if (++cobaOtl >= 5) { iOtl = (iOtl + 1) % daftarOtl.length; cobaOtl = 0; }
+        }
       }
-      if (!done) { gagalOtomatis('gudang tidak bisa dipasang'); return; }
+      if (!done) { gagalOtomatis(gudangAda ? 'gudang tidak bisa dipasang' : 'gudang tidak ditemukan di outlet mana pun'); return; }
       await sleep(500);
       var inp = D().getElementById('barcode_barang'); inp.focus(); inp.value = bc;
       if (W.jQuery && W.jQuery.ui) { try { W.jQuery(inp).autocomplete('search', bc); } catch (err) {} }
