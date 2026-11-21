@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.27.19
+// @version      1.27.20
 // @description  Lihat Stok: tabel & kolom bawaan Erzap tidak diubah. Menambah "Map rak" di bawah barcode, dengan ikon QR di sebelah kirinya yang membuka popup gambar barcode (Code 128) + tombol "Penentuan Rak" (popup besar tanpa pindah tab, outlet/gudang otomatis untuk layout single maupun multi outlet, rak berupa combobox yang bisa dicari), ikon logo di kolom Nama (popup gambar + Edit gambar di popup), panah di kolom Harga Jual (harga jual per jenis pelanggan), dan filter Status Rak / Gambar (khusus role pusat).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -642,7 +642,11 @@ function rkBoleh(fitur) {
             ov.appendChild(n);
         }
         n.textContent = teks;
-        if (lamaMs) setTimeout(() => { if (n.parentNode && n.textContent === teks) n.remove(); }, lamaMs);
+        // Notifikasi sementara tidak menghapus peringatan tetap (ov._rkPeringatan): setelah waktunya habis, peringatan tampil lagi.
+        if (lamaMs) setTimeout(() => {
+            if (!n.parentNode || n.textContent !== teks) return;
+            if (ov._rkPeringatan) n.textContent = ov._rkPeringatan; else n.remove();
+        }, lamaMs);
     }
 
     function bukaEditGambar(id, judul) {
@@ -824,14 +828,20 @@ function rkBoleh(fitur) {
                             w.jQuery(doc.getElementById('fileupload')).fileupload('add', { files: fl });
                         }
                     } catch (err) { console.warn('[Edit gambar] gagal memproses gambar yang ditahan', err); }
+                    // Simpan baru siap setelah peringatan "belum bisa dipasang" tampil: peringatan diganti kabar siap.
+                    if (ov._rkSimpanOK && ov._rkPeringatan) {
+                        ov._rkPeringatan = null;
+                        tampilNotifEdit(ov, 'Tombol Simpan sudah siap. Gambar yang dipilih bisa disimpan.', 5000);
+                    }
                     if (!siapSejak) siapSejak = Date.now();
                     f.style.visibility = 'visible';
                     msg.remove();
                     if (!ov._rkSimpanOK && lama > 15000 && !ov._rkLapor) {
                         ov._rkLapor = true;
                         console.warn('[Edit gambar] Simpan belum bisa dipasang: ' + (ov._rkAlasan || 'belum diketahui') + ' (masih dicoba)');
-                        tampilNotifEdit(ov, 'Tombol Simpan gambar belum bisa dipasang (' + (ov._rkAlasan || 'belum diketahui') +
-                            '). Gambar yang dipilih belum dikirim. Tutup lalu buka lagi popup ini.');
+                        ov._rkPeringatan = 'Tombol Simpan gambar belum bisa dipasang (' + (ov._rkAlasan || 'belum diketahui') +
+                            '). Gambar yang dipilih belum dikirim. Tutup lalu buka lagi popup ini.';
+                        tampilNotifEdit(ov, ov._rkPeringatan);
                     }
                     if (ov._rkSimpanOK ? Date.now() - siapSejak > 3000 : lama > 180000) clearInterval(ov._rkTimer);
                     return;
@@ -1988,6 +1998,12 @@ function rkBoleh(fitur) {
     e.stopPropagation();
     closeOverlay();
   }
+  // Esc saat fokus di dalam iframe Penentuan Rak. Kalau Esc sudah dipakai untuk menutup daftar (combobox rak atau
+  // autocomplete barcode, keduanya memanggil preventDefault), overlay tidak ikut ditutup.
+  function onEscIframe(e) {
+    if (e.key !== 'Escape' || e.defaultPrevented || !document.getElementById('rk_overlay')) return;
+    closeOverlay();
+  }
 
   // Usulan autocomplete yang memuat barcode sebagai kata utuh ("8991" tidak cocok dengan "89912").
   // Tepat satu yang memuat barcode -> itu. Tidak ada yang memuat barcode tetapi usulannya cuma satu -> itu.
@@ -2102,7 +2118,7 @@ function rkBoleh(fitur) {
       if (ev.key === 'ArrowDown') { ev.preventDefault(); open(); hi = Math.min(hi + 1, shown.length - 1); renderList(); scrollHi(); }
       else if (ev.key === 'ArrowUp') { ev.preventDefault(); hi = Math.max(hi - 1, 0); renderList(); scrollHi(); }
       else if (ev.key === 'Enter') { ev.preventDefault(); if (shown[hi]) pick(shown[hi]); }
-      else if (ev.key === 'Escape') { list.style.display = 'none'; }
+      else if (ev.key === 'Escape' && list.style.display !== 'none') { ev.preventDefault(); list.style.display = 'none'; }
     });
     renderChips();
   }
@@ -2276,6 +2292,10 @@ function rkBoleh(fitur) {
     document.addEventListener('keydown', onEsc, true);
 
     var fr = ov.querySelector('#rk_iframe');
+    // Dipasang ulang tiap kali halaman di iframe dimuat (dokumen baru = listener baru).
+    fr.addEventListener('load', function () {
+      try { fr.contentWindow.document.addEventListener('keydown', onEscIframe); } catch (e) { }
+    });
     fr.src = PAGE_URL;
 
     var state = { t0: Date.now(), revealed: false };
