@@ -9,6 +9,7 @@
     "erzap_servis_index.js",
     "servisindex.js",
     "erzap_pemindahan_barang.js",
+    "cekpemindahan.js",
     "pemindahan.js",
     "barcode.js",
     "tombol_so_list.js",
