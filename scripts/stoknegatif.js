@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Stok Negatif
 // @namespace    partdistro.erzap.stoknegatif
-// @version      1.1.0
+// @version      1.1.1
 // @description  Tombol "Stok Negatif" di Home ERZAP, khusus role pusat (pilih toko dulu): daftar stok toko < 0, solusi (Cek Gudang / Buat BA), form BA Stok In & Stok Out, dan analisa.
 // @author       PartDistro Indonesia
 // @match        https://*.erzap.com/
@@ -918,18 +918,93 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
     '</div>';
   document.body.appendChild(ov);
   ov.querySelectorAll('#sm-tabs button').forEach(b => b.onclick = () => { curTab = b.dataset.tab; applyTab(); });
-  const close = () => { tutupAksi(); tutupAnalisa(); ov.classList.remove('open'); document.body.classList.remove('sm-open'); };
+  const close = () => { tutupAksi(); tutupAnalisa(); ov.classList.remove('open'); document.body.classList.remove('sm-open'); pulihSnap(); };
   ov.addEventListener('click', e => { if (e.target === ov || e.target.id === 'sm-x') close(); });
   const selToko = ov.querySelector('#sm-toko');
+
+  // ---------- Filter Lihat Stok milik user ----------
+  // ERZAP menyimpan filter Lihat Stok di server (session) dan setiap POST pencarian mengubahnya. Filter dicatat saat popup
+  // dibuka (mulaiSnap) dan dikembalikan persis seperti semula saat popup ditutup (pulihSnap) -> halaman Lihat Stok user tidak berubah.
+  const LS_URL = '/produk_gudangs/lihat_stok/new';
+  const KEEP_FIELDS = ['utf8', 'pencarian[umur_produk_satuan_waktu]'];   // field lain dikosongkan; idoutlet_own kosong = semua outlet
+  let snapAwal = null, snapJanji = null, pulihJanji = Promise.resolve();
+  const snapFd = (snap) => {
+    const fd = new FormData();
+    snap.entries.forEach(([k, v]) => fd.append(k, v));
+    const t = tok();
+    if (t && !fd.has('authenticity_token')) fd.append('authenticity_token', t);
+    return fd;
+  };
+  async function ambilSnap() {
+    await pulihJanji;   // kalau popup baru saja ditutup, tunggu filter selesai dipulihkan dulu
+    const r = await fetch(LS_URL, { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = new DOMParser().parseFromString(await r.text(), 'text/html');
+    const form = d.querySelector('#form_pencarian_lihat_stok');
+    if (!form) throw new Error('Form Lihat Stok tidak ditemukan (sudah login?)');
+    return { form, entries: [...new FormData(form).entries()] };
+  }
+  function mulaiSnap() {
+    snapJanji = ambilSnap().then(s => { if (ov.classList.contains('open')) snapAwal = s; return s; })
+      .catch(e => { console.warn('[stoknegatif.js] filter Lihat Stok tidak bisa dicatat:', e.message); return null; });
+    return snapJanji;
+  }
+  function pulihSnap() {
+    const s = snapAwal; snapAwal = null; snapJanji = null;
+    if (!s) return;
+    const t = tok();
+    pulihJanji = fetch(LS_URL + '?page=1', { method: 'POST', body: snapFd(s), credentials: 'same-origin', headers: t ? { 'X-CSRF-Token': t } : {} })
+      .catch(() => {});
+  }
+  // kalau halaman ditutup/dimuat ulang saat popup masih terbuka, tetap coba kembalikan filter
+  window.addEventListener('pagehide', () => { if (snapAwal && navigator.sendBeacon) navigator.sendBeacon(LS_URL + '?page=1', snapFd(snapAwal)); });
+
+  // ---------- Daftar toko ----------
+  // Halaman Lihat Stok apa adanya hanya memuat gudang menurut filter tersimpan (mis. satu outlet). Daftar lengkap semua outlet
+  // didapat dari respons POST pencarian dengan outlet dikosongkan (cara yang sama dengan cekpemindahan.js).
+  const opsiGudang = (sel) => [...(sel ? sel.options : [])].filter(o => o.value).map(o => ({ id: o.value, nama: o.text.trim() }));
+  const selGudang = (doc) => doc.querySelector('#pencarian_idgudang') || doc.querySelector('[name="pencarian[idgudang]"]');
+  async function daftarGudang() {
+    const snap = await snapJanji;
+    if (snap) {
+      try {
+        const fd = new FormData();
+        for (const [k, v] of snap.entries) fd.append(k, KEEP_FIELDS.includes(k) ? v : '');
+        fd.set('pencarian[idgudang]', ''); fd.set('pencarian[jumlah]', '0'); fd.set('pencarian[perbandingan_jumlah]', '>');
+        const t = tok();
+        if (t) fd.set('authenticity_token', t);
+        const r = await fetch(LS_URL + '?page=1', { method: 'POST', body: fd, credentials: 'same-origin', headers: t ? { 'X-CSRF-Token': t } : {} });
+        if (r.ok) {
+          const list = opsiGudang(selGudang(new DOMParser().parseFromString(await r.text(), 'text/html')));
+          if (list.length) return list;
+        }
+      } catch (e) { console.warn('[stoknegatif.js] daftar gudang lewat pencarian gagal, pakai halaman apa adanya:', e.message); }
+      return opsiGudang(selGudang(snap.form));   // cadangan: daftar di halaman Lihat Stok
+    }
+    const r = await fetch(LS_URL, { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return opsiGudang(selGudang(new DOMParser().parseFromString(await r.text(), 'text/html')));
+  }
   let tokoMuat = null;
   function muatToko() {
-    if (!tokoMuat) tokoMuat = fetch('/produk_gudangs/lihat_stok/new', { credentials: 'same-origin' }).then(r => r.text()).then(h => {
-      const d = new DOMParser().parseFromString(h, 'text/html');
-      const g = d.querySelector('[name="pencarian[idgudang]"]');
-      [...(g ? g.options : [])].filter(o => o.value && /^TOKO\b/i.test(o.text.trim())).forEach(o => {
-        const op = document.createElement('option'); op.value = o.value; op.textContent = o.text.trim(); selToko.appendChild(op);
-      });
-    }).catch(() => { tokoMuat = null; });
+    if (tokoMuat) return tokoMuat;
+    const info = (teks) => { selToko.options[0].textContent = teks; };
+    info('Memuat toko...');
+    tokoMuat = daftarGudang().then(list => {
+      const toko = list.filter(g => /^TOKO\b/i.test(g.nama)).sort((a, b) => a.nama.localeCompare(b.nama, 'id', { numeric: true }));
+      if (!toko.length) {
+        console.warn('[stoknegatif.js] tidak ada gudang berawalan "TOKO". Gudang yang terbaca (' + list.length + '):', list.map(g => g.nama));
+        info(list.length ? 'Tidak ada toko (lihat console)' : 'Daftar gudang kosong');
+        tokoMuat = null;   // popup dibuka lagi = coba ulang
+        return;
+      }
+      toko.forEach(g => { const op = document.createElement('option'); op.value = g.id; op.textContent = g.nama; selToko.appendChild(op); });
+      info('Pilih Toko');
+    }).catch(e => {
+      console.warn('[stoknegatif.js] gagal memuat daftar toko:', e.message);
+      info('Gagal memuat toko, tutup lalu buka lagi');
+      tokoMuat = null;
+    });
     return tokoMuat;
   }
   selToko.onchange = () => {
@@ -951,7 +1026,8 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
     bar.firstChild.onclick = () => {
       // selalu mulai kosong: pilih toko dulu
       tokoId = ''; tokoNama = ''; tokoOtl = ''; selToko.value = ''; boList.length = 0; curTab = 'all';
-      muatToko(); requestScan(); ov.classList.add('open'); document.body.classList.add('sm-open');
+      ov.classList.add('open'); document.body.classList.add('sm-open');
+      mulaiSnap(); muatToko(); requestScan();
     };
     grp.insertBefore(bar, grp.firstChild);
   }
