@@ -29,6 +29,7 @@
     "rekapstokmin.js",
     "rakstok_lama.js",
     "home.js",
+    "erzap_main_home.js",
     "salespenjualan.js",
     "repairv2.js",
     "saldokas.js",
@@ -73,6 +74,7 @@
     "erzap_servis_index.js",
     "antrianservis.js",
     "ppob.js",
-    "pesanan_web.js"
+    "pesanan_web.js",
+    "home.js"
   ]
 }
