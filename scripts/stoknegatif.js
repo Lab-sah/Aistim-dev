@@ -1,16 +1,80 @@
 // ==UserScript==
 // @name         ERZAP - Stok Negatif
 // @namespace    partdistro.erzap.stoknegatif
-// @version      1.0.0
-// @description  Tombol "Stok Negatif" di Home ERZAP (pilih toko dulu): daftar stok toko < 0, solusi (Cek Gudang / Buat BA), form BA Stok In & Stok Out, dan analisa.
+// @version      1.1.0
+// @description  Tombol "Stok Negatif" di Home ERZAP, khusus role pusat (pilih toko dulu): daftar stok toko < 0, solusi (Cek Gudang / Buat BA), form BA Stok In & Stok Out, dan analisa.
 // @author       PartDistro Indonesia
 // @match        https://*.erzap.com/
 // @run-at       document-idle
 // @grant        none
+// @world        main
 // ==/UserScript==
 
 (function () {
   'use strict';
+
+  // ====== HAK AKSES & FITUR (JSON) ======
+  // "public"  -> fitur yang boleh dipakai SEMUA user.
+  // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua). Nama fitur: stokNegatif.
+  // "role"    -> "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil, cukup sebagian nama),
+  //              "fitur" = fitur private yang boleh dipakai role itu.
+  // Daftar nama pusat sama dengan home.js dan cekpemindahan.js (menu Aistim Audit di Home memanggil tombol ini).
+  // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
+  // Jika JSON salah ketik, akses ditutup (tombol tidak dipasang untuk siapa pun).
+  const AKSES_JSON = `{
+    "public": [],
+    "private": ["stokNegatif"],
+    "role": {
+      "pusat": {
+        "nama": ["SURYO", "SENTOT", "PUGUH", "DIMAS", "MANAJEMEN PUSAT"],
+        "fitur": ["*"]
+      }
+    }
+  }`;
+  const rapihNama = (t) => (t || '').replace(/\s+/g, ' ').trim();
+  function bacaAkses() {
+    try {
+      const a = JSON.parse(AKSES_JSON) || {};
+      const role = a.role && typeof a.role === 'object' ? a.role : {};
+      return {
+        public: Array.isArray(a.public) ? a.public.map(String) : [],
+        role: Object.keys(role).map((k) => {
+          const r = role[k] || {};
+          return {
+            nama: Array.isArray(r.nama) ? r.nama.map(String) : [],
+            fitur: Array.isArray(r.fitur) ? r.fitur.map(String) : [],
+          };
+        }),
+      };
+    } catch (err) {
+      console.error('[stoknegatif.js] AKSES_JSON tidak valid -> akses ditutup:', err.message);
+      return { public: [], role: [] };
+    }
+  }
+  const AKSES = bacaAkses();
+  // Cadangan bila #info_kasir tidak ada: elemen daun berpola "NAMA (JABATAN)", mis. "SENTOT ARI HANDOKO (STAF IT)"
+  const RE_LABEL_USER = /^[A-Z][A-Z.' -]{2,60}\([^()]{2,40}\)$/;
+  function namaUser() {
+    const kasir = document.getElementById('info_kasir');
+    if (kasir) return rapihNama(kasir.textContent).toLowerCase();
+    for (const e of document.querySelectorAll('label, a, span, div, button')) {
+      if (e.children.length) continue;
+      const t = rapihNama(e.textContent);
+      if (RE_LABEL_USER.test(t)) return t.toLowerCase();
+    }
+    return '';
+  }
+  // true = boleh, false = tidak boleh, null = nama kasir belum terbaca (nama bisa dimuat belakangan)
+  function cekAkses(fitur) {
+    if (AKSES.public.indexOf(fitur) !== -1) return true;
+    const n = namaUser();
+    if (!n) return null;
+    for (const r of AKSES.role) {
+      if (r.nama.some((u) => n.indexOf(u.toLowerCase()) !== -1)) return r.fitur.indexOf('*') !== -1 || r.fitur.indexOf(fitur) !== -1;
+    }
+    return false;
+  }
+
   // Tunggu sampai jQuery & form pencarian ERZAP siap, lalu pasang tombol Stok Negatif
   function siap() { return window.jQuery && document.getElementById('bt_load_informasi_hari_ini'); }
   function mulai() {
@@ -903,12 +967,19 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
   });
   window.__smObs.observe(target, { childList: true, subtree: true });
   }
-  if (siap()) mulai();
-  else {
+  // Tombol hanya dipasang untuk role yang punya fitur "stokNegatif". Nama kasir bisa dimuat belakangan,
+  // jadi selama nama belum terbaca (null) dicoba lagi; setelah diputuskan (boleh / tidak) pemeriksaan berhenti.
+  function coba() {
+    if (!siap()) return false;
+    const akses = cekAkses('stokNegatif');
+    if (akses === null) return false;
+    if (akses) mulai();
+    return true;
+  }
+  if (!coba()) {
     const t0 = Date.now();
     const iv = setInterval(() => {
-      if (siap()) { clearInterval(iv); mulai(); }
-      else if (Date.now() - t0 > 30000) clearInterval(iv);
+      if (coba() || Date.now() - t0 > 30000) clearInterval(iv);
     }, 300);
   }
 })();

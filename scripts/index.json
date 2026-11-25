@@ -10,6 +10,7 @@
     "servisindex.js",
     "erzap_pemindahan_barang.js",
     "cekpemindahan.js",
+    "stoknegatif.js",
     "pemindahan.js",
     "barcode.js",
     "tombol_so_list.js",
