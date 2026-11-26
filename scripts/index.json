@@ -6,6 +6,7 @@
     "aistim_tool.js",
     "olzap.js",
     "kelolaservis.js",
+    "erzap_kelola_servis.js",
     "erzap_servis_index.js",
     "servisindex.js",
     "erzap_pemindahan_barang.js",
@@ -74,6 +75,7 @@
     "antrianservis.js",
     "ppob.js",
     "pesanan_web.js",
-    "home.js"
+    "home.js",
+    "kelolaservis.js"
   ]
 }
