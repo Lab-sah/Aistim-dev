@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Audit Stok (Daftar Data Produk)
 // @namespace    partdistro.erzap.produks
-// @version      1.3.0
+// @version      1.3.1
 // @description  Menambahkan tombol Audit Stok (Stok Negatif, Cek Pemindahan, Digital Aktivasi, Stok Terpesan, Analisa Stok) di halaman Daftar Data Produk ERZAP
 // @author       Pak mon
 // @match        https://*.erzap.com/produks*
@@ -26,7 +26,6 @@
   // ID kategori di server (TOOLS = 1, AKTIVASI = 9). Ubah jika ID di sistem berubah.
   var KATEGORI_ID = 1;
   var SUB_KATEGORI_ID = 9;
-  var SCAN_KEY = 'tm-aktivasi-scan';   // status scan disimpan di sessionStorage (bertahan saat halaman dimuat ulang)
   var MAX_PAGES = 200;
 
   // Pilihan yang muncul setelah tombol Audit Stok diklik (ubah url sesuai kebutuhan)
@@ -127,8 +126,6 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
-
-  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
   function findAnchorButton() {
     var candidates = document.querySelectorAll('a, button');
@@ -310,47 +307,6 @@
 
   // ===== Digital Aktivasi: Barcode & Nama Produk dengan Kategori TOOLS + Sub Kategori AKTIVASI =====
 
-  // Membaca baris tabel produk yang sedang tampil di halaman
-  function readTableRows() {
-    var out = [];
-    document.querySelectorAll('table.dataTable tbody tr').forEach(function (tr) {
-      var c = tr.cells;
-      if (!c || c.length < 15) return;
-      out.push({
-        barcode: c[5].innerText.trim(),
-        nama: c[6].innerText.trim(),
-        kategori: c[13].innerText.trim().toUpperCase(),
-        sub: c[14].innerText.trim().toUpperCase()
-      });
-    });
-    return out;
-  }
-
-  function findNextButton() {
-    var el = document.querySelector('a.pagination_next');
-    if (el && /Berikutnya/.test(el.textContent || '')) return el;
-    var els = document.querySelectorAll('a, button');
-    for (var i = 0; i < els.length; i++) {
-      if (/Berikutnya/.test(els[i].textContent || '')) return els[i];
-    }
-    return null;
-  }
-
-  function isDisabled(el) {
-    var li = el.closest('li');
-    return el.classList.contains('disabled') || (li && li.classList.contains('disabled'));
-  }
-
-  function loadState() {
-    try { return JSON.parse(sessionStorage.getItem(SCAN_KEY)) || null; } catch (e) { return null; }
-  }
-  function saveState(st) {
-    try { sessionStorage.setItem(SCAN_KEY, JSON.stringify(st)); } catch (e) {}
-  }
-  function clearState() {
-    try { sessionStorage.removeItem(SCAN_KEY); } catch (e) {}
-  }
-
   function renderResult(items, pages) {
     var body = openPopup('Digital Aktivasi', null);
     var head =
@@ -374,53 +330,12 @@
       '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
   }
 
-  // Membaca halaman yang sedang tampil, lalu lanjut ke halaman berikutnya.
-  // Halaman bisa dimuat ulang saat pindah halaman, jadi status disimpan di sessionStorage
-  // dan proses dilanjutkan otomatis setelah halaman dimuat ulang.
-  async function scanStep() {
-    var st = loadState();
-    if (!st || !st.active) return;
-
-    var rows = readTableRows();
-    if (!rows.length) { await sleep(800); rows = readTableRows(); }
-    var firstBefore = rows.length ? rows[0].barcode : null;
-
-    var seen = new Map();
-    st.rows.forEach(function (r) { seen.set(r.barcode + '|' + r.nama, r); });
-    rows.forEach(function (r) {
-      if (r.kategori === AKTIVASI_KATEGORI && r.sub === AKTIVASI_SUB_KATEGORI) {
-        seen.set(r.barcode + '|' + r.nama, { barcode: r.barcode, nama: r.nama });
-      }
-    });
-    st.rows = Array.from(seen.values());
-    st.pages = (st.pages || 0) + 1;
-    saveState(st);
-
-    var next = findNextButton();
-    if (!next || isDisabled(next) || st.pages >= MAX_PAGES) {
-      clearState();
-      renderResult(st.rows, st.pages);
-      return;
-    }
-
-    next.click();
-
-    // Jika tabel berubah tanpa muat ulang, lanjutkan langsung
-    for (var k = 0; k < 10; k++) {
-      await sleep(300);
-      var now = readTableRows();
-      if (now.length && now[0].barcode !== firstBefore) {
-        return scanStep();
-      }
-    }
-    // Jika tidak berubah, halaman kemungkinan dimuat ulang; scanStep dijalankan lagi saat load berikutnya
-  }
-
   // Mengambil semua halaman langsung dari server (fetch), tanpa pindah halaman
   async function fetchAllAktivasi() {
     var base = 'produk_simple[idproduk_kategori]=' + KATEGORI_ID +
       '&produk_simple[idproduk_sub_kategori]=' + SUB_KATEGORI_ID;
     var seen = new Map();
+    var dibaca = {};   // semua baris yang sudah pernah dibaca (bukan hanya yang cocok)
     var pages = 0;
     for (var p = 1; p <= MAX_PAGES; p++) {
       var res = await fetch('/produks/index/new?page=' + p + '&' + base, { credentials: 'include' });
@@ -429,6 +344,13 @@
         return tr.querySelector('td') && tr.cells.length >= 20;
       });
       if (!trs.length) break;
+      // ERZAP bisa mengembalikan halaman terakhir lagi untuk nomor halaman di luar batas -> berhenti kalau tidak ada baris baru
+      var baru = 0;
+      trs.forEach(function (tr) {
+        var kunci = tr.cells[3].innerText.trim() + '|' + tr.cells[4].innerText.trim();
+        if (!dibaca[kunci]) { dibaca[kunci] = true; baru++; }
+      });
+      if (!baru) break;
       pages++;
       trs.forEach(function (tr) {
         if (tr.cells[11].innerText.trim().toUpperCase() !== AKTIVASI_KATEGORI) return;
@@ -524,7 +446,6 @@
   }
 
   function startAktivasiScan() {
-    clearState();
     openPopup('Digital Aktivasi', function (body) {
       body.innerHTML = '<div>Memuat seluruh data, mohon tunggu...</div>';
     });
@@ -540,15 +461,6 @@
   // ===== Inisialisasi =====
   function init() {
     addAuditStokButton();
-
-    // Lanjutkan scan jika halaman dimuat ulang di tengah proses
-    var st = loadState();
-    if (st && st.active) {
-      openPopup('Digital Aktivasi', function (body) {
-        body.innerHTML = '<div>Memuat seluruh data, mohon tunggu...</div>';
-      });
-      scanStep();
-    }
 
     if (!document.getElementById(BUTTON_ID)) {
       // Tombol bisa dirender belakangan (AJAX), pantau DOM sampai tombol tersedia
