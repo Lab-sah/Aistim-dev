@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Main Home
 // @namespace    http://tampermonkey.net/
-// @version      1.27.6
-// @description  Home: kartu Penerimaan Piutang Servis (Dana Masuk, Pembayaran Piutang Usaha, hari ini), Penerimaan Piutang Penjualan, Pembayaran Hutang, Pendapatan Lain-Lain; tombol Aistim Audit (Cek Pemindahan, Stok Negatif) khusus role pusat; tombol menu tambahan.
+// @version      1.27.7
+// @description  Home: kartu Penerimaan Piutang Servis (Dana Masuk, Pembayaran Piutang Usaha, hari ini), Penerimaan Piutang Penjualan, Pembayaran Hutang, Pendapatan Lain-Lain; tombol menu tambahan.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -668,10 +668,10 @@
 
     // ====== HAK AKSES & FITUR (JSON) ======
     // public  = semua user. private = hanya role yang punya fitur itu ("*" = semua).
-    // Fitur private: kartuRekap (4 kartu rekap), auditAistim (tombol Aistim Audit).
+    // Fitur private: kartuRekap (4 kartu rekap).
     const AKSES_JSON = `{
         "public": ["tombolMenu"],
-        "private": ["kartuRekap", "auditAistim"],
+        "private": ["kartuRekap"],
         "role": {
             "pusat": {
                 "nama": ["SURYO", "SENTOT", "PUGUH", "DIMAS", "MANAJEMEN PUSAT"],
@@ -808,53 +808,4 @@
         setTimeout(() => { if (!document.getElementById('erzap-btn-lihat-stok')) run(); }, 300);
       }, true);
     }
-
-    // ====== TOMBOL AISTIM AUDIT (daftar: Cek Pemindahan, Stok Negatif) — fitur private "auditAistim" ======
-    // Tombol asli Cek Pemindahan (.cg-bulk) dan Stok Negatif (#sm-bar) dibuat skrip lain; di sini keduanya disembunyikan
-    // dan dipanggil lewat menu. Hanya dipasang untuk role yang boleh, supaya user lain tetap memakai tombol aslinya.
-    function pasangAudit() {
-        const refresh = document.getElementById('bt_load_informasi_hari_ini');
-        if (!refresh) return false;
-        if (document.getElementById('aistim-audit-btn')) return true;
-        const induk = refresh.parentElement;
-        const asli = () => ({ neg: induk.querySelector('#sm-bar'), pem: induk.querySelector('.cg-bulk') });
-        const sembunyi = () => Object.values(asli()).forEach((t) => { if (t) t.style.display = 'none'; });
-        sembunyi();
-        new MutationObserver(() => {
-            if (Object.values(asli()).some((t) => t && t.style.display !== 'none')) sembunyi();
-        }).observe(induk, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
-        const a = refresh.cloneNode(true);
-        a.id = 'aistim-audit-btn';
-        a.querySelector('i').className = 'fa fa-3x fa-fw fa-search';
-        a.querySelector('.load_text').textContent = 'Aistim Audit';
-        a.style.position = 'relative';
-        a.style.marginLeft = '6px';
-        a.insertAdjacentHTML('beforeend', '<span class="fa fa-caret-down" style="margin-left:6px"></span>');
-        const menu = document.createElement('div');
-        menu.id = 'aistim-audit-menu';
-        menu.style.cssText = 'display:none;position:absolute;top:100%;right:0;margin-top:4px;min-width:190px;background:#fff;border:1px solid #cfd4dc;border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.18);z-index:2000;text-align:left;overflow:hidden';
-        const item = (ikon, teks, aksi) => {
-            const d = document.createElement('div');
-            d.style.cssText = 'padding:9px 14px;cursor:pointer;font-size:13px;color:#212529;white-space:nowrap';
-            d.innerHTML = '<i class="fa fa-fw ' + ikon + '" style="margin-right:8px;color:#0d6efd"></i>' + teks;
-            d.onmouseenter = () => { d.style.background = '#eef4ff'; };
-            d.onmouseleave = () => { d.style.background = ''; };
-            d.addEventListener('click', (e) => { e.stopPropagation(); menu.style.display = 'none'; aksi(); });
-            return d;
-        };
-        const klik = (t) => { if (!t) return; const b = t.querySelector('button'); (b || t).click(); };
-        menu.appendChild(item('fa-exchange', 'Cek Pemindahan', () => { location.href = '/produks'; })); // tombol Cek Pemindahan pindah ke menu Audit Stok di /produks
-        menu.appendChild(item('fa-exclamation-triangle', 'Stok Negatif', () => { location.href = '/produks'; })); // tombol Stok Negatif pindah ke menu Audit Stok di /produks
-        a.appendChild(menu);
-        a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); menu.style.display = menu.style.display === 'none' ? 'block' : 'none'; });
-        document.addEventListener('click', (e) => { if (!a.contains(e.target)) menu.style.display = 'none'; });
-        refresh.insertAdjacentElement('afterend', a);
-        return true;
-    }
-    const mulaiAudit = Date.now();
-    const pemeriksaAudit = setInterval(() => {
-        if (Date.now() - mulaiAudit > 30000) { clearInterval(pemeriksaAudit); return; }
-        // nama kasir bisa dimuat belakangan, jadi akses dicek ulang tiap putaran
-        if (bolehFitur('auditAistim') && pasangAudit()) clearInterval(pemeriksaAudit);
-    }, 500);
 })();
