@@ -1,11 +1,9 @@
 // ==UserScript==
 // @name         ERZAP - Cek Pemindahan (Lihat Stok)
 // @namespace    partdistro.erzap
-// @version      1.8.0
-// @description  Tombol "Cek Pemindahan" di Home (sebelah Refresh), khusus role pusat: pilih GUDANG, scan semua produk stok > 0 (jeda 4 detik antar halaman), tampilkan aktifitas terakhir; pemindahan dalam periode tanggal disembunyikan.
-// @match        https://*.erzap.com/
-// @match        https://*.erzap.com/?*
-// @match        https://erzap.com/
+// @version      1.9.0
+// @description  Tombol "Cek Pemindahan" di halaman Daftar Data Produk (dibuka dari menu Audit Stok di produks.js), khusus role pusat: pilih GUDANG, scan semua produk stok > 0 (jeda 4 detik antar halaman), tampilkan aktifitas terakhir; pemindahan dalam periode tanggal disembunyikan.
+// @match        https://*.erzap.com/produks*
 // @grant        none
 // @world        main
 // @run-at       document-idle
@@ -978,16 +976,15 @@
     document.body.appendChild(ov);
   }
 
-  // Tombol "Cek Pemindahan" di Home, di sebelah kiri tombol Refresh (#bt_load_informasi_hari_ini).
+  // Tombol "Cek Pemindahan" dipasang tersembunyi (.cg-bulk) di halaman /produks dan diklik oleh menu Audit Stok (produks.js),
+  // karena script ini jalan di MAIN world dan produks.js tidak.
   // Hanya dipasang untuk role yang punya fitur "cekPemindahan" (lihat AKSES_JSON di atas).
   let pengamat = null, jadwalInject = null;
   const mulaiAkses = Date.now();
   function injectBulk() {
     jadwalInject = null;
-    const ref = document.getElementById('bt_load_informasi_hari_ini');
-    if (!ref) return;
-    const prev = ref.previousElementSibling;
-    if (prev && prev.classList.contains('cg-bulk')) return;
+    if (!document.body) return;
+    if (document.querySelector('.cg-bulk')) { if (pengamat) pengamat.disconnect(); return; }
     const akses = cekAkses('cekPemindahan');
     if (akses === null) {
       // nama kasir belum terbaca: coba lagi pada perubahan halaman berikutnya, menyerah setelah 60 detik
@@ -998,10 +995,11 @@
     document.querySelectorAll('.cg-bulk').forEach((b) => b.remove());
     const b = document.createElement('div');
     b.className = 'btn btn-outline-primary cg-bulk';
-    b.style.marginRight = '8px';
+    b.style.display = 'none';
     b.innerHTML = '<i class="fa fa-fw fa-exchange"></i> <span>Cek Pemindahan</span>';
     b.addEventListener('click', (e) => { e.preventDefault(); openPopup(); });
-    ref.parentNode.insertBefore(b, ref);
+    document.body.appendChild(b);
+    if (pengamat) pengamat.disconnect();   // sudah terpasang
   }
 
   injectBulk();
