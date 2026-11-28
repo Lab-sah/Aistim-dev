@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Cek Pemindahan (Lihat Stok)
 // @namespace    partdistro.erzap
-// @version      1.9.0
+// @version      1.9.1
 // @description  Tombol "Cek Pemindahan" di halaman Daftar Data Produk (dibuka dari menu Audit Stok di produks.js), khusus role pusat: pilih GUDANG, scan semua produk stok > 0 (jeda 4 detik antar halaman), tampilkan aktifitas terakhir; pemindahan dalam periode tanggal disembunyikan.
 // @match        https://*.erzap.com/produks*
 // @grant        none
@@ -24,7 +24,7 @@
   // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua). Nama fitur: cekPemindahan.
   // "role"    -> "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil, cukup sebagian nama),
   //              "fitur" = fitur private yang boleh dipakai role itu.
-  // Daftar nama pusat sama dengan home.js (tombol Aistim Audit di Home memanggil tombol ini).
+  // Daftar nama pusat sama dengan home.js dan stoknegatif.js. Tombol ini dibuka dari menu Audit Stok di produks.js.
   // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
   // Jika JSON salah ketik, akses ditutup (tombol tidak dipasang untuk siapa pun).
   const AKSES_JSON = `{

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Stok Negatif
 // @namespace    partdistro.erzap.stoknegatif
-// @version      1.2.2
+// @version      1.2.3
 // @description  Tombol "Stok Negatif" di halaman Daftar Data Produk ERZAP (dibuka dari menu Audit Stok di produks.js), khusus role pusat (pilih toko dulu): daftar stok toko < 0, solusi (Cek Gudang / Buat BA), form BA Stok In & Stok Out, dan analisa.
 // @author       PartDistro Indonesia
 // @match        https://*.erzap.com/produks*
@@ -18,7 +18,7 @@
   // "private" -> fitur yang HANYA boleh dipakai role yang punya fitur itu (atau "*" = semua). Nama fitur: stokNegatif.
   // "role"    -> "nama" = teks yang dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil, cukup sebagian nama),
   //              "fitur" = fitur private yang boleh dipakai role itu.
-  // Daftar nama pusat sama dengan home.js dan cekpemindahan.js (menu Aistim Audit di Home memanggil tombol ini).
+  // Daftar nama pusat sama dengan home.js dan cekpemindahan.js. Tombol ini dibuka dari menu Audit Stok di produks.js.
   // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
   // Jika JSON salah ketik, akses ditutup (tombol tidak dipasang untuk siapa pun).
   const AKSES_JSON = `{
