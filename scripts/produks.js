@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Audit Stok (Daftar Data Produk)
 // @namespace    partdistro.erzap.produks
-// @version      1.3.1
+// @version      1.4.0
 // @description  Menambahkan tombol Audit Stok (Stok Negatif, Cek Pemindahan, Digital Aktivasi, Stok Terpesan, Analisa Stok) di halaman Daftar Data Produk ERZAP
 // @author       Pak mon
 // @match        https://*.erzap.com/produks*
@@ -40,7 +40,8 @@
     {
       label: 'Cek Pemindahan',
       fitur: 'cekPemindahan',
-      url: '/pemindahan_barangs',
+      popup: true,   // popup dibuat oleh cekpemindahan.js; menu ini mengklik tombol .cg-bulk miliknya
+      action: 'cekpemindahan',
       icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><polyline points="12 5 19 12 12 19"/></svg>'
     },
     {
@@ -145,6 +146,13 @@
     b.click();
   }
 
+  // Cek Pemindahan: popup milik cekpemindahan.js (MAIN world). Dibuka dengan mengklik tombol .cg-bulk yang disembunyikan.
+  function bukaCekPemindahan() {
+    var b = document.querySelector('.cg-bulk');
+    if (!b) { alert('Cek Pemindahan belum siap. Tunggu sebentar lalu coba lagi, atau pastikan script Cek Pemindahan aktif dan akun Anda punya akses.'); return; }
+    b.click();
+  }
+
   // ===== Tombol & menu Audit Stok =====
   // Sembunyikan menu yang tidak boleh dipakai user ini; bila tidak ada satu pun, tampilkan pesan.
   function tampilkanMenuSesuaiAkses(menu) {
@@ -204,6 +212,8 @@
           btn.style.borderColor = BUTTON_COLOR;
           if (item.action === 'stoknegatif') {
             bukaStokNegatif();
+          } else if (item.action === 'cekpemindahan') {
+            bukaCekPemindahan();
           } else if (item.action === 'analisa') {
             openAnalisaStokPopup();
           } else if (item.action === 'terpesan') {
