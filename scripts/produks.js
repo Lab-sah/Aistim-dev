@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Audit Stok (Daftar Data Produk)
 // @namespace    partdistro.erzap.produks
-// @version      1.1.0
+// @version      1.2.0
 // @description  Menambahkan tombol Audit Stok (Stok Negatif, Cek Pemindahan, Digital Aktivasi, Stok Terpesan, Analisa Stok) di halaman Daftar Data Produk ERZAP
 // @author       Pak mon
 // @match        https://*.erzap.com/produks*
@@ -33,28 +33,33 @@
   var MENU_ITEMS = [
     {
       label: 'Stok Negatif',
+      fitur: 'stokNegatif',
       url: '/laporans/rekap_stok/new',
       icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 18l-9.5-9.5-5 5L1 6"/><polyline points="17 18 23 18 23 12"/></svg>'
     },
     {
       label: 'Cek Pemindahan',
+      fitur: 'cekPemindahan',
       url: '/pemindahan_barangs',
       icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><polyline points="12 5 19 12 12 19"/></svg>'
     },
     {
       label: 'Digital Aktivasi',
+      fitur: 'digitalAktivasi',
       popup: true,   // tampilkan popup, bukan pindah halaman
       action: 'aktivasi',
       icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>'
     },
     {
       label: 'Stok Terpesan',
+      fitur: 'stokTerpesan',
       popup: true,
       action: 'terpesan',
       icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="16" x2="13" y2="16"/></svg>'
     },
     {
       label: 'Analisa Stok',
+      fitur: 'analisaStok',
       popup: true,
       action: 'analisa',
       icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>'
@@ -62,6 +67,58 @@
   ];
 
   var BUTTON_ID = 'tm-btn-audit-stok';
+
+  // ===== HAK AKSES (JSON) =====
+  // "public"  -> fitur (menu Audit Stok) yang boleh dipakai SEMUA user. Kosong = tidak ada.
+  // "role"    -> "nama" dicocokkan dengan #info_kasir (tanpa membedakan huruf besar/kecil, harus kata utuh:
+  //              "ISA" cocok dengan "ISA RAHMA", tidak dengan "LISA"); "fitur" = fitur untuk role itu ("*" = semua).
+  // "private" -> catatan fitur yang khusus role. Tidak dibaca kode; yang menentukan adalah "fitur" di tiap role.
+  // Nama fitur: stokNegatif, cekPemindahan, digitalAktivasi, stokTerpesan, analisaStok.
+  // Jika JSON salah ketik, akses ditutup (tidak ada menu yang tampil untuk siapa pun).
+  // Catatan: ini hanya pengaturan tampilan di browser, BUKAN pengamanan.
+  var AKSES_JSON = `{
+    "public": [],
+    "private": ["stokNegatif", "cekPemindahan", "digitalAktivasi", "stokTerpesan", "analisaStok"],
+    "role": {
+        "pusat": {
+            "nama": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
+            "fitur": ["*"]
+        }
+    }
+}`;
+  var akses = (function () {
+    try {
+      var a = JSON.parse(AKSES_JSON) || {};
+      var role = a.role && typeof a.role === 'object' ? a.role : {};
+      return {
+        public: Array.isArray(a.public) ? a.public.map(String) : [],
+        role: Object.keys(role).map(function (k) {
+          var r = role[k] || {};
+          return {
+            nama: Array.isArray(r.nama) ? r.nama.map(String) : [],
+            fitur: Array.isArray(r.fitur) ? r.fitur.map(String) : []
+          };
+        })
+      };
+    } catch (err) {
+      console.error('[produks] AKSES_JSON tidak valid -> akses ditutup:', err.message);
+      return { public: [], role: [] };
+    }
+  })();
+  function kata(t) {
+    return ' ' + String(t || '').replace(/[^0-9a-z]+/gi, ' ').trim().toLowerCase() + ' ';
+  }
+  // Dicek saat dipakai (bukan sekali di awal), karena nama kasir bisa dimuat belakangan.
+  function bolehFitur(fitur) {
+    if (akses.public.indexOf(fitur) !== -1) return true;
+    var nama = kata((document.getElementById('info_kasir') || {}).textContent);
+    for (var i = 0; i < akses.role.length; i++) {
+      var r = akses.role[i];
+      var cocok = r.nama.some(function (u) { u = kata(u); return u.trim() !== '' && nama.indexOf(u) !== -1; });
+      if (cocok) return r.fitur.indexOf('*') !== -1 || r.fitur.indexOf(fitur) !== -1;
+    }
+    return false;
+  }
 
   // ===== Helper umum =====
   function escapeHtml(s) {
@@ -83,6 +140,25 @@
   }
 
   // ===== Tombol & menu Audit Stok =====
+  // Sembunyikan menu yang tidak boleh dipakai user ini; bila tidak ada satu pun, tampilkan pesan.
+  function tampilkanMenuSesuaiAkses(menu) {
+    var ada = 0;
+    menu.querySelectorAll('li[data-fitur]').forEach(function (li) {
+      var ok = bolehFitur(li.getAttribute('data-fitur'));
+      li.style.display = ok ? '' : 'none';
+      if (ok) ada++;
+    });
+    var info = menu.querySelector('li[data-tanpa-akses]');
+    if (!info) {
+      info = document.createElement('li');
+      info.setAttribute('data-tanpa-akses', '1');
+      info.style.cssText = 'padding:8px 16px;color:#666;white-space:nowrap;';
+      info.textContent = 'Tidak ada akses';
+      menu.appendChild(info);
+    }
+    info.style.display = ada ? 'none' : '';
+  }
+
   function addAuditStokButton() {
     if (document.getElementById(BUTTON_ID)) return true;
 
@@ -108,6 +184,7 @@
 
     MENU_ITEMS.forEach(function (item, idx) {
       var li = document.createElement('li');
+      li.setAttribute('data-fitur', item.fitur);
       if (idx > 0) li.style.borderTop = '1px solid rgba(255,255,255,.4)';
 
       var a = document.createElement('a');
@@ -115,6 +192,7 @@
       if (item.popup) {
         a.addEventListener('click', function (e) {
           e.preventDefault();
+          if (!bolehFitur(item.fitur)) return;
           menu.style.display = 'none';
           btn.style.background = BUTTON_COLOR;
           btn.style.borderColor = BUTTON_COLOR;
@@ -143,6 +221,7 @@
     btn.addEventListener('click', function (e) {
       e.stopPropagation();
       var open = menu.style.display === 'block';
+      if (!open) tampilkanMenuSesuaiAkses(menu);
       menu.style.display = open ? 'none' : 'block';
       btn.style.background = open ? BUTTON_COLOR : BUTTON_COLOR_HOVER;
       btn.style.borderColor = btn.style.background;
