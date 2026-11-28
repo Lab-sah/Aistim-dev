@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Audit Stok (Daftar Data Produk)
 // @namespace    partdistro.erzap.produks
-// @version      1.2.1
+// @version      1.3.0
 // @description  Menambahkan tombol Audit Stok (Stok Negatif, Cek Pemindahan, Digital Aktivasi, Stok Terpesan, Analisa Stok) di halaman Daftar Data Produk ERZAP
 // @author       Pak mon
 // @match        https://*.erzap.com/produks*
@@ -34,7 +34,8 @@
     {
       label: 'Stok Negatif',
       fitur: 'stokNegatif',
-      url: '/laporans/rekap_stok/new',
+      popup: true,   // popup dibuat oleh stoknegatif.js; menu ini mengklik tombol #sm-bar miliknya
+      action: 'stoknegatif',
       icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 18l-9.5-9.5-5 5L1 6"/><polyline points="17 18 23 18 23 12"/></svg>'
     },
     {
@@ -139,6 +140,14 @@
     return null;
   }
 
+  // Stok Negatif: popup milik stoknegatif.js (MAIN world). Dibuka dengan mengklik tombol #sm-bar yang disembunyikan.
+  function bukaStokNegatif() {
+    var bar = document.getElementById('sm-bar');
+    var b = bar && bar.querySelector('button');
+    if (!b) { alert('Stok Negatif belum siap. Tunggu sebentar lalu coba lagi, atau pastikan script Stok Negatif aktif dan akun Anda punya akses.'); return; }
+    b.click();
+  }
+
   // ===== Tombol & menu Audit Stok =====
   // Sembunyikan menu yang tidak boleh dipakai user ini; bila tidak ada satu pun, tampilkan pesan.
   function tampilkanMenuSesuaiAkses(menu) {
@@ -196,7 +205,9 @@
           menu.style.display = 'none';
           btn.style.background = BUTTON_COLOR;
           btn.style.borderColor = BUTTON_COLOR;
-          if (item.action === 'analisa') {
+          if (item.action === 'stoknegatif') {
+            bukaStokNegatif();
+          } else if (item.action === 'analisa') {
             openAnalisaStokPopup();
           } else if (item.action === 'terpesan') {
             openStokTerpesanPopup();

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Main Home
 // @namespace    http://tampermonkey.net/
-// @version      1.27.4
+// @version      1.27.5
 // @description  Home: kartu Penerimaan Piutang Servis (Dana Masuk, Pembayaran Piutang Usaha, hari ini), Penerimaan Piutang Penjualan, Pembayaran Hutang, Pendapatan Lain-Lain; tombol Aistim Audit (Cek Pemindahan, Stok Negatif) khusus role pusat; tombol menu tambahan.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -844,7 +844,7 @@
         };
         const klik = (t) => { if (!t) return; const b = t.querySelector('button'); (b || t).click(); };
         menu.appendChild(item('fa-exchange', 'Cek Pemindahan', () => klik(asli().pem)));
-        menu.appendChild(item('fa-exclamation-triangle', 'Stok Negatif', () => klik(asli().neg)));
+        menu.appendChild(item('fa-exclamation-triangle', 'Stok Negatif', () => { location.href = '/produks'; })); // tombol Stok Negatif pindah ke menu Audit Stok di /produks
         a.appendChild(menu);
         a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); menu.style.display = menu.style.display === 'none' ? 'block' : 'none'; });
         document.addEventListener('click', (e) => { if (!a.contains(e.target)) menu.style.display = 'none'; });
