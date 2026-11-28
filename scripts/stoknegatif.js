@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Stok Negatif
 // @namespace    partdistro.erzap.stoknegatif
-// @version      1.2.5
+// @version      1.2.6
 // @description  Tombol "Stok Negatif" di halaman Daftar Data Produk ERZAP (dibuka dari menu Audit Stok di produks.js), khusus role pusat (pilih toko dulu): daftar stok toko < 0, solusi (Cek Gudang / Buat BA), form BA Stok In & Stok Out, dan analisa.
 // @author       PartDistro Indonesia
 // @match        https://*.erzap.com/produks*
@@ -118,7 +118,10 @@ body.sm-open{overflow:hidden!important}
 #sm-prog .bar{height:6px;background:#eef1f5;border-radius:3px;overflow:hidden;margin-top:4px}
 #sm-prog .bar>span{display:block;height:100%;width:0;background:#1a73e8;transition:width .15s}
 #sm-box{height:85vh;height:85dvh;max-height:85dvh}
-#sm-box>div:last-child{flex:1;min-height:0}
+#sm-box>.sm-body{flex:1;min-height:0}
+#sm-foot{flex:0 0 auto;display:flex;justify-content:flex-end;padding:8px 16px;border-top:1px solid #ddd;background:#fafafa;border-radius:0 0 6px 6px}
+#sm-tutup{background:#757575;color:#fff;border:0;border-radius:3px;padding:4px 12px;font-size:12px;cursor:pointer}
+#sm-tutup:hover{background:#5f5f5f}
 #sm-res{flex:1;min-height:0;max-height:none}
 #sm-res.ba-mode #sm-main,#sm-res:not(.ba-mode) #sm-ba-wrap,#sm-res.ba-mode #sm-empty{display:none!important}
 #sm-ba-wrap.out #sm-ba,#sm-ba-wrap:not(.out) #sm-bo{display:none}
@@ -216,6 +219,7 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
 #sm-box{width:98vw;max-width:98vw}
 .sm-head{padding:8px 10px!important;flex-wrap:wrap;gap:6px}
 .sm-body{padding:10px!important}
+#sm-foot{padding:8px 10px}
 #sm-toko{min-width:0!important;max-width:62vw}
 #sm-tabs{overflow-x:auto}
 #sm-tabs button{padding:6px 10px;white-space:nowrap;flex:0 0 auto}
@@ -956,11 +960,12 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
         '<div id="sm-prog"><span class="t"></span><div class="bar"><span></span></div></div>' +
         '<div id="sm-res"></div>' +
       '</div>' +
+      '<div id="sm-foot"><button type="button" id="sm-tutup">Tutup</button></div>' +
     '</div>';
   document.body.appendChild(ov);
   ov.querySelectorAll('#sm-tabs button').forEach(b => b.onclick = () => { curTab = b.dataset.tab; applyTab(); });
   const close = () => { tutupAksi(); tutupAnalisa(); ov.classList.remove('open'); document.body.classList.remove('sm-open'); pulihSnap(); };
-  ov.addEventListener('click', e => { if (e.target === ov || e.target.id === 'sm-x') close(); });
+  ov.addEventListener('click', e => { if (e.target === ov || e.target.id === 'sm-x' || e.target.id === 'sm-tutup') close(); });
   const selToko = ov.querySelector('#sm-toko');
 
   // ---------- Filter Lihat Stok milik user ----------
