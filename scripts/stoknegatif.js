@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Stok Negatif
 // @namespace    partdistro.erzap.stoknegatif
-// @version      1.2.3
+// @version      1.2.4
 // @description  Tombol "Stok Negatif" di halaman Daftar Data Produk ERZAP (dibuka dari menu Audit Stok di produks.js), khusus role pusat (pilih toko dulu): daftar stok toko < 0, solusi (Cek Gudang / Buat BA), form BA Stok In & Stok Out, dan analisa.
 // @author       PartDistro Indonesia
 // @match        https://*.erzap.com/produks*
@@ -81,6 +81,7 @@
   function siap() { return window.jQuery && document.body; }
   function mulai() {
 
+  if (window.__smOff) window.__smOff();   // lepas listener dari pemasangan sebelumnya
   if (window.__smObs) window.__smObs.disconnect();
   document.getElementById('sm-bar')?.remove();
   document.getElementById('sm-overlay')?.remove();
@@ -214,13 +215,16 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
 
   // ---------- Helper ----------
   const tok = () => document.querySelector('meta[name=csrf-token]')?.content;
-  const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // Parse HTML dari server tanpa menjalankan apa pun (innerHTML pada elemen terlepas tetap memuat gambar / onerror)
+  const parseHtml = html => new DOMParser().parseFromString(html, 'text/html').body;
 
   // Ambil daftar produk lewat request terpisah (halaman di belakang popup tidak berubah).
   // Berdiri sendiri: TIDAK memakai isian panel pencarian kanan (nama, barcode, kategori, dll.).
   // Yang dipakai hanya outlet aktif + gudang TOKO, dengan Perkiraan Jumlah < 0.
   // Toko yang dipilih di popup (kosong sampai dipilih)
   let tokoId = '', tokoNama = '', tokoOtl = '';
+  const berjalan = new Set();   // request lihat_stok yang sedang berjalan (mengubah filter di server)
   async function fetchList(op, val, extra) {
     const data = [
       { name: 'utf8', value: '✓' },
@@ -235,20 +239,21 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
       const it = data.find(x => x.name === k);
       if (it) it.value = v; else data.push({ name: k, value: v });
     });
-    const js = await jQuery.ajax({
+    const req = jQuery.ajax({
       url: '/produk_gudangs/lihat_stok/new',
       type: 'POST',
       data: jQuery.param(data),
       dataType: 'text',
       headers: { Accept: 'text/javascript, application/javascript, */*' },
     });
+    berjalan.add(req);
+    let js;
+    try { js = await req; } finally { berjalan.delete(req); }
     // Respons berupa JS: $('#tab_index_produk').html("...") -> ambil HTML-nya saja, jangan dijalankan
     const m = js.match(/\$\(['"]#tab_index_produk['"]\)\.html\("((?:[^"\\]|\\.)*)"\)/);
     if (!m) throw new Error('format respons tidak dikenali');
     const html = JSON.parse('"' + m[1].replace(/\\'/g, "'") + '"');
-    const doc = document.createElement('div');
-    doc.innerHTML = html;
-    return doc;
+    return parseHtml(html);
   }
 
   // Baca baris dari tabel ERZAP
@@ -281,8 +286,7 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
         dataType: 'text',
         data: { authenticity_token: tok(), idproduk: r.id, idoutlet: tokoOtl || r.otl },
       });
-      const d = document.createElement('div');
-      d.innerHTML = html;
+      const d = parseHtml(html);
       // Outlet milik toko yang dipilih (ERZAP mengembalikan daftar semua outlet bila outlet tidak diisi)
       if (!tokoOtl && tokoNama) {
         const m = [...d.querySelectorAll('a.bt_detail_stok_aktifitas')].find(a => (a.dataset.gudangNama || '').trim().toUpperCase() === tokoNama.toUpperCase());
@@ -387,7 +391,8 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
       toast('Form Kirim Barang dibuka di tab baru. Barcode ' + row.b + ' sudah disalin.');
     };
   }
-  document.addEventListener('click', e => { if (!e.target.closest('#sm-aksi,.sm-cekbtn,.sm-aktbtn')) tutupAksi(); });
+  const onDocClick = e => { if (!e.target.closest('#sm-aksi,.sm-cekbtn,.sm-aktbtn')) tutupAksi(); };
+  document.addEventListener('click', onDocClick);
   document.addEventListener('scroll', tutupAksi, true);
   function toast(msg) {
     const t = document.createElement('div');
@@ -421,8 +426,7 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
       });
     } catch (e) { body.innerHTML = '<p style="color:#d33">Gagal memuat aktifitas stok.</p>'; return; }
     if (!document.body.contains(md)) return;
-    const d = document.createElement('div');
-    d.innerHTML = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+    const d = parseHtml(html.replace(/<script[\s\S]*?<\/script>/gi, ''));
     const sekarang = angka(((d.textContent.match(/Jumlah Total pada Gudang\s*=\s*(-?[\d.,]+)/) || [])[1]) || 0);
     const tb = d.querySelector('table');
     const rows = tb ? [...tb.rows].slice(1) : [];
@@ -545,7 +549,7 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
   }
 
   // ---------- Buat BA > Stok Out (diisi dari Analisa > Cari Nama Barang yang Sama) ----------
-  // tetap tersimpan walau popup dimuat ulang / script dijalankan ulang (selama halaman tidak di-refresh)
+  // tetap tersimpan walau script dijalankan ulang (selama halaman tidak di-refresh); dikosongkan saat popup dibuka atau toko diganti
   const boList = window.__smBoList || (window.__smBoList = []);
   let baSub = 'in';
   function renderBo() {
@@ -977,14 +981,22 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
     return snapJanji;
   }
   function pulihSnap() {
-    const s = snapAwal; snapAwal = null; snapJanji = null;
-    if (!s) return;
-    const t = tok();
-    pulihJanji = fetch(LS_URL + '?page=1', { method: 'POST', body: snapFd(s), credentials: 'same-origin', headers: t ? { 'X-CSRF-Token': t } : {} })
+    const s = snapAwal, j = snapJanji; snapAwal = null; snapJanji = null;
+    if (!s && !j) return;
+    // tunggu catatan filter (bila popup ditutup sebelum selesai dicatat) dan request pencarian yang masih berjalan,
+    // supaya pemulihan tidak tertimpa
+    pulihJanji = Promise.allSettled([...berjalan])
+      .then(() => s || j)
+      .then(snap => {
+        if (!snap) return;
+        const t = tok();
+        return fetch(LS_URL + '?page=1', { method: 'POST', body: snapFd(snap), credentials: 'same-origin', headers: t ? { 'X-CSRF-Token': t } : {} });
+      })
       .catch(() => {});
   }
   // kalau halaman ditutup/dimuat ulang saat popup masih terbuka, tetap coba kembalikan filter
-  window.addEventListener('pagehide', () => { if (snapAwal && navigator.sendBeacon) navigator.sendBeacon(LS_URL + '?page=1', snapFd(snapAwal)); });
+  const onPageHide = () => { if (snapAwal && navigator.sendBeacon) navigator.sendBeacon(LS_URL + '?page=1', snapFd(snapAwal)); };
+  window.addEventListener('pagehide', onPageHide);
 
   // ---------- Daftar toko ----------
   // Halaman Lihat Stok apa adanya hanya memuat gudang menurut filter tersimpan (mis. satu outlet). Daftar lengkap semua outlet
@@ -1060,6 +1072,12 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
   // Pasang ulang tombol kalau halaman memuat ulang konten
   const target = document.getElementById('content') || document.body;
   let pend = false;
+  window.__smOff = () => {
+    document.removeEventListener('click', onDocClick);
+    document.removeEventListener('scroll', tutupAksi, true);
+    window.removeEventListener('resize', fitCari);
+    window.removeEventListener('pagehide', onPageHide);
+  };
   window.__smObs = new MutationObserver(() => {
     if (pend) return;
     pend = true;
