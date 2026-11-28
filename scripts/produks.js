@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Audit Stok (Daftar Data Produk)
 // @namespace    partdistro.erzap.produks
-// @version      1.4.2
+// @version      1.5.0
 // @description  Menambahkan tombol Audit Stok (Stok Negatif, Cek Pemindahan, Digital Aktivasi, Stok Terpesan, Analisa Stok) di halaman Daftar Data Produk ERZAP
 // @author       Pak mon
 // @match        https://*.erzap.com/produks*
@@ -262,54 +262,63 @@
   }
 
   // ===== Popup umum =====
+  // Ukuran dan gaya tabel mengikuti popup Stok Negatif (stoknegatif.js: #sm-box dan tabel #sm-res):
+  // lebar 1100px (maks. 96vw), tinggi 85vh, tabel 13px dengan garis sel, header abu-abu menempel di atas.
+  function pasangGaya() {
+    if (document.getElementById('tm-style')) return;
+    var st = document.createElement('style');
+    st.id = 'tm-style';
+    st.textContent =
+      '#tm-popup-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2000;display:flex;align-items:center;justify-content:center}' +
+      '#tm-popup-overlay .tm-box{background:#fff;border-radius:6px;width:1100px;max-width:96vw;height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 30px rgba(0,0,0,.3)}' +
+      '#tm-popup-overlay .tm-head{padding:12px 16px;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:center}' +
+      '#tm-popup-overlay .tm-x{cursor:pointer;font-size:20px;line-height:1;background:none;border:0;padding:0}' +
+      '#tm-popup-overlay .tm-body{padding:16px;flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;font-size:13px;color:#333}' +
+      '#tm-popup-overlay .tm-fill{flex:1;min-height:0;display:flex;flex-direction:column}' +
+      '#tm-popup-overlay .tm-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}' +
+      '#tm-popup-overlay .tm-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}' +
+      '#tm-popup-overlay .tm-tbl th,#tm-popup-overlay .tm-tbl td{padding:5px;border-right:1px solid #ddd;border-bottom:1px solid #ddd;white-space:nowrap}' +
+      '#tm-popup-overlay .tm-tbl th{background:#eef1f5;position:sticky;top:0;z-index:5;text-align:left;border-top:1px solid #ddd}' +
+      '#tm-popup-overlay .tm-tbl tr>:first-child{border-left:1px solid #ddd}' +
+      '#tm-popup-overlay .tm-tbl .c{text-align:center}' +
+      '#tm-popup-overlay .tm-tbl .n{text-align:center;font-weight:600}' +
+      '#tm-popup-overlay .tm-tbl .nm{white-space:normal;word-break:break-word}';
+    document.head.appendChild(st);
+  }
+
   function openPopup(title, fillBody) {
+    pasangGaya();
     var overlay = document.getElementById('tm-popup-overlay');
     if (overlay) overlay.remove();
 
     overlay = document.createElement('div');
     overlay.id = 'tm-popup-overlay';
-    overlay.style.cssText =
-      'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2000;' +
-      'display:flex;align-items:center;justify-content:center;';
 
     var box = document.createElement('div');
-    box.style.cssText =
-      'background:#fff;border-radius:8px;width:min(560px,92vw);max-height:80vh;overflow:auto;' +
-      'box-shadow:0 10px 30px rgba(0,0,0,.3);font-family:system-ui,sans-serif;';
+    box.className = 'tm-box';
 
     var head = document.createElement('div');
-    head.style.cssText =
-      'display:flex;align-items:center;justify-content:space-between;padding:12px 16px;' +
-      'background:' + BUTTON_COLOR + ';color:#fff;border-radius:8px 8px 0 0;';
-    head.innerHTML = '<strong>' + escapeHtml(title) + '</strong>';
+    head.className = 'tm-head';
+    head.innerHTML = '<b>' + escapeHtml(title) + '</b>';
 
     var closeX = document.createElement('button');
     closeX.type = 'button';
-    closeX.textContent = '×';
-    closeX.style.cssText = 'background:none;border:0;color:#fff;font-size:22px;line-height:1;cursor:pointer;';
+    closeX.className = 'tm-x';
+    closeX.title = 'Tutup';
+    closeX.innerHTML = '&times;';
     head.appendChild(closeX);
 
     var body = document.createElement('div');
     body.id = 'tm-popup-body';
-    body.style.cssText = 'padding:16px;color:#333;font-size:14px;';
-
-    var foot = document.createElement('div');
-    foot.style.cssText = 'padding:0 16px 16px;text-align:right;';
-    var closeBtn = document.createElement('button');
-    closeBtn.type = 'button';
-    closeBtn.className = 'btn btn-default';
-    closeBtn.textContent = 'Tutup';
-    foot.appendChild(closeBtn);
+    body.className = 'tm-body';
 
     box.appendChild(head);
     box.appendChild(body);
-    box.appendChild(foot);
     overlay.appendChild(box);
     document.body.appendChild(overlay);
 
     function close() { overlay.remove(); }
     closeX.addEventListener('click', close);
-    closeBtn.addEventListener('click', close);
     overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
 
     if (typeof fillBody === 'function') fillBody(body);
@@ -330,16 +339,11 @@
       return;
     }
     var rowsHtml = items.map(function (r, i) {
-      return '<tr><td style="padding:6px 8px;border-bottom:1px solid #eee;">' + (i + 1) + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid #eee;font-family:monospace;">' + escapeHtml(r.barcode) + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid #eee;">' + escapeHtml(r.nama) + '</td></tr>';
+      return '<tr><td class="c">' + (i + 1) + '</td><td>' + escapeHtml(r.barcode) + '</td><td class="nm">' + escapeHtml(r.nama) + '</td></tr>';
     }).join('');
     body.innerHTML = head +
-      '<div style="max-height:380px;overflow:auto;border:1px solid #eee;border-radius:4px;">' +
-      '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
-      '<thead><tr style="background:#f5f5f5;text-align:left;">' +
-      '<th style="padding:6px 8px;">No</th><th style="padding:6px 8px;">Barcode</th><th style="padding:6px 8px;">Nama Produk</th>' +
-      '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+      '<div class="tm-scroll"><table class="tm-tbl">' +
+      '<thead><tr><th class="c">No</th><th>Barcode</th><th>Nama Produk</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
   }
 
   // Posisi kolom dibaca dari header tabel supaya tidak rusak bila ERZAP menggeser kolom.
@@ -428,7 +432,7 @@
         '<div style="margin-bottom:10px;"><input id="tm-terpesan-cari" type="text" placeholder="Cari Barcode / Nama Produk" ' +
         'style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #ccc;border-radius:4px;"></div>' +
         '<div id="tm-terpesan-info" style="margin-bottom:8px;color:#555;">Memuat data...</div>' +
-        '<div id="tm-terpesan-list"></div>';
+        '<div id="tm-terpesan-list" class="tm-fill"></div>';
       var input = body.querySelector('#tm-terpesan-cari');
       var info = body.querySelector('#tm-terpesan-info');
       var list = body.querySelector('#tm-terpesan-list');
@@ -443,18 +447,10 @@
           ' &middot; dari total ' + data.length + ' produk';
         if (!items.length) { list.innerHTML = '<p style="margin:0;color:#888;">Tidak ada data.</p>'; return; }
         var rowsHtml = items.map(function (r, i) {
-          return '<tr><td style="padding:6px 8px;border-bottom:1px solid #eee;">' + (i + 1) + '</td>' +
-            '<td style="padding:6px 8px;border-bottom:1px solid #eee;font-family:monospace;">' + escapeHtml(r.barcode) + '</td>' +
-            '<td style="padding:6px 8px;border-bottom:1px solid #eee;white-space:normal;word-break:break-word;min-width:260px;">' + escapeHtml(r.nama) + '</td>' +
-            '<td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;">' + r.jumlah + '</td></tr>';
+          return '<tr><td class="c">' + (i + 1) + '</td><td>' + escapeHtml(r.barcode) + '</td><td class="nm">' + escapeHtml(r.nama) + '</td><td class="n">' + r.jumlah + '</td></tr>';
         }).join('');
-        // Header tetap (sticky) saat tabel di-scroll; nama produk turun ke bawah (wrap)
-        list.innerHTML = '<div style="max-height:380px;overflow:auto;border:1px solid #eee;border-radius:4px;">' +
-          '<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:#f5f5f5;text-align:left;">' +
-          '<th style="padding:6px 8px;position:sticky;top:0;background:#fff;box-shadow:0 1px 0 #dee2e6;z-index:2;">No</th>' +
-          '<th style="padding:6px 8px;position:sticky;top:0;background:#fff;box-shadow:0 1px 0 #dee2e6;z-index:2;">Barcode</th>' +
-          '<th style="padding:6px 8px;position:sticky;top:0;background:#fff;box-shadow:0 1px 0 #dee2e6;z-index:2;">Nama Produk</th>' +
-          '<th style="padding:6px 8px;text-align:center;position:sticky;top:0;background:#fff;box-shadow:0 1px 0 #dee2e6;z-index:2;">Terpesan</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+        list.innerHTML = '<div class="tm-scroll"><table class="tm-tbl"><thead><tr>' +
+          '<th class="c">No</th><th>Barcode</th><th>Nama Produk</th><th class="c">Terpesan</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
       }
 
       input.addEventListener('input', render);
