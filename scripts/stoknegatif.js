@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         ERZAP - Stok Negatif
 // @namespace    partdistro.erzap.stoknegatif
-// @version      1.1.1
-// @description  Tombol "Stok Negatif" di Home ERZAP, khusus role pusat (pilih toko dulu): daftar stok toko < 0, solusi (Cek Gudang / Buat BA), form BA Stok In & Stok Out, dan analisa.
+// @version      1.2.0
+// @description  Tombol "Stok Negatif" di halaman Daftar Data Produk ERZAP (dibuka dari menu Audit Stok di produks.js), khusus role pusat (pilih toko dulu): daftar stok toko < 0, solusi (Cek Gudang / Buat BA), form BA Stok In & Stok Out, dan analisa.
 // @author       PartDistro Indonesia
-// @match        https://*.erzap.com/
+// @match        https://*.erzap.com/produks*
 // @run-at       document-idle
 // @grant        none
 // @world        main
@@ -76,7 +76,9 @@
   }
 
   // Tunggu sampai jQuery & form pencarian ERZAP siap, lalu pasang tombol Stok Negatif
-  function siap() { return window.jQuery && document.getElementById('bt_load_informasi_hari_ini'); }
+  // Tombol dipindah dari Home ke halaman /produks: cukup jQuery + body siap. Tombol #sm-bar disembunyikan dan
+  // diklik oleh menu Audit Stok (produks.js), karena script ini jalan di MAIN world dan produks.js tidak.
+  function siap() { return window.jQuery && document.body; }
   function mulai() {
 
   if (window.__smObs) window.__smObs.disconnect();
@@ -1016,12 +1018,9 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
   // ---------- Tombol Stok Min (sejajar judul, kanan) ----------
   function ensureBar() {
     if (document.getElementById('sm-bar')) return;
-    const rf = document.getElementById('bt_load_informasi_hari_ini');
-    const grp = rf && rf.parentElement;
-    if (!grp) return;
     const bar = document.createElement('div');
     bar.id = 'sm-bar';
-    bar.style.cssText = 'margin-right:8px';
+    bar.style.cssText = 'display:none';
     bar.innerHTML = '<button type="button" style="background:#f0a500;color:#fff;border:0;border-radius:4px;padding:6px 14px;font-weight:600;cursor:pointer">⚠ Stok Negatif</button>';
     bar.firstChild.onclick = () => {
       // selalu mulai kosong: pilih toko dulu
@@ -1029,7 +1028,7 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
       ov.classList.add('open'); document.body.classList.add('sm-open');
       mulaiSnap(); muatToko(); requestScan();
     };
-    grp.insertBefore(bar, grp.firstChild);
+    document.body.appendChild(bar);
   }
   ensureBar();
 
