@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Cek Pemindahan (Lihat Stok)
 // @namespace    partdistro.erzap
-// @version      1.9.1
+// @version      1.9.2
 // @description  Tombol "Cek Pemindahan" di halaman Daftar Data Produk (dibuka dari menu Audit Stok di produks.js), khusus role pusat: pilih GUDANG, scan semua produk stok > 0 (jeda 4 detik antar halaman), tampilkan aktifitas terakhir; pemindahan dalam periode tanggal disembunyikan.
 // @match        https://*.erzap.com/produks*
 // @grant        none
@@ -94,7 +94,7 @@
   .cg-btn.red{background:#c62828}
   .cg-btn.green{background:#2e7d32}
   .cg-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99998;display:flex;align-items:flex-start;justify-content:center;padding-top:40px}
-  .cg-modal{background:#fff;border-radius:6px;box-shadow:0 6px 24px rgba(0,0,0,.3);width:min(1100px,95vw);max-height:85vh;display:flex;flex-direction:column;font-size:12px}
+  .cg-modal{background:#fff;border-radius:6px;box-shadow:0 6px 24px rgba(0,0,0,.3);width:min(1100px,96vw);max-height:85vh;display:flex;flex-direction:column;font-size:13px}
   .cg-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #ddd}
   .cg-head b{font-size:15px;margin-right:auto}
   .cg-ver{font-size:11px;color:#888;margin-right:10px}
@@ -108,7 +108,7 @@
   .cg-foot .cg-info{color:#333}
   .cg-tbl{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed}
   /* header tetap di atas saat scroll, tidak tertimpa isi baris */
-  .cg-tbl thead th{background:#f1f1f1!important;position:sticky;top:0;z-index:3;text-align:left;padding:6px 5px;
+  .cg-tbl thead th{background:#eef1f5!important;position:sticky;top:0;z-index:3;text-align:left;padding:5px;
     border:1px solid #ddd;border-left:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 0 #ccc}
   .cg-tbl thead th:first-child{border-left:1px solid #ddd}
   .cg-tbl td{position:relative;z-index:1;padding:5px;border-right:1px solid #ddd;border-bottom:1px solid #ddd;vertical-align:top;
