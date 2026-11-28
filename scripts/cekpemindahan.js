@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Cek Pemindahan (Lihat Stok)
 // @namespace    partdistro.erzap
-// @version      1.9.5
+// @version      1.9.6
 // @description  Tombol "Cek Pemindahan" di halaman Daftar Data Produk (dibuka dari menu Audit Stok di produks.js), khusus role pusat: pilih GUDANG, scan semua produk stok > 0 (jeda 4 detik antar halaman), tampilkan aktifitas terakhir; pemindahan dalam periode tanggal disembunyikan.
 // @match        https://*.erzap.com/produks*
 // @grant        none
@@ -94,7 +94,7 @@
   .cg-btn.red{background:#c62828}
   .cg-btn.green{background:#2e7d32}
   .cg-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99998;display:flex;align-items:center;justify-content:center}
-  .cg-modal{background:#fff;border-radius:6px;box-shadow:0 6px 24px rgba(0,0,0,.3);width:min(1100px,96vw);height:85vh;max-height:85vh;display:flex;flex-direction:column;font-size:13px}
+  .cg-modal{background:#fff;border-radius:6px;box-shadow:0 6px 24px rgba(0,0,0,.3);width:min(1100px,96vw);height:85vh;height:85dvh;max-height:85vh;max-height:85dvh;display:flex;flex-direction:column;font-size:13px}
   .cg-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #ddd}
   .cg-head b{margin-right:auto}
   .cg-ver{font-size:11px;color:#888;margin-right:10px}
@@ -229,7 +229,7 @@
   };
 
   // ===== Data dari halaman Lihat Stok (form pencarian + daftar gudang) =====
-  const SCRIPT_VERSION = '1.9.5';   // samakan dengan @version di atas (tampil di header popup)
+  const SCRIPT_VERSION = '1.9.6';   // samakan dengan @version di atas (tampil di header popup)
   const LS_URL = '/produk_gudangs/lihat_stok/new';
   const csrf = () => document.querySelector('meta[name=csrf-token]')?.content || '';
   // field form yang dipertahankan; filter lain dikosongkan. idoutlet_own dikosongkan = semua outlet
