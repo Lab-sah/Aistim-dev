@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Stok Negatif
 // @namespace    partdistro.erzap.stoknegatif
-// @version      1.2.4
+// @version      1.2.5
 // @description  Tombol "Stok Negatif" di halaman Daftar Data Produk ERZAP (dibuka dari menu Audit Stok di produks.js), khusus role pusat (pilih toko dulu): daftar stok toko < 0, solusi (Cek Gudang / Buat BA), form BA Stok In & Stok Out, dan analisa.
 // @author       PartDistro Indonesia
 // @match        https://*.erzap.com/produks*
@@ -94,7 +94,7 @@
 #sm-overlay.open{display:flex}
 body.sm-open{overflow:hidden!important}
 #sm-box{background:#fff;border-radius:6px;width:1100px;max-width:96vw;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 30px rgba(0,0,0,.3)}
-#sm-res{overflow-y:auto;overflow-x:hidden;max-height:70vh;overscroll-behavior:contain;transform:translateZ(0);will-change:scroll-position}
+#sm-res{overflow-y:auto;overflow-x:auto;max-height:70vh;overscroll-behavior:contain;transform:translateZ(0);will-change:scroll-position}
 #sm-res table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
 #sm-res th,#sm-res td{padding:5px;border-right:1px solid #ddd;border-bottom:1px solid #ddd;position:static;white-space:nowrap}
 #sm-res th{background:#eef1f5;position:sticky;top:0;z-index:5;text-align:left;border-top:1px solid #ddd}
@@ -117,7 +117,7 @@ body.sm-open{overflow:hidden!important}
 #sm-prog.on{display:block}
 #sm-prog .bar{height:6px;background:#eef1f5;border-radius:3px;overflow:hidden;margin-top:4px}
 #sm-prog .bar>span{display:block;height:100%;width:0;background:#1a73e8;transition:width .15s}
-#sm-box{height:85vh}
+#sm-box{height:85vh;height:85dvh;max-height:85dvh}
 #sm-box>div:last-child{flex:1;min-height:0}
 #sm-res{flex:1;min-height:0;max-height:none}
 #sm-res.ba-mode #sm-main,#sm-res:not(.ba-mode) #sm-ba-wrap,#sm-res.ba-mode #sm-empty{display:none!important}
@@ -136,7 +136,7 @@ body.sm-open{overflow:hidden!important}
 #sm-ba textarea.sm-ket,#sm-bo textarea.sm-ket{width:100%;min-width:0;box-sizing:border-box;padding:3px 5px;border:1px solid #ccc;border-radius:3px;font:12px/1.4 inherit;resize:none;overflow:hidden;display:block}
 #sm-res.ba-mode{overflow:hidden;display:flex;flex-direction:column}
 #sm-res.ba-mode #sm-ba-wrap{flex:1;min-height:0;display:flex;flex-direction:column}
-#sm-ba-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+#sm-ba-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:auto;overscroll-behavior:contain}
 #sm-ba-stats .sm-card .v{font-size:20px}
 #sm-ba td:nth-child(2),#sm-bo td:nth-child(2){white-space:nowrap!important;word-break:normal}
 #sm-ba td:nth-child(3),#sm-bo td:nth-child(3){white-space:normal;word-break:break-word}
@@ -211,7 +211,17 @@ body.sm-open{overflow:hidden!important}
 .sm-toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:#323232;color:#fff;padding:8px 14px;border-radius:6px;font-size:13px;z-index:100004;box-shadow:0 4px 12px rgba(0,0,0,.25)}
 body.sm-open .ui-dialog{z-index:100002!important}
 body.sm-open .ui-widget-overlay{z-index:100001!important}
-#sm-cari-res .sm-scroll{max-height:320px;overflow-y:auto;overscroll-behavior:contain;border-bottom:2px solid #8f98a3}`;
+#sm-cari-res .sm-scroll{max-height:320px;overflow-y:auto;overflow-x:auto;overscroll-behavior:contain;border-bottom:2px solid #8f98a3}
+@media (max-width:900px){
+#sm-box{width:98vw;max-width:98vw}
+.sm-head{padding:8px 10px!important;flex-wrap:wrap;gap:6px}
+.sm-body{padding:10px!important}
+#sm-toko{min-width:0!important;max-width:62vw}
+#sm-tabs{overflow-x:auto}
+#sm-tabs button{padding:6px 10px;white-space:nowrap;flex:0 0 auto}
+#sm-res table{font-size:12px}
+#sm-ba-sub{flex-wrap:wrap}
+}`;
 
   // ---------- Helper ----------
   const tok = () => document.querySelector('meta[name=csrf-token]')?.content;
@@ -935,8 +945,8 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
   ov.id = 'sm-overlay';
   ov.innerHTML =
     '<div id="sm-box">' +
-      '<div style="padding:12px 16px;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:center"><b>Stok Negatif</b><span style="margin-left:auto;margin-right:14px"><select id="sm-toko" style="padding:4px 8px;border:1px solid #ccc;border-radius:4px;min-width:200px"><option value="">Pilih Toko</option></select></span><span id="sm-x" style="cursor:pointer;font-size:20px">&times;</span></div>' +
-      '<div style="padding:16px;overflow:hidden;display:flex;flex-direction:column">' +
+      '<div class="sm-head" style="padding:12px 16px;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:center"><b>Stok Negatif</b><span style="margin-left:auto;margin-right:14px"><select id="sm-toko" style="padding:4px 8px;border:1px solid #ccc;border-radius:4px;min-width:200px"><option value="">Pilih Toko</option></select></span><span id="sm-x" style="cursor:pointer;font-size:20px">&times;</span></div>' +
+      '<div class="sm-body" style="padding:16px;overflow:hidden;display:flex;flex-direction:column">' +
         '<div id="sm-tabs">' +
           '<button type="button" data-tab="all">Data<span class="cnt">0</span></button>' +
           '<button type="button" data-tab="cek">Lakukan Cek<span class="cnt">0</span></button>' +

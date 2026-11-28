@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Audit Stok (Daftar Data Produk)
 // @namespace    partdistro.erzap.produks
-// @version      1.5.1
+// @version      1.5.2
 // @description  Menambahkan tombol Audit Stok (Stok Negatif, Cek Pemindahan, Digital Aktivasi, Stok Terpesan, Analisa Stok) di halaman Daftar Data Produk ERZAP
 // @author       Pak mon
 // @match        https://*.erzap.com/produks*
@@ -270,19 +270,20 @@
     st.id = 'tm-style';
     st.textContent =
       '#tm-popup-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2000;display:flex;align-items:center;justify-content:center}' +
-      '#tm-popup-overlay .tm-box{background:#fff;border-radius:6px;width:1100px;max-width:96vw;height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 30px rgba(0,0,0,.3)}' +
+      '#tm-popup-overlay .tm-box{background:#fff;border-radius:6px;width:1100px;max-width:96vw;height:85vh;height:85dvh;display:flex;flex-direction:column;box-shadow:0 8px 30px rgba(0,0,0,.3)}' +
       '#tm-popup-overlay .tm-head{padding:12px 16px;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:center}' +
       '#tm-popup-overlay .tm-x{cursor:pointer;font-size:20px;line-height:1;background:none;border:0;padding:0}' +
       '#tm-popup-overlay .tm-body{padding:16px;flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;font-size:13px;color:#333}' +
       '#tm-popup-overlay .tm-fill{flex:1;min-height:0;display:flex;flex-direction:column}' +
-      '#tm-popup-overlay .tm-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}' +
+      '#tm-popup-overlay .tm-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:auto;overscroll-behavior:contain}' +
       '#tm-popup-overlay .tm-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}' +
       '#tm-popup-overlay .tm-tbl th,#tm-popup-overlay .tm-tbl td{padding:5px;border-right:1px solid #ddd;border-bottom:1px solid #ddd;white-space:nowrap}' +
       '#tm-popup-overlay .tm-tbl th{background:#eef1f5;position:sticky;top:0;z-index:5;text-align:left;border-top:1px solid #ddd}' +
       '#tm-popup-overlay .tm-tbl tr>:first-child{border-left:1px solid #ddd}' +
       '#tm-popup-overlay .tm-tbl .c{text-align:center}' +
       '#tm-popup-overlay .tm-tbl .n{text-align:center;font-weight:600}' +
-      '#tm-popup-overlay .tm-tbl .nm{white-space:normal;word-break:break-word}';
+      '#tm-popup-overlay .tm-tbl .nm{white-space:normal;word-break:break-word}' +
+      '@media (max-width:900px){#tm-popup-overlay .tm-box{width:98vw;max-width:98vw}#tm-popup-overlay .tm-head{padding:8px 10px}#tm-popup-overlay .tm-body{padding:10px}#tm-popup-overlay .tm-tbl{min-width:420px}}';
     document.head.appendChild(st);
   }
 
