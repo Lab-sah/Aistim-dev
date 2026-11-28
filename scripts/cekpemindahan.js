@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Cek Pemindahan (Lihat Stok)
 // @namespace    partdistro.erzap
-// @version      1.9.3
+// @version      1.9.4
 // @description  Tombol "Cek Pemindahan" di halaman Daftar Data Produk (dibuka dari menu Audit Stok di produks.js), khusus role pusat: pilih GUDANG, scan semua produk stok > 0 (jeda 4 detik antar halaman), tampilkan aktifitas terakhir; pemindahan dalam periode tanggal disembunyikan.
 // @match        https://*.erzap.com/produks*
 // @grant        none
@@ -95,23 +95,23 @@
   .cg-btn.green{background:#2e7d32}
   .cg-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99998;display:flex;align-items:center;justify-content:center}
   .cg-modal{background:#fff;border-radius:6px;box-shadow:0 6px 24px rgba(0,0,0,.3);width:min(1100px,96vw);height:85vh;max-height:85vh;display:flex;flex-direction:column;font-size:13px}
-  .cg-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #ddd}
-  .cg-head b{font-size:15px;margin-right:auto}
+  .cg-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #ddd}
+  .cg-head b{margin-right:auto}
   .cg-ver{font-size:11px;color:#888;margin-right:10px}
   .cg-x{background:none;border:0;font-size:20px;cursor:pointer;line-height:1;color:#666}
-  .cg-bar{display:flex;gap:8px;align-items:center;padding:8px 14px;border-bottom:1px solid #eee;flex-wrap:wrap}
+  .cg-bar{display:flex;gap:8px;align-items:center;padding:8px 16px;border-bottom:1px solid #eee;flex-wrap:wrap}
   .cg-status{color:#555;flex-basis:100%;font-size:11px}
-  .cg-body{overflow:auto;padding:0 14px 12px;margin-top:8px;flex:1 1 auto;min-height:0}
+  .cg-body{overflow:auto;padding:0 16px 16px;margin-top:8px;flex:1 1 auto;min-height:0}
   /* footer tetap di bawah popup (tidak ikut scroll) */
-  .cg-foot{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px;
+  .cg-foot{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 16px;
     border-top:1px solid #ddd;background:#fafafa;border-radius:0 0 6px 6px}
   .cg-foot .cg-info{color:#333}
   .cg-tbl{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed}
   /* header tetap di atas saat scroll, tidak tertimpa isi baris */
   .cg-tbl thead th{background:#eef1f5!important;position:sticky;top:0;z-index:3;text-align:left;padding:5px;
-    border:1px solid #ddd;border-left:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 0 #ccc}
+    border:1px solid #ddd;border-left:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .cg-tbl thead th:first-child{border-left:1px solid #ddd}
-  .cg-tbl td{position:relative;z-index:1;padding:5px;border-right:1px solid #ddd;border-bottom:1px solid #ddd;vertical-align:top;
+  .cg-tbl td{position:relative;z-index:1;padding:5px;border-right:1px solid #ddd;border-bottom:1px solid #ddd;
     white-space:normal!important;word-break:break-word;overflow-wrap:anywhere}
   .cg-tbl td:first-child{border-left:1px solid #ddd}
   /* lebar kolom: No, Barcode, Nama, Aktifitas, Operator, Stok Akhir, Keterangan */
@@ -174,7 +174,7 @@
     .cg-dp-pre button{padding:6px 10px;font-size:12px}
     .cg-dp-month + .cg-dp-month{display:none}
   }
-  .cg-stats{display:flex;flex-wrap:nowrap;gap:6px;align-items:center;padding:6px 14px;border-bottom:1px solid #eee;overflow-x:auto;scrollbar-width:thin}
+  .cg-stats{display:flex;flex-wrap:nowrap;gap:6px;align-items:center;padding:6px 16px;border-bottom:1px solid #eee;overflow-x:auto;scrollbar-width:thin}
   .cg-stats > *{flex:0 0 auto;white-space:nowrap}
   .cg-head, .cg-bar, .cg-stats{flex:0 0 auto} /* jangan ikut menyusut saat popup pendek */
   .cg-stats b{margin-right:4px}
