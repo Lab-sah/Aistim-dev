@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Cek Pemindahan (Lihat Stok)
 // @namespace    partdistro.erzap
-// @version      1.9.4
+// @version      1.9.5
 // @description  Tombol "Cek Pemindahan" di halaman Daftar Data Produk (dibuka dari menu Audit Stok di produks.js), khusus role pusat: pilih GUDANG, scan semua produk stok > 0 (jeda 4 detik antar halaman), tampilkan aktifitas terakhir; pemindahan dalam periode tanggal disembunyikan.
 // @match        https://*.erzap.com/produks*
 // @grant        none
@@ -229,7 +229,7 @@
   };
 
   // ===== Data dari halaman Lihat Stok (form pencarian + daftar gudang) =====
-  const SCRIPT_VERSION = '1.8.0';
+  const SCRIPT_VERSION = '1.9.5';   // samakan dengan @version di atas (tampil di header popup)
   const LS_URL = '/produk_gudangs/lihat_stok/new';
   const csrf = () => document.querySelector('meta[name=csrf-token]')?.content || '';
   // field form yang dipertahankan; filter lain dikosongkan. idoutlet_own dikosongkan = semua outlet
@@ -670,9 +670,13 @@
 
     let running = false;
     let stopReq = false;
+    // kunci scroll halaman seperti popup Stok Negatif, supaya popup tepat di tengah layar (tanpa geser karena scrollbar halaman)
+    const overflowLama = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const close = () => {
       if (running && !confirm('Scan masih berjalan. Hentikan dan tutup popup?')) return;
       stopReq = true;
+      document.body.style.overflow = overflowLama;
       document.querySelectorAll('.cg-dp, .cg-ov2').forEach((x) => x.remove());
       if (erzapDialogOpen()) window.jQuery(DLG).dialog('close');
       ov.remove();
