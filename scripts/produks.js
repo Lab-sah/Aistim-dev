@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Audit Stok (Daftar Data Produk)
 // @namespace    partdistro.erzap.produks
-// @version      1.4.1
+// @version      1.4.2
 // @description  Menambahkan tombol Audit Stok (Stok Negatif, Cek Pemindahan, Digital Aktivasi, Stok Terpesan, Analisa Stok) di halaman Daftar Data Produk ERZAP
 // @author       Pak mon
 // @match        https://*.erzap.com/produks*
@@ -478,9 +478,13 @@
     openPopup('Digital Aktivasi', function (body) {
       body.innerHTML = '<div>Memuat seluruh data, mohon tunggu...</div>';
     });
+    var popup = document.getElementById('tm-popup-overlay');
+    // jangan munculkan lagi hasilnya kalau popup sudah ditutup (atau diganti popup lain) sebelum selesai
+    var masihTampil = function () { return popup && document.body.contains(popup); };
     fetchAllAktivasi().then(function (r) {
-      renderResult(r.items, r.pages, r.tebakKolom);
+      if (masihTampil()) renderResult(r.items, r.pages, r.tebakKolom);
     }).catch(function () {
+      if (!masihTampil()) return;
       openPopup('Digital Aktivasi', function (body) {
         body.innerHTML = '<div>Gagal mengambil data dari server.</div>';
       });
