@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Audit Stok (Daftar Data Produk)
 // @namespace    partdistro.erzap.produks
-// @version      1.5.3
+// @version      1.5.4
 // @description  Menambahkan tombol Audit Stok (Stok Negatif, Cek Pemindahan, Digital Aktivasi, Stok Terpesan, Analisa Stok) di halaman Daftar Data Produk ERZAP
 // @author       Pak mon
 // @match        https://*.erzap.com/produks*
@@ -347,34 +347,39 @@
 
   // ===== Digital Aktivasi: Barcode & Nama Produk dengan Kategori TOOLS + Sub Kategori AKTIVASI =====
 
-  function renderResult(items, pages, tebakKolom) {
+  function renderResult(items, pages, tebakKolom, adaHarga) {
     var body = openPopup('Digital Aktivasi', null);
     var head =
       '<div style="margin-bottom:10px;color:#555;">Kategori: <b>' + AKTIVASI_KATEGORI +
       '</b> &middot; Sub Kategori: <b>' + AKTIVASI_SUB_KATEGORI + '</b></div>' +
-      '<div style="margin-bottom:10px;"><b>Total: ' + items.length + ' produk</b> <span style="color:#888;">(' + pages + ' halaman dibaca)</span></div>';
+      '<div style="margin-bottom:10px;"><b>Total: ' + items.length + ' produk</b> <span style="color:#888;">(' + pages + ' halaman dibaca)</span></div>' +
+      (items.length && !adaHarga ? '<div style="margin-bottom:10px;color:#c25e00;">Kolom harga tidak ditemukan di tabel produk ERZAP, jadi harga tidak ditampilkan.</div>' : '');
     if (!items.length) {
       body.innerHTML = head + '<p style="margin:0;color:#888;">Tidak ada produk dengan filter ini.</p>' +
         (tebakKolom ? '<p style="margin:8px 0 0;color:#c25e00;">Header tabel ERZAP tidak terbaca, jadi posisi kolom memakai tebakan. Bila seharusnya ada produk, susunan kolom mungkin berubah.</p>' : '');
       return;
     }
     var rowsHtml = items.map(function (r, i) {
-      return '<tr><td class="c">' + (i + 1) + '</td><td>' + escapeHtml(r.barcode) + '</td><td class="nm">' + escapeHtml(r.nama) + '</td></tr>';
+      return '<tr><td class="c">' + (i + 1) + '</td><td>' + escapeHtml(r.barcode) + '</td><td class="nm">' + escapeHtml(r.nama) + '</td>' +
+        (adaHarga ? '<td class="c">' + escapeHtml(r.harga || '-') + '</td>' : '') + '</tr>';
     }).join('');
     body.innerHTML = head +
       '<div class="tm-scroll"><table class="tm-tbl">' +
-      '<thead><tr><th class="c">No</th><th>Barcode</th><th>Nama Produk</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+      '<thead><tr><th class="c">No</th><th>Barcode</th><th>Nama Produk</th>' + (adaHarga ? '<th class="c">Harga</th>' : '') + '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
   }
 
   // Posisi kolom dibaca dari header tabel supaya tidak rusak bila ERZAP menggeser kolom.
   // Bila header tidak bisa dipakai, kembali ke posisi tetap (dariHeader = false).
   function petaKolom(doc, trs) {
-    var f = { barcode: 3, nama: 4, kategori: 11, sub: 12 };
+    var f = { barcode: 3, nama: 4, kategori: 11, sub: 12, harga: -1 };
     var ths = Array.prototype.slice.call(doc.querySelectorAll('thead th'));
     if (ths.length && trs.length && ths.length === trs[0].cells.length) {
       var t = ths.map(function (th) { return th.textContent.replace(/\s+/g, ' ').trim().toLowerCase(); });
       var cari = function (re) { return t.findIndex(function (x) { return re.test(x); }); };
       var g = { barcode: cari(/barcode/), nama: cari(/^nama/), kategori: cari(/^kategori/), sub: cari(/^sub\s*kategori/) };
+      // kolom harga (opsional): utamakan "Harga Jual", kalau tidak ada pakai kolom "Harga..." pertama selain harga beli/modal/diskon
+      g.harga = cari(/^harga\s*jual/);
+      if (g.harga < 0) g.harga = cari(/^harga(?!.*(beli|modal|diskon))/);
       if (g.barcode >= 0 && g.nama >= 0 && g.kategori >= 0 && g.sub >= 0) return { f: g, dariHeader: true };
     }
     return { f: f, dariHeader: false };
@@ -411,10 +416,11 @@
         var lines = tr.cells[c.barcode].innerText.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
         var bc = lines[lines.length - 1];
         var nm = tr.cells[c.nama].innerText.trim();
-        seen.set(bc + '|' + nm, { barcode: bc, nama: nm });
+        var hg = c.harga >= 0 && tr.cells[c.harga] ? tr.cells[c.harga].innerText.trim() : '';
+        seen.set(bc + '|' + nm, { barcode: bc, nama: nm, harga: hg });
       });
     }
-    return { items: Array.from(seen.values()), pages: pages, tebakKolom: !!peta && !peta.dariHeader };
+    return { items: Array.from(seen.values()), pages: pages, tebakKolom: !!peta && !peta.dariHeader, adaHarga: !!peta && peta.f.harga >= 0 };
   }
 
   // Popup Stok Terpesan: filter pencarian
@@ -498,7 +504,7 @@
     // jangan munculkan lagi hasilnya kalau popup sudah ditutup (atau diganti popup lain) sebelum selesai
     var masihTampil = function () { return popup && document.body.contains(popup); };
     fetchAllAktivasi().then(function (r) {
-      if (masihTampil()) renderResult(r.items, r.pages, r.tebakKolom);
+      if (masihTampil()) renderResult(r.items, r.pages, r.tebakKolom, r.adaHarga);
     }).catch(function () {
       if (!masihTampil()) return;
       openPopup('Digital Aktivasi', function (body) {
