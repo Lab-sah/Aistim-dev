@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Audit Stok (Daftar Data Produk)
 // @namespace    partdistro.erzap.produks
-// @version      1.5.2
+// @version      1.5.3
 // @description  Menambahkan tombol Audit Stok (Stok Negatif, Cek Pemindahan, Digital Aktivasi, Stok Terpesan, Analisa Stok) di halaman Daftar Data Produk ERZAP
 // @author       Pak mon
 // @match        https://*.erzap.com/produks*
@@ -283,7 +283,10 @@
       '#tm-popup-overlay .tm-tbl .c{text-align:center}' +
       '#tm-popup-overlay .tm-tbl .n{text-align:center;font-weight:600}' +
       '#tm-popup-overlay .tm-tbl .nm{white-space:normal;word-break:break-word}' +
-      '@media (max-width:900px){#tm-popup-overlay .tm-box{width:98vw;max-width:98vw}#tm-popup-overlay .tm-head{padding:8px 10px}#tm-popup-overlay .tm-body{padding:10px}#tm-popup-overlay .tm-tbl{min-width:420px}}';
+      '#tm-popup-overlay .tm-foot{flex:0 0 auto;display:flex;justify-content:flex-end;padding:8px 16px;border-top:1px solid #ddd;background:#fafafa;border-radius:0 0 6px 6px}' +
+      '#tm-popup-overlay .tm-tutup{background:#757575;color:#fff;border:0;border-radius:3px;padding:4px 12px;font-size:12px;cursor:pointer}' +
+      '#tm-popup-overlay .tm-tutup:hover{background:#5f5f5f}' +
+      '@media (max-width:900px){#tm-popup-overlay .tm-foot{padding:8px 10px}#tm-popup-overlay .tm-box{width:98vw;max-width:98vw}#tm-popup-overlay .tm-head{padding:8px 10px}#tm-popup-overlay .tm-body{padding:10px}#tm-popup-overlay .tm-tbl{min-width:420px}}';
     document.head.appendChild(st);
   }
 
@@ -316,8 +319,17 @@
     body.id = 'tm-popup-body';
     body.className = 'tm-body';
 
+    var foot = document.createElement('div');
+    foot.className = 'tm-foot';
+    var tutup = document.createElement('button');
+    tutup.type = 'button';
+    tutup.className = 'tm-tutup';
+    tutup.textContent = 'Tutup';
+    foot.appendChild(tutup);
+
     box.appendChild(head);
     box.appendChild(body);
+    box.appendChild(foot);
     overlay.appendChild(box);
     document.body.appendChild(overlay);
 
@@ -326,6 +338,7 @@
       if (kunciLama !== null) { document.body.style.overflow = kunciLama; kunciLama = null; }
     }
     closeX.addEventListener('click', close);
+    tutup.addEventListener('click', close);
     overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
 
     if (typeof fillBody === 'function') fillBody(body);
