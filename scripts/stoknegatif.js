@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Stok Negatif
 // @namespace    partdistro.erzap.stoknegatif
-// @version      1.2.0
+// @version      1.2.1
 // @description  Tombol "Stok Negatif" di halaman Daftar Data Produk ERZAP (dibuka dari menu Audit Stok di produks.js), khusus role pusat (pilih toko dulu): daftar stok toko < 0, solusi (Cek Gudang / Buat BA), form BA Stok In & Stok Out, dan analisa.
 // @author       PartDistro Indonesia
 // @match        https://*.erzap.com/produks*
@@ -112,6 +112,10 @@ body.sm-open{overflow:hidden!important}
 #sm-tabs .cnt{display:inline-block;min-width:18px;padding:0 5px;margin-left:6px;border-radius:9px;background:#e5e7eb;color:#333;font-size:11px;line-height:18px;text-align:center}
 #sm-tabs button.active .cnt{background:#1a73e8;color:#fff}
 #sm-res tr.sm-hide{display:none}
+#sm-prog{display:none;margin:-4px 0 10px;font-size:12px;color:#555}
+#sm-prog.on{display:block}
+#sm-prog .bar{height:6px;background:#eef1f5;border-radius:3px;overflow:hidden;margin-top:4px}
+#sm-prog .bar>span{display:block;height:100%;width:0;background:#1a73e8;transition:width .15s}
 #sm-box{height:85vh}
 #sm-box>div:last-child{flex:1;min-height:0}
 #sm-res{flex:1;min-height:0;max-height:none}
@@ -855,6 +859,15 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
   }
 
   // Ambil data sesuai filter popup, lalu tampilkan (halaman di belakang tidak diubah)
+  // Progress muat data toko (di atas hasil, tampil di semua tab). teks kosong = sembunyikan
+  function setProg(teks, done, total) {
+    const p = document.getElementById('sm-prog');
+    if (!p) return;
+    if (!teks) { p.classList.remove('on'); return; }
+    p.classList.add('on');
+    p.querySelector('.t').textContent = teks;
+    p.querySelector('.bar > span').style.width = total ? Math.round(done / total * 100) + '%' : '0%';
+  }
   let running = false;
   async function runScan() {
     if (running) return;
@@ -862,6 +875,7 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
     const res = document.getElementById('sm-res');
     try {
       if (!tokoId) { res.innerHTML = '<p style="color:#666">Pilih toko dulu di kanan atas untuk melihat stok negatif.</p>'; applyTab(); return; }
+      setProg('Memuat daftar stok minus ' + tokoNama + '...', 0, 0);
       res.innerHTML = '<p style="color:#666">Memuat data...</p>';
       const op = '<', val = '0';   // Stok Min: selalu Perkiraan Jumlah < 0
       let doc;
@@ -892,9 +906,14 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
       res.insertAdjacentHTML('beforeend', '<p id="sm-empty" style="display:none;color:#090;margin:10px 0">Tidak ada data di tab ini.</p>');
       if (total > rows.length) res.insertAdjacentHTML('afterbegin', `<p style="color:#c25e00;margin:0 0 8px">Menampilkan ${rows.length} dari total ${total} produk.</p>`);
       applyTab();
-      const worker = async () => { while (i < rows.length) { const k = i++; fill(trs[k], await detail(rows[k])); applyTab(); } };
+      // progress: berhenti kalau toko diganti saat masih memuat (rerun), supaya angka tidak campur dengan toko baru
+      let done = 0;
+      const prog = () => setProg('Memuat stok ' + tokoNama + ': ' + done + ' / ' + rows.length + ' produk', done, rows.length);
+      prog();
+      const worker = async () => { while (i < rows.length && !rerun) { const k = i++; fill(trs[k], await detail(rows[k])); done++; prog(); applyTab(); } };
       await Promise.all([worker(), worker(), worker(), worker()]);
     } finally {
+      setProg('');
       running = false;
       if (rerun) { rerun = false; runScan(); }
     }
@@ -915,6 +934,7 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
           '<button type="button" data-tab="ba">Buat BA<span class="cnt">0</span></button>' +
           '<button type="button" data-tab="ana">Analisa<span class="cnt"></span></button>' +
         '</div>' +
+        '<div id="sm-prog"><span class="t"></span><div class="bar"><span></span></div></div>' +
         '<div id="sm-res"></div>' +
       '</div>' +
     '</div>';
