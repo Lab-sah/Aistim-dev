@@ -42,3 +42,15 @@ Tanpa OAuth Playground, tanpa refresh token, tidak kedaluwarsa.
 - Unggahan pertama (dan setelah mengubah visibilitas/Privasi di dashboard) lakukan manual sekali lewat dashboard; API memakai pengaturan visibilitas yang ada.
 - Uji manual kapan saja: Actions -> Release -> *Run workflow* -> centang `publish_store`.
 - Perubahan hanya di folder `scripts/` tidak butuh Web Store: tersinkron otomatis dari GitHub.
+
+## Aistim Board (repo terpisah, diunggah dari sini)
+
+Aistim Board (`Lab-sah/Aistim.board`) adalah extension tab baru dengan item Web Store sendiri. Kodenya tetap di repo Aistim.board, karena file `main.json` / `quotes.json` dan alamat GitHub yang tertanam di extension yang sudah terpasang dilayani repo itu. Unggah ke toko dilakukan dari repo ini supaya cukup satu tempat:
+
+1. Naikkan `version` di `extension/manifest.json` repo Aistim.board dan merge di sana (toko menolak versi yang sama atau lebih rendah).
+2. Actions -> **Web Store Board** -> *Run workflow* (isi `ref` bila bukan `main`; centang `terbitkan` bila langsung dikirim review).
+3. Workflow mengambil repo Aistim.board, menjalankan tesnya, membuat zip Web Store (`tools/build-webstore.py`: tanpa `key`, tanpa pemeriksa pembaruan GitHub), menyimpannya sebagai artifact, lalu mengunggahnya.
+
+Secret repo Aistim-dev yang dibutuhkan (isinya sama dengan secret `CWS_*` di repo Aistim.board): `BOARD_CWS_EXTENSION_ID`, `BOARD_CWS_CLIENT_ID`, `BOARD_CWS_CLIENT_SECRET`, `BOARD_CWS_REFRESH_TOKEN`. Bila belum lengkap, job hanya membuat zip untuk diunggah manual di Developer Dashboard.
+
+Workflow ini hanya mengunggah ke Web Store: tidak membuat rilis GitHub, CRX, atau `updates.xml`, dan tidak menyentuh rilis Aistim Tool (`release.yml`).
