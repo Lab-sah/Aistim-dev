@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Audit Stok (Daftar Data Produk)
 // @namespace    partdistro.erzap.produks
-// @version      1.4.0
+// @version      1.4.1
 // @description  Menambahkan tombol Audit Stok (Stok Negatif, Cek Pemindahan, Digital Aktivasi, Stok Terpesan, Analisa Stok) di halaman Daftar Data Produk ERZAP
 // @author       Pak mon
 // @match        https://*.erzap.com/produks*
@@ -68,6 +68,7 @@
   ];
 
   var BUTTON_ID = 'tm-btn-audit-stok';
+  var tutupMenuAktif = null;   // fungsi penutup menu milik tombol yang sedang terpasang
 
   // ===== HAK AKSES (JSON) =====
   // "public"  -> fitur (menu Audit Stok) yang boleh dipakai SEMUA user. Kosong = tidak ada.
@@ -245,14 +246,14 @@
       btn.style.borderColor = btn.style.background;
     });
 
-    // Tutup menu jika klik di luar
-    document.addEventListener('click', function () {
+    // Tutup menu jika klik di luar (listener dokumen dipasang sekali di init dan memanggil fungsi ini)
+    tutupMenuAktif = function () {
       if (menu.style.display === 'block') {
         menu.style.display = 'none';
         btn.style.background = BUTTON_COLOR;
         btn.style.borderColor = BUTTON_COLOR;
       }
-    });
+    };
 
     wrap.appendChild(btn);
     wrap.appendChild(menu);
@@ -317,14 +318,15 @@
 
   // ===== Digital Aktivasi: Barcode & Nama Produk dengan Kategori TOOLS + Sub Kategori AKTIVASI =====
 
-  function renderResult(items, pages) {
+  function renderResult(items, pages, tebakKolom) {
     var body = openPopup('Digital Aktivasi', null);
     var head =
       '<div style="margin-bottom:10px;color:#555;">Kategori: <b>' + AKTIVASI_KATEGORI +
       '</b> &middot; Sub Kategori: <b>' + AKTIVASI_SUB_KATEGORI + '</b></div>' +
       '<div style="margin-bottom:10px;"><b>Total: ' + items.length + ' produk</b> <span style="color:#888;">(' + pages + ' halaman dibaca)</span></div>';
     if (!items.length) {
-      body.innerHTML = head + '<p style="margin:0;color:#888;">Tidak ada produk dengan filter ini.</p>';
+      body.innerHTML = head + '<p style="margin:0;color:#888;">Tidak ada produk dengan filter ini.</p>' +
+        (tebakKolom ? '<p style="margin:8px 0 0;color:#c25e00;">Header tabel ERZAP tidak terbaca, jadi posisi kolom memakai tebakan. Bila seharusnya ada produk, susunan kolom mungkin berubah.</p>' : '');
       return;
     }
     var rowsHtml = items.map(function (r, i) {
@@ -340,6 +342,20 @@
       '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
   }
 
+  // Posisi kolom dibaca dari header tabel supaya tidak rusak bila ERZAP menggeser kolom.
+  // Bila header tidak bisa dipakai, kembali ke posisi tetap (dariHeader = false).
+  function petaKolom(doc, trs) {
+    var f = { barcode: 3, nama: 4, kategori: 11, sub: 12 };
+    var ths = Array.prototype.slice.call(doc.querySelectorAll('thead th'));
+    if (ths.length && trs.length && ths.length === trs[0].cells.length) {
+      var t = ths.map(function (th) { return th.textContent.replace(/\s+/g, ' ').trim().toLowerCase(); });
+      var cari = function (re) { return t.findIndex(function (x) { return re.test(x); }); };
+      var g = { barcode: cari(/barcode/), nama: cari(/^nama/), kategori: cari(/^kategori/), sub: cari(/^sub\s*kategori/) };
+      if (g.barcode >= 0 && g.nama >= 0 && g.kategori >= 0 && g.sub >= 0) return { f: g, dariHeader: true };
+    }
+    return { f: f, dariHeader: false };
+  }
+
   // Mengambil semua halaman langsung dari server (fetch), tanpa pindah halaman
   async function fetchAllAktivasi() {
     var base = 'produk_simple[idproduk_kategori]=' + KATEGORI_ID +
@@ -347,6 +363,7 @@
     var seen = new Map();
     var dibaca = {};   // semua baris yang sudah pernah dibaca (bukan hanya yang cocok)
     var pages = 0;
+    var peta = null;
     for (var p = 1; p <= MAX_PAGES; p++) {
       var res = await fetch('/produks/index/new?page=' + p + '&' + base, { credentials: 'include' });
       var doc = new DOMParser().parseFromString(await res.text(), 'text/html');
@@ -354,6 +371,8 @@
         return tr.querySelector('td') && tr.cells.length >= 20;
       });
       if (!trs.length) break;
+      if (!peta) peta = petaKolom(doc, trs);
+      var c = peta.f;
       // ERZAP bisa mengembalikan halaman terakhir lagi untuk nomor halaman di luar batas -> berhenti kalau tidak ada baris baru
       var baru = 0;
       trs.forEach(function (tr) {
@@ -363,15 +382,15 @@
       if (!baru) break;
       pages++;
       trs.forEach(function (tr) {
-        if (tr.cells[11].innerText.trim().toUpperCase() !== AKTIVASI_KATEGORI) return;
-        if (tr.cells[12].innerText.trim().toUpperCase() !== AKTIVASI_SUB_KATEGORI) return;
-        var lines = tr.cells[3].innerText.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
+        if (tr.cells[c.kategori].innerText.trim().toUpperCase() !== AKTIVASI_KATEGORI) return;
+        if (tr.cells[c.sub].innerText.trim().toUpperCase() !== AKTIVASI_SUB_KATEGORI) return;
+        var lines = tr.cells[c.barcode].innerText.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
         var bc = lines[lines.length - 1];
-        var nm = tr.cells[4].innerText.trim();
+        var nm = tr.cells[c.nama].innerText.trim();
         seen.set(bc + '|' + nm, { barcode: bc, nama: nm });
       });
     }
-    return { items: Array.from(seen.values()), pages: pages };
+    return { items: Array.from(seen.values()), pages: pages, tebakKolom: !!peta && !peta.dariHeader };
   }
 
   // Popup Stok Terpesan: filter pencarian
@@ -460,7 +479,7 @@
       body.innerHTML = '<div>Memuat seluruh data, mohon tunggu...</div>';
     });
     fetchAllAktivasi().then(function (r) {
-      renderResult(r.items, r.pages);
+      renderResult(r.items, r.pages, r.tebakKolom);
     }).catch(function () {
       openPopup('Digital Aktivasi', function (body) {
         body.innerHTML = '<div>Gagal mengambil data dari server.</div>';
@@ -472,14 +491,15 @@
   function init() {
     addAuditStokButton();
 
-    if (!document.getElementById(BUTTON_ID)) {
-      // Tombol bisa dirender belakangan (AJAX), pantau DOM sampai tombol tersedia
-      var observer = new MutationObserver(function () {
-        if (addAuditStokButton()) observer.disconnect();
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-      setTimeout(function () { observer.disconnect(); }, 15000);
-    }
+    document.addEventListener('click', function () { if (tutupMenuAktif) tutupMenuAktif(); });
+
+    // Tombol bisa dirender belakangan atau toolbar dirender ulang oleh ERZAP (AJAX): pantau terus dan pasang lagi bila hilang
+    var terjadwal = false;
+    new MutationObserver(function () {
+      if (terjadwal || document.getElementById(BUTTON_ID)) return;
+      terjadwal = true;
+      setTimeout(function () { terjadwal = false; addAuditStokButton(); }, 200);
+    }).observe(document.body, { childList: true, subtree: true });
   }
 
   init();
