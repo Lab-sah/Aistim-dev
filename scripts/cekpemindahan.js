@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Cek Pemindahan (Lihat Stok)
 // @namespace    partdistro.erzap
-// @version      1.9.2
+// @version      1.9.3
 // @description  Tombol "Cek Pemindahan" di halaman Daftar Data Produk (dibuka dari menu Audit Stok di produks.js), khusus role pusat: pilih GUDANG, scan semua produk stok > 0 (jeda 4 detik antar halaman), tampilkan aktifitas terakhir; pemindahan dalam periode tanggal disembunyikan.
 // @match        https://*.erzap.com/produks*
 // @grant        none
@@ -93,8 +93,8 @@
   .cg-btn.grey{background:#757575}
   .cg-btn.red{background:#c62828}
   .cg-btn.green{background:#2e7d32}
-  .cg-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99998;display:flex;align-items:flex-start;justify-content:center;padding-top:40px}
-  .cg-modal{background:#fff;border-radius:6px;box-shadow:0 6px 24px rgba(0,0,0,.3);width:min(1100px,96vw);max-height:85vh;display:flex;flex-direction:column;font-size:13px}
+  .cg-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99998;display:flex;align-items:center;justify-content:center}
+  .cg-modal{background:#fff;border-radius:6px;box-shadow:0 6px 24px rgba(0,0,0,.3);width:min(1100px,96vw);height:85vh;max-height:85vh;display:flex;flex-direction:column;font-size:13px}
   .cg-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #ddd}
   .cg-head b{font-size:15px;margin-right:auto}
   .cg-ver{font-size:11px;color:#888;margin-right:10px}
@@ -126,10 +126,8 @@
     font-family:Menlo,Consolas,monospace;white-space:nowrap}
   .cg-tbl .cg-nm{font-weight:600;color:#333}
   .cg-tbl .cg-lihat{padding:1px 6px;font-size:10px;line-height:16px;flex:0 0 auto}
-  @media (max-height: 760px){ .cg-ov{padding-top:12px} .cg-modal{max-height:94vh} }
   @media (max-width: 900px){
-    .cg-ov{padding-top:8px}
-    .cg-modal{width:98vw;max-height:96vh;font-size:11px}
+    .cg-modal{width:98vw;font-size:11px}
     .cg-head{padding:8px 10px} .cg-bar,.cg-stats,.cg-foot{padding-left:10px;padding-right:10px} .cg-body{padding:0 10px 8px}
     .cg-tbl col.c1{width:34px} .cg-tbl col.c3{width:32%} .cg-tbl col.c4{width:118px} .cg-tbl col.c5{width:90px} .cg-tbl col.c6{width:64px}
   }
