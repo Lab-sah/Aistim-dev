@@ -1,0 +1,83 @@
+name: Web Store Board
+
+# Mengunggah Aistim Board (repo Lab-sah/Aistim.board) ke Chrome Web Store dari repo ini, supaya unggah
+# ke toko cukup dari satu tempat (tab Actions repo Aistim-dev). Repo Aistim.board tidak dipindah: file
+# main.json / quotes.json dan alamat GitHub yang tertanam di extension Board tetap dilayani repo itu.
+#
+# Dijalankan manual: Actions > Web Store Board > Run workflow. Tidak jalan otomatis di push/PR.
+# Toko menolak versi yang sama atau lebih rendah: naikkan "version" di extension/manifest.json repo
+# Aistim.board (dan merge di sana) sebelum menjalankan ini.
+#
+# Hanya MENGUNGGAH zip (hasil build-webstore.py: tanpa "key" dan tanpa pemeriksa pembaruan GitHub).
+# Tidak membuat rilis GitHub, CRX, atau updates.xml. Tidak menyentuh rilis Aistim Tool (release.yml).
+#
+# Secret repo ini yang dibutuhkan (nilainya sama dengan secret CWS_* di repo Aistim.board):
+#   BOARD_CWS_EXTENSION_ID, BOARD_CWS_CLIENT_ID, BOARD_CWS_CLIENT_SECRET, BOARD_CWS_REFRESH_TOKEN
+# Bila belum lengkap, job hanya membuat zip (artifact) dan menyuruh unggah manual di Developer Dashboard.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch / tag / commit repo Aistim.board yang dibangun"
+        type: string
+        default: main
+      terbitkan:
+        description: "Terbitkan setelah unggah (false = hanya unggah, terbitkan manual di dashboard)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  board:
+    runs-on: ubuntu-latest
+    env:
+      EXT_ID: ${{ secrets.BOARD_CWS_EXTENSION_ID }}
+      CLIENT_ID: ${{ secrets.BOARD_CWS_CLIENT_ID }}
+      CLIENT_SECRET: ${{ secrets.BOARD_CWS_CLIENT_SECRET }}
+      REFRESH_TOKEN: ${{ secrets.BOARD_CWS_REFRESH_TOKEN }}
+    steps:
+      - name: Ambil repo Aistim.board
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: Lab-sah/Aistim.board
+          ref: ${{ inputs.ref }}
+          path: board
+          persist-credentials: false
+      - name: Tes
+        working-directory: board
+        run: node tools/test.js
+      - name: Build ZIP Web Store
+        working-directory: board
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          VERSION=$(python3 -c "import json;print(json.load(open('extension/manifest.json'))['version'])")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          python3 tools/build-webstore.py ../Aistim-board-webstore.zip
+          echo "Aistim Board versi $VERSION, commit $(git rev-parse --short HEAD) (ref: $REF)" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Aistim-board-webstore-${{ env.VERSION }}
+          path: Aistim-board-webstore.zip
+      - name: Unggah ke Web Store
+        run: |
+          if [ -z "$EXT_ID" ] || [ -z "$CLIENT_ID" ] || [ -z "$CLIENT_SECRET" ] || [ -z "$REFRESH_TOKEN" ]; then
+            echo "::notice::Secret BOARD_CWS_* belum lengkap, unggah otomatis dilewati. Unduh artifact zip lalu unggah manual di Developer Dashboard."
+            exit 0
+          fi
+          TOKEN=$(curl -fsS https://oauth2.googleapis.com/token \
+            -d client_id="$CLIENT_ID" -d client_secret="$CLIENT_SECRET" \
+            -d refresh_token="$REFRESH_TOKEN" -d grant_type=refresh_token | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+          echo "::add-mask::$TOKEN"
+          HASIL=$(curl -sS -X PUT -H "Authorization: Bearer $TOKEN" -H "x-goog-api-version: 2" \
+            -T Aistim-board-webstore.zip "https://www.googleapis.com/upload/chromewebstore/v1.1/items/$EXT_ID")
+          echo "$HASIL"
+          echo "$HASIL" | python3 -c "import sys,json;sys.exit(0 if json.load(sys.stdin).get('uploadState')=='SUCCESS' else 1)" \
+            || { echo "::error::Unggah gagal (cek versi harus lebih tinggi dari yang ada di toko)."; exit 1; }
+          if [ "${{ inputs.terbitkan }}" = "true" ]; then
+            curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "x-goog-api-version: 2" -H "Content-Length: 0" \
+              "https://www.googleapis.com/chromewebstore/v1.1/items/$EXT_ID/publish"
+          fi
