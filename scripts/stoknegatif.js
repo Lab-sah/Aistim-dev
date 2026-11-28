@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Stok Negatif
 // @namespace    partdistro.erzap.stoknegatif
-// @version      1.2.1
+// @version      1.2.2
 // @description  Tombol "Stok Negatif" di halaman Daftar Data Produk ERZAP (dibuka dari menu Audit Stok di produks.js), khusus role pusat (pilih toko dulu): daftar stok toko < 0, solusi (Cek Gudang / Buat BA), form BA Stok In & Stok Out, dan analisa.
 // @author       PartDistro Indonesia
 // @match        https://*.erzap.com/produks*
@@ -314,7 +314,7 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
     c[5].className = 'n' + (v < 0 ? ' neg' : v > 0 ? ' pos' : '');
     let txt = '-', cls = '';
     if (tk < 0 && gd > 0) { txt = 'Cek Gudang'; cls = 'sol-move'; }
-    else if (gd <= 0)     { txt = 'Buat BA di CRM'; cls = 'sol-crm'; }
+    else if (tk < 0 && gd <= 0) { txt = 'Buat BA di CRM'; cls = 'sol-crm'; }
     c[6].textContent = txt; c[6].className = cls;
     if (cls === 'sol-move') {
       // tombol Cek: buka popup Aktifitas Stok ERZAP untuk gudang outlet ini
@@ -428,11 +428,12 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
     const rows = tb ? [...tb.rows].slice(1) : [];
     const it = rows.map(r => {
       const c = [...r.cells].map(x => x.textContent.trim().replace(/\s+/g, ' '));
-      const m = (c[0] || '').match(/(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2})/);
-      return { tgl: m ? new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]) : null, tglTxt: (c[0] || '').replace(/:\d{2}\s*\+\d{4}$/, ''), kode: c[1] || '', jenis: c[2] || '-', awal: angka(c[3]), jml: angka(c[4]), akhir: angka(c[5]), ket: c[6] || '', op: c[7] || '' };
+      const m = (c[0] || '').match(/(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?/);
+      return { tgl: m ? new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5], +(m[6] || 0)) : null, tglTxt: (c[0] || '').replace(/:\d{2}\s*\+\d{4}$/, ''), kode: c[1] || '', jenis: c[2] || '-', awal: angka(c[3]), jml: angka(c[4]), akhir: angka(c[5]), ket: c[6] || '', op: c[7] || '' };
     }).filter(x => x.tgl);
     if (!it.length) { body.innerHTML = '<p style="color:#666">Belum ada aktifitas stok untuk barang ini.</p>'; return; }
-    const asc = [...it].sort((x, y) => x.tgl - y.tgl);
+    // Urut dari lama ke baru. ERZAP menampilkan terbaru di atas, jadi untuk waktu yang sama baris yang lebih bawah dianggap lebih dulu.
+    const asc = it.map((x, k) => [x, k]).sort((p, q) => (p[0].tgl - q[0].tgl) || (q[1] - p[1])).map(x => x[0]);
     const masuk = asc.filter(x => x.jml > 0), keluar = asc.filter(x => x.jml < 0);
     const uMasuk = masuk.reduce((s, x) => s + x.jml, 0), uKeluar = keluar.reduce((s, x) => s - x.jml, 0);
     // kapan terakhir berubah jadi negatif
@@ -721,19 +722,23 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
     if (!nama) { out.innerHTML = ''; info.textContent = ''; return; }
     const seq = ++cariSeq;
     out.innerHTML = ''; info.textContent = 'Mencari...';
-    let list;
+    let list, terpotong = '';
     try {
-      // semua gudang, tanpa filter Perkiraan Jumlah, nama = pilihan dropdown
+      // gudang toko terpilih, tanpa filter Perkiraan Jumlah, nama = pilihan dropdown
       // ERZAP menganggap % dan _ sebagai wildcard (mis. "tc 100%" ikut memunculkan "SWITCH ... 8100").
       // Jadi: kirim bagian teks tanpa % / _ ke server, lalu saring di sini harus mengandung teks persis yang diketik.
       const srv = nama.split(/[%_]/).map(x => x.trim()).sort((a, b) => b.length - a.length)[0] || nama;
       const doc = await fetchList('', '', { 'pencarian[nama]': srv });
       const lit = nama.toUpperCase().replace(/\s+/g, ' ');
-      list = readTable(doc).filter(r => r.n.toUpperCase().includes(lit));
+      const semua = readTable(doc);
+      const total = +((doc.textContent.match(/Total data\s*=\s*(\d+)/) || [])[1] || 0);
+      // hanya halaman pertama yang dibaca; beri tahu kalau ada data lain yang tidak ikut
+      if (total > semua.length) terpotong = ` — baru ${semua.length} dari ${total} data yang dibaca, persempit nama barangnya`;
+      list = semua.filter(r => r.n.toUpperCase().includes(lit));
     } catch (e) { if (seq === cariSeq) info.textContent = 'Gagal mencari.'; return; }
     if (seq !== cariSeq) return;
     if (!list.length) { info.textContent = 'Tidak ditemukan.'; return; }
-    info.innerHTML = `${list.length} barang dengan nama mengandung "<b>${esc(nama)}</b>"`;
+    info.innerHTML = `${list.length} barang dengan nama mengandung "<b>${esc(nama)}</b>"` + (terpotong ? `<span style="color:#c25e00">${esc(terpotong)}</span>` : '');
     const minusB = new Set(rows.map(r => r.b));
     // barcode yang stok tokonya minus (baris merah muda) ditaruh paling atas
     list.sort((a, b) => (minusB.has(a.b) ? 0 : 1) - (minusB.has(b.b) ? 0 : 1));
@@ -807,7 +812,7 @@ body.sm-open .ui-widget-overlay{z-index:100001!important}
       }
       let n = 0;
       [...(tb ? tb.rows : trs)].forEach(tr => { if (tr.style.display !== 'none') tr.cells[0].textContent = ++n; });
-      info.innerHTML = `${n} barang dengan nama mengandung "<b>${esc(nama)}</b>"`;
+      info.innerHTML = `${n} barang dengan nama mengandung "<b>${esc(nama)}</b>"` + (terpotong ? `<span style="color:#c25e00">${esc(terpotong)}</span>` : '');
     };
     await Promise.all([worker(), worker(), worker(), worker()]);
     syncAddButtons();
