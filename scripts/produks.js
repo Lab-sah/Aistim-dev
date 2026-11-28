@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Audit Stok (Daftar Data Produk)
 // @namespace    partdistro.erzap.produks
-// @version      1.2.0
+// @version      1.2.1
 // @description  Menambahkan tombol Audit Stok (Stok Negatif, Cek Pemindahan, Digital Aktivasi, Stok Terpesan, Analisa Stok) di halaman Daftar Data Produk ERZAP
 // @author       Pak mon
 // @match        https://*.erzap.com/produks*
@@ -81,7 +81,7 @@
     "private": ["stokNegatif", "cekPemindahan", "digitalAktivasi", "stokTerpesan", "analisaStok"],
     "role": {
         "pusat": {
-            "nama": ["SENTOT ARI HANDOKO", "DIMAS", "PUGUH", "MANAJEMEN PUSAT", "SURYO", "CEO TIMORITEL", "SILVI", "WIWIT", "ISA", "ANIK"],
+            "nama": ["SENTOT ARI HANDOKO", "SURYO"],
             "fitur": ["*"]
         }
     }
