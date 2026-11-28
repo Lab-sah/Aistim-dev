@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ERZAP - Audit Stok (Daftar Data Produk)
 // @namespace    partdistro.erzap.produks
-// @version      1.5.5
-// @description  Menambahkan tombol Audit Stok (Stok Negatif, Cek Pemindahan, Digital Aktivasi, Stok Terpesan, Analisa Stok) di halaman Daftar Data Produk ERZAP
+// @version      1.7.0
+// @description  Menambahkan tombol Audit Stok (Stok Negatif, Cek Pemindahan, Digital Aktivasi, Stok Terpesan, Analisa Stok) di halaman Daftar Data Produk ERZAP. v1.6.0: klik angka Terpesan menampilkan No Faktur, Outlet, Store
 // @author       Pak mon
 // @match        https://*.erzap.com/produks*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -287,6 +287,34 @@
       '#tm-popup-overlay .tm-foot{flex:0 0 auto;display:flex;justify-content:flex-end;padding:8px 16px;border-top:1px solid #ddd;background:#fafafa;border-radius:0 0 6px 6px}' +
       '#tm-popup-overlay .tm-tutup{background:#757575;color:#fff;border:0;border-radius:3px;padding:4px 12px;font-size:12px;cursor:pointer}' +
       '#tm-popup-overlay .tm-tutup:hover{background:#5f5f5f}' +
+      '#tm-popup-overlay #tm-terpesan-list .tm-scroll{border:1px solid #d0d4da !important;border-radius:6px !important;overflow:auto !important;-webkit-overflow-scrolling:touch !important;max-height:calc(85vh - 200px) !important;flex:1 !important;min-height:0 !important}' +
+      '#tm-popup-overlay #tm-terpesan-list table.tm-tbl{width:100% !important;min-width:520px !important;border-collapse:separate !important;border-spacing:0 !important;font-size:13px !important;table-layout:auto !important}' +
+      '#tm-popup-overlay #tm-terpesan-list table.tm-tbl th{position:sticky !important;top:0 !important;z-index:2 !important;background:#e4e8ee !important;color:#000 !important;font-weight:700 !important;padding:9px 10px !important;border-top:none !important;border-right:none !important;border-bottom:2px solid #b9c0ca !important;white-space:nowrap !important;text-align:left !important}' +
+      '#tm-popup-overlay #tm-terpesan-list table.tm-tbl th[data-sort]:hover{background:#d6dde8 !important}' +
+      '#tm-popup-overlay #tm-terpesan-list table.tm-tbl td{padding:8px 10px !important;border-right:none !important;border-left:none !important;border-top:none !important;border-bottom:1px solid #eef0f3 !important;vertical-align:middle !important;color:#000 !important;white-space:nowrap !important}' +
+      '#tm-popup-overlay #tm-terpesan-list table.tm-tbl tbody tr:nth-child(even) td{background:#f8fafc !important}' +
+      '#tm-popup-overlay #tm-terpesan-list table.tm-tbl tbody tr:hover td{background:#eef5ff !important}' +
+      '#tm-popup-overlay #tm-terpesan-list table.tm-tbl td:nth-child(2){font-family:Consolas,monospace !important}' +
+      '#tm-popup-overlay #tm-terpesan-list table.tm-tbl td:nth-child(3){white-space:normal !important;word-break:break-word !important;min-width:240px !important;line-height:1.35 !important}' +
+      '#tm-popup-overlay #tm-terpesan-list table.tm-tbl td:nth-child(1),#tm-popup-overlay #tm-terpesan-list table.tm-tbl th:nth-child(1){text-align:center !important;width:48px !important}' +
+      '#tm-popup-overlay #tm-terpesan-list table.tm-tbl td:last-child,#tm-popup-overlay #tm-terpesan-list table.tm-tbl th:last-child{text-align:right !important;width:110px !important}' +
+      '#tm-popup-overlay #tm-terpesan-list .tm-terp-link{display:inline-block !important;min-width:52px !important;padding:3px 10px !important;border-radius:12px !important;background:#e7f0ff !important;color:#0d6efd !important;font-weight:700 !important;text-decoration:none !important;text-align:center !important}' +
+      '#tm-popup-overlay #tm-terpesan-list .tm-terp-link:hover{background:#cfe2ff !important}' +
+      '#tm-popup-overlay #tm-terpesan-list table.tm-tbl th:nth-child(2),#tm-popup-overlay #tm-terpesan-list table.tm-tbl td:nth-child(2){border-right:2px solid #b9c0ca !important}' +
+      '#tm-popup-overlay #tm-terpesan-list table.tm-tbl td:nth-child(2),#tm-popup-overlay #tm-terpesan-list table.tm-tbl th:nth-child(2){padding-right:14px !important}' +
+      '#tm-popup-overlay .tm-body > .tm-scroll{border:1px solid #d0d4da !important;border-radius:6px !important;max-height:calc(85vh - 170px) !important;overflow:auto !important;-webkit-overflow-scrolling:touch !important}' +
+      '#tm-popup-overlay .tm-body > .tm-scroll table.tm-tbl{width:100% !important;min-width:560px !important;border-collapse:separate !important;border-spacing:0 !important;font-size:13px !important}' +
+      '#tm-popup-overlay .tm-body > .tm-scroll table.tm-tbl th{position:sticky !important;top:0 !important;z-index:2 !important;background:#e4e8ee !important;color:#000 !important;font-weight:700 !important;padding:9px 10px !important;border:none !important;border-bottom:2px solid #b9c0ca !important;white-space:nowrap !important;text-align:left !important}' +
+      '#tm-popup-overlay .tm-body > .tm-scroll table.tm-tbl td{padding:8px 10px !important;border:none !important;border-bottom:1px solid #eef0f3 !important;color:#000 !important;vertical-align:middle !important;white-space:nowrap !important}' +
+      '#tm-popup-overlay .tm-body > .tm-scroll table.tm-tbl th:nth-child(1),#tm-popup-overlay .tm-body > .tm-scroll table.tm-tbl td:nth-child(1){text-align:center !important;width:48px !important}' +
+      '#tm-popup-overlay .tm-body > .tm-scroll table.tm-tbl td:nth-child(2){font-family:Consolas,monospace !important;font-weight:600 !important}' +
+      '#tm-popup-overlay .tm-body > .tm-scroll table.tm-tbl td:nth-child(4){white-space:normal !important;word-break:break-word !important;min-width:160px !important}' +
+      '#tm-popup-overlay .tm-body > .tm-scroll table.tm-tbl tbody tr:nth-child(even) td{background:#f8fafc !important}' +
+      '#tm-popup-overlay .tm-body > .tm-scroll table.tm-tbl tbody tr:hover td{background:#eef5ff !important}' +
+      '#tm-popup-overlay #tm-kembali{display:inline-flex !important;align-items:center !important;gap:6px !important;background:#4b5563 !important;color:#fff !important;border:0 !important;border-radius:6px !important;padding:8px 14px !important;font-size:13px !important;font-weight:600 !important;cursor:pointer !important;box-sizing:border-box !important;line-height:1.2 !important}' +
+      '#tm-popup-overlay #tm-kembali:hover{background:#374151 !important}' +
+      '#tm-popup-overlay #tm-kembali:focus-visible{outline:2px solid #0d6efd !important;outline-offset:2px !important}' +
+      '@media (max-width:700px){#tm-popup-overlay #tm-kembali{width:100% !important;justify-content:center !important;padding:10px 14px !important;font-size:14px !important}}' +
       '@media (max-width:900px){#tm-popup-overlay .tm-foot{padding:8px 10px}#tm-popup-overlay .tm-box{width:98vw;max-width:98vw}#tm-popup-overlay .tm-head{padding:8px 10px}#tm-popup-overlay .tm-body{padding:10px}#tm-popup-overlay .tm-tbl{min-width:420px}}';
     document.head.appendChild(st);
   }
@@ -425,8 +453,30 @@
   }
 
   // ===== Stok Terpesan =====
-  // Sumber data: statistik produk terpesan dari Pesanan Penjualan (SP).
-  // Posisi kolom dibaca dari header tabel; bila header tidak cocok dipakai posisi tetap (dariHeader = false).
+  // Sumber daftar: statistik produk terpesan. Server mengabaikan parameter page, jadi cukup satu permintaan.
+  // Klik angka Terpesan -> popup berisi pesanan yang memuat barang itu (No Faktur, Outlet, Store).
+  var TERPESAN_URL = '/pesanan_penjualans/index_statistik_produk_terpesan/new';
+  var DAFTAR_PESANAN_URL = '/pesanan_penjualans/index/new';
+  var PESANAN_MAX = 300;        // jumlah pesanan terbaru yang diperiksa untuk Outlet & Store
+  var PESANAN_JEDA_MS = 350;    // jeda antar permintaan detail pesanan (hindari 429)
+
+  var cachePesanan = null;      // hasil scan pesanan; disimpan selama halaman belum dimuat ulang
+
+  function tunggu(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function parseDoc(html) { return new DOMParser().parseFromString(html, 'text/html'); }
+  function teksSel(el) { return el ? el.innerText.replace(/\s+/g, ' ').trim() : ''; }
+
+  // Ambil halaman. Bila kena 429 (terlalu banyak permintaan), tunggu lalu coba lagi.
+  async function ambilHalaman(url) {
+    for (var k = 0; k < 4; k++) {
+      var res = await fetch(url, { credentials: 'include' });
+      if (res.status !== 429) return res;
+      await tunggu(1500 * (k + 1));
+    }
+    throw new Error('HTTP 429 (terlalu banyak permintaan, coba lagi beberapa menit)');
+  }
+
+  // Posisi kolom dibaca dari header; bila tidak cocok dipakai posisi tetap (dariHeader = false).
   function petaKolomTerpesan(doc, trs) {
     var f = { barcode: 1, nama: 2, merek: 3, kategori: 4, jumlah: 5 };
     var ths = Array.prototype.slice.call(doc.querySelectorAll('thead th'));
@@ -434,47 +484,114 @@
       var t = ths.map(function (th) { return th.textContent.replace(/\s+/g, ' ').trim().toLowerCase(); });
       var cari = function (re) { return t.findIndex(function (x) { return re.test(x); }); };
       var g = { barcode: cari(/barcode/), nama: cari(/^nama/), merek: cari(/merek/), kategori: cari(/^kategori/), jumlah: cari(/terpesan|^jumlah|^qty/) };
-      if (g.barcode < 0 && g.nama > 0) g.barcode = g.nama - 1;   // barcode berada tepat sebelum nama
+      if (g.barcode < 0 && g.nama > 0) g.barcode = g.nama - 1;
       if (g.barcode >= 0 && g.nama >= 0 && g.merek >= 0 && g.kategori >= 0 && g.jumlah >= 0) return { f: g, dariHeader: true };
     }
     return { f: f, dariHeader: false };
   }
 
-  // Membaca semua halaman. Barang yang muncul lebih dari sekali dijumlahkan. Berhenti bila halaman kosong,
-  // halaman sama persis dengan yang sudah dibaca (nomor halaman di luar batas), atau terjadi error.
-  async function fetchStokTerpesan(onProgress) {
-    var map = new Map();
-    var dibaca = {};
-    var pages = 0, peta = null, masalah = '';
-    for (var p = 1; p <= MAX_PAGES; p++) {
-      var res;
-      try {
-        res = await fetch('/pesanan_penjualans/index_statistik_produk_terpesan/new?page=' + p, { credentials: 'include' });
-      } catch (e) { masalah = 'koneksi gagal di halaman ' + p; break; }
-      if (!res.ok) { masalah = 'halaman ' + p + ' gagal dimuat (HTTP ' + res.status + ')'; break; }
-      var doc = new DOMParser().parseFromString(await res.text(), 'text/html');
-      var trs = Array.from(doc.querySelectorAll('table tbody tr')).filter(function (tr) { return tr.querySelector('td') && tr.cells.length >= 6; });
-      if (!trs.length) break;
-      var tanda = trs.map(function (tr) { return tr.textContent.replace(/\s+/g, ' ').trim(); }).join('\n');
-      if (dibaca[tanda]) break;
-      dibaca[tanda] = true;
-      if (!peta) peta = petaKolomTerpesan(doc, trs);
-      var c = peta.f;
-      pages++;
-      trs.forEach(function (tr) {
-        var lines = tr.cells[c.barcode].innerText.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
-        var bc = lines[lines.length - 1] || '';
-        var nama = tr.cells[c.nama].innerText.trim();
-        var jml = parseFloat(tr.cells[c.jumlah].innerText.replace(/[^0-9.\-]/g, '')) || 0;
-        var key = bc + '|' + nama;
-        var it = map.get(key);
-        if (it) { it.jumlah += jml; return; }
-        map.set(key, { barcode: bc, nama: nama, merek: tr.cells[c.merek].innerText.trim(), kategori: tr.cells[c.kategori].innerText.trim(), jumlah: jml });
-      });
-      if (onProgress) onProgress(pages, map.size);
-      if (p === MAX_PAGES) masalah = 'dibatasi ' + MAX_PAGES + ' halaman, data mungkin belum lengkap';
+  // Satu permintaan saja (halaman 1), karena parameter page diabaikan server.
+  async function fetchStokTerpesan() {
+    var res = await ambilHalaman(TERPESAN_URL + '?page=1');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var doc = parseDoc(await res.text());
+    var trs = Array.from(doc.querySelectorAll('table tbody tr')).filter(function (tr) { return tr.querySelector('td') && tr.cells.length >= 6; });
+    var peta = petaKolomTerpesan(doc, trs);
+    var c = peta.f;
+    var items = trs.map(function (tr) {
+      var lines = tr.cells[c.barcode].innerText.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
+      return {
+        barcode: lines[lines.length - 1] || '',
+        nama: tr.cells[c.nama].innerText.trim(),
+        merek: tr.cells[c.merek].innerText.trim(),
+        kategori: tr.cells[c.kategori].innerText.trim(),
+        jumlah: parseFloat(tr.cells[c.jumlah].innerText.replace(/[^0-9.\-]/g, '')) || 0
+      };
+    });
+    return { items: items, tebakKolom: !peta.dariHeader };
+  }
+
+  // Membaca daftar pesanan terbaru, lalu detail tiap pesanan: No Faktur (kolom Kode),
+  // Outlet (pilihan outlet di detail), Store (kolom Pemesan), dan teks tabel barang.
+  async function kumpulkanPesanan(onProgress) {
+    if (cachePesanan) return cachePesanan;
+    var pesanan = [];
+    var masalah = '';
+    var halaman = 1;
+    outer:
+    while (pesanan.length < PESANAN_MAX) {
+      var res = await ambilHalaman(DAFTAR_PESANAN_URL + '?page=' + halaman);
+      if (!res.ok) { masalah = 'daftar pesanan halaman ' + halaman + ' gagal (HTTP ' + res.status + ')'; break; }
+      var doc = parseDoc(await res.text());
+      var baris = Array.from(doc.querySelectorAll('table tbody tr')).filter(function (tr) { return tr.cells.length >= 8; });
+      if (!baris.length) break;
+      for (var i = 0; i < baris.length; i++) {
+        if (pesanan.length >= PESANAN_MAX) break outer;
+        var tr = baris[i];
+        var id = null;
+        Array.from(tr.querySelectorAll('a[href]')).some(function (a) {
+          var m = (a.getAttribute('href') || '').match(/\/pesanan_penjualans\/(\d+)/);
+          if (m) { id = m[1]; return true; }
+          return false;
+        });
+        if (!id) continue;
+        var faktur = teksSel(tr.cells[2]);
+        var barisPemesan = (tr.cells[3].innerText || '').split('\n').map(function (x) { return x.trim(); }).filter(Boolean)[0] || '';
+        var kanal = barisPemesan.match(/shopee|tokopedia|tiktok|lazada|blibli|website/i);
+        var store = kanal ? kanal[0].toUpperCase() : barisPemesan;
+        await tunggu(PESANAN_JEDA_MS);
+        var rd = await ambilHalaman('/pesanan_penjualans/' + id);
+        if (!rd.ok) { masalah = 'detail ' + faktur + ' gagal (HTTP ' + rd.status + ')'; break outer; }
+        var dd = parseDoc(await rd.text());
+        var sel = dd.querySelector('select[name="pesanan_penjualan[idoutlet_own]"]');
+        var outlet = sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].text.trim() : '-';
+        var barcodes = Array.from(dd.querySelectorAll('input[name$="[data_produk_barcode]"]')).map(function (i) { return (i.value || '').trim(); }).filter(Boolean);
+        pesanan.push({ faktur: faktur, outlet: outlet, store: store, barcodes: barcodes });
+        if (onProgress) onProgress(pesanan.length);
+      }
+      halaman++;
     }
-    return { items: Array.from(map.values()), pages: pages, masalah: masalah, tebakKolom: !!peta && !peta.dariHeader };
+    var hasil = { pesanan: pesanan, masalah: masalah };
+    if (!masalah) cachePesanan = hasil;   // hasil yang tidak lengkap tidak disimpan
+    return hasil;
+  }
+
+  // Popup: pesanan yang memuat barcode tertentu.
+  function bukaDetailTerpesan(barcode, nama) {
+    openPopup('Outlet Terpesan: ' + nama, function (body) {
+      body.innerHTML = '<div style="margin-bottom:8px;"><button type="button" id="tm-kembali" style="background:#6b7280;color:#fff;border:0;border-radius:4px;padding:5px 12px;font-size:12px;cursor:pointer;">&larr; Kembali ke Stok Terpesan</button></div>' +
+        '<div id="tm-dt-info" style="margin-bottom:8px;color:#555;">' +
+        '<div style="margin-bottom:6px;">Memeriksa pesanan terbaru, mohon tunggu...</div>' +
+        '<div style="background:#e5e7eb;border-radius:4px;height:14px;overflow:hidden;">' +
+        '<div id="tm-dt-bar" style="height:100%;width:0%;background:#0d6efd;transition:width .2s;"></div></div>' +
+        '<div id="tm-dt-pct" style="margin-top:4px;font-size:12px;color:#555;">0 dari ' + PESANAN_MAX + ' pesanan (0%)</div></div>';
+      body.querySelector('#tm-kembali').addEventListener('click', function () { openStokTerpesanPopup(); });
+      var info = body.querySelector('#tm-dt-info');
+      kumpulkanPesanan(function (n) {
+        var pct = Math.min(100, Math.round(n / PESANAN_MAX * 100));
+        var bar = body.querySelector('#tm-dt-bar');
+        var teks = body.querySelector('#tm-dt-pct');
+        if (bar) bar.style.width = pct + '%';
+        if (teks) teks.textContent = n + ' dari ' + PESANAN_MAX + ' pesanan (' + pct + '%)';
+      }).then(function (r) {
+        var hasil = r.pesanan.filter(function (p) { return p.barcodes.indexOf(barcode) !== -1; });
+        var msg = '<b>' + hasil.length + ' pesanan</b> memuat barcode ' + escapeHtml(barcode) +
+          ' (dari ' + r.pesanan.length + ' pesanan terbaru yang diperiksa)';
+        if (r.masalah) msg += '<div style="margin-top:4px;color:#c25e00;">Pemeriksaan berhenti: ' + escapeHtml(r.masalah) + '.</div>';
+        info.innerHTML = msg;
+        var wrap = document.createElement('div');
+        wrap.className = 'tm-scroll';
+        var baris = hasil.map(function (p, i) {
+          return '<tr><td class="c">' + (i + 1) + '</td><td>' + escapeHtml(p.faktur) + '</td><td>' + escapeHtml(p.outlet) +
+            '</td><td>' + escapeHtml(p.store) + '</td></tr>';
+        }).join('');
+        wrap.innerHTML = '<table class="tm-tbl"><thead><tr><th class="c">No</th><th>No Faktur</th><th>Outlet</th><th>Store</th></tr></thead><tbody>' +
+          (baris || '<tr><td colspan="4" class="c">Tidak ditemukan di pesanan yang diperiksa</td></tr>') + '</tbody></table>';
+        body.appendChild(wrap);
+      }).catch(function (e) {
+        info.textContent = 'Gagal memeriksa pesanan: ' + e.message;
+      });
+    });
   }
 
   function openStokTerpesanPopup() {
@@ -482,13 +599,17 @@
       body.innerHTML =
         '<div style="margin-bottom:10px;"><input id="tm-terpesan-cari" type="text" placeholder="Cari Barcode / Nama / Merek / Kategori" ' +
         'style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #ccc;border-radius:4px;"></div>' +
-        '<div id="tm-terpesan-info" style="margin-bottom:8px;color:#555;">Memuat data...</div>' +
+        '<style>@keyframes tmMuat{0%{left:-40%}100%{left:100%}}</style>' +
+        '<div id="tm-terpesan-info" style="margin-bottom:8px;color:#555;">' +
+        '<div style="margin-bottom:6px;">Memuat data stok terpesan...</div>' +
+        '<div style="position:relative;background:#e5e7eb;border-radius:4px;height:10px;overflow:hidden;">' +
+        '<div style="position:absolute;top:0;height:100%;width:40%;background:#0d6efd;animation:tmMuat 1.2s linear infinite;"></div></div></div>' +
         '<div id="tm-terpesan-list" class="tm-fill"></div>';
       var input = body.querySelector('#tm-terpesan-cari');
       var info = body.querySelector('#tm-terpesan-info');
       var list = body.querySelector('#tm-terpesan-list');
       var data = [], peringatan = '';
-      var urutKey = 'jumlah', urutArah = -1;   // awal: paling banyak terpesan di atas
+      var urutKey = 'jumlah', urutArah = -1;
       var angka = function (v) { return Math.round(v * 100) / 100; };
 
       function urutkan(items) {
@@ -508,14 +629,15 @@
         if (!items.length) { list.innerHTML = '<p style="margin:0;color:#888;">Tidak ada data.</p>'; return; }
         var rowsHtml = urutkan(items).map(function (r, i) {
           return '<tr><td class="c">' + (i + 1) + '</td><td>' + escapeHtml(r.barcode) + '</td><td class="nm">' + escapeHtml(r.nama) + '</td>' +
-            '<td>' + escapeHtml(r.merek) + '</td><td>' + escapeHtml(r.kategori) + '</td><td class="n">' + angka(r.jumlah) + '</td></tr>';
+            '<td class="n"><a href="#" class="tm-terp-link" style="color:#0d6efd;text-decoration:underline;" data-bc="' + escapeHtml(r.barcode) +
+            '" data-nama="' + escapeHtml(r.nama) + '">' + angka(r.jumlah) + '</a></td></tr>';
         }).join('');
         var th = function (key, label, cls) {
           return '<th data-sort="' + key + '"' + (cls ? ' class="' + cls + '"' : '') + ' title="Klik untuk mengurutkan">' + label +
             (urutKey === key ? (urutArah > 0 ? ' &#9650;' : ' &#9660;') : '') + '</th>';
         };
         list.innerHTML = '<div class="tm-scroll"><table class="tm-tbl"><thead><tr><th class="c">No</th>' +
-          th('barcode', 'Barcode') + th('nama', 'Nama Produk') + th('merek', 'Merek') + th('kategori', 'Kategori') + th('jumlah', 'Terpesan', 'c') +
+          th('barcode', 'Barcode') + th('nama', 'Nama Produk') + th('jumlah', 'Terpesan', 'c') +
           '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
         list.querySelectorAll('th[data-sort]').forEach(function (h) {
           h.addEventListener('click', function () {
@@ -526,18 +648,19 @@
         });
       }
 
+      list.addEventListener('click', function (e) {
+        var a = e.target.closest && e.target.closest('.tm-terp-link');
+        if (!a) return;
+        e.preventDefault();
+        bukaDetailTerpesan(a.getAttribute('data-bc'), a.getAttribute('data-nama'));
+      });
       input.addEventListener('input', render);
-      fetchStokTerpesan(function (halaman, jumlah) {
-        info.textContent = 'Memuat halaman ' + halaman + '... (' + jumlah + ' produk)';
-      }).then(function (r) {
+      fetchStokTerpesan().then(function (r) {
         data = r.items;
-        var w = [];
-        if (r.masalah) w.push('Pembacaan berhenti: ' + r.masalah + '.');
-        if (r.tebakKolom) w.push('Header tabel ERZAP tidak terbaca, posisi kolom memakai tebakan.');
-        peringatan = w.length ? '<div style="margin-top:4px;color:#c25e00;">' + escapeHtml(w.join(' ')) + '</div>' : '';
+        peringatan = r.tebakKolom ? '<div style="margin-top:4px;color:#c25e00;">Header tabel ERZAP tidak terbaca, posisi kolom memakai tebakan.</div>' : '';
         render();
-      }).catch(function () {
-        info.textContent = 'Gagal mengambil data stok terpesan.';
+      }).catch(function (e) {
+        info.textContent = 'Gagal mengambil data stok terpesan: ' + e.message;
       });
     });
   }
