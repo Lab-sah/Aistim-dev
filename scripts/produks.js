@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ERZAP - Audit Stok (Daftar Data Produk)
 // @namespace    partdistro.erzap.produks
-// @version      1.5.4
+// @version      1.5.5
 // @description  Menambahkan tombol Audit Stok (Stok Negatif, Cek Pemindahan, Digital Aktivasi, Stok Terpesan, Analisa Stok) di halaman Daftar Data Produk ERZAP
 // @author       Pak mon
 // @match        https://*.erzap.com/produks*
@@ -283,6 +283,7 @@
       '#tm-popup-overlay .tm-tbl .c{text-align:center}' +
       '#tm-popup-overlay .tm-tbl .n{text-align:center;font-weight:600}' +
       '#tm-popup-overlay .tm-tbl .nm{white-space:normal;word-break:break-word}' +
+      '#tm-popup-overlay .tm-tbl th[data-sort]{cursor:pointer;user-select:none}' +
       '#tm-popup-overlay .tm-foot{flex:0 0 auto;display:flex;justify-content:flex-end;padding:8px 16px;border-top:1px solid #ddd;background:#fafafa;border-radius:0 0 6px 6px}' +
       '#tm-popup-overlay .tm-tutup{background:#757575;color:#fff;border:0;border-radius:3px;padding:4px 12px;font-size:12px;cursor:pointer}' +
       '#tm-popup-overlay .tm-tutup:hover{background:#5f5f5f}' +
@@ -423,65 +424,117 @@
     return { items: Array.from(seen.values()), pages: pages, tebakKolom: !!peta && !peta.dariHeader, adaHarga: !!peta && peta.f.harga >= 0 };
   }
 
-  // Popup Stok Terpesan: filter pencarian
-  // Sumber data: statistik produk terpesan dari Pesanan Penjualan (SP)
-  async function fetchStokTerpesan() {
-    var out = [];
-    var seen = {};
+  // ===== Stok Terpesan =====
+  // Sumber data: statistik produk terpesan dari Pesanan Penjualan (SP).
+  // Posisi kolom dibaca dari header tabel; bila header tidak cocok dipakai posisi tetap (dariHeader = false).
+  function petaKolomTerpesan(doc, trs) {
+    var f = { barcode: 1, nama: 2, merek: 3, kategori: 4, jumlah: 5 };
+    var ths = Array.prototype.slice.call(doc.querySelectorAll('thead th'));
+    if (ths.length && trs.length && ths.length === trs[0].cells.length) {
+      var t = ths.map(function (th) { return th.textContent.replace(/\s+/g, ' ').trim().toLowerCase(); });
+      var cari = function (re) { return t.findIndex(function (x) { return re.test(x); }); };
+      var g = { barcode: cari(/barcode/), nama: cari(/^nama/), merek: cari(/merek/), kategori: cari(/^kategori/), jumlah: cari(/terpesan|^jumlah|^qty/) };
+      if (g.barcode < 0 && g.nama > 0) g.barcode = g.nama - 1;   // barcode berada tepat sebelum nama
+      if (g.barcode >= 0 && g.nama >= 0 && g.merek >= 0 && g.kategori >= 0 && g.jumlah >= 0) return { f: g, dariHeader: true };
+    }
+    return { f: f, dariHeader: false };
+  }
+
+  // Membaca semua halaman. Barang yang muncul lebih dari sekali dijumlahkan. Berhenti bila halaman kosong,
+  // halaman sama persis dengan yang sudah dibaca (nomor halaman di luar batas), atau terjadi error.
+  async function fetchStokTerpesan(onProgress) {
+    var map = new Map();
+    var dibaca = {};
+    var pages = 0, peta = null, masalah = '';
     for (var p = 1; p <= MAX_PAGES; p++) {
-      var res = await fetch('/pesanan_penjualans/index_statistik_produk_terpesan/new?page=' + p, { credentials: 'include' });
+      var res;
+      try {
+        res = await fetch('/pesanan_penjualans/index_statistik_produk_terpesan/new?page=' + p, { credentials: 'include' });
+      } catch (e) { masalah = 'koneksi gagal di halaman ' + p; break; }
+      if (!res.ok) { masalah = 'halaman ' + p + ' gagal dimuat (HTTP ' + res.status + ')'; break; }
       var doc = new DOMParser().parseFromString(await res.text(), 'text/html');
       var trs = Array.from(doc.querySelectorAll('table tbody tr')).filter(function (tr) { return tr.querySelector('td') && tr.cells.length >= 6; });
-      var added = 0;
+      if (!trs.length) break;
+      var tanda = trs.map(function (tr) { return tr.textContent.replace(/\s+/g, ' ').trim(); }).join('\n');
+      if (dibaca[tanda]) break;
+      dibaca[tanda] = true;
+      if (!peta) peta = petaKolomTerpesan(doc, trs);
+      var c = peta.f;
+      pages++;
       trs.forEach(function (tr) {
-        var lines = tr.cells[1].innerText.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
+        var lines = tr.cells[c.barcode].innerText.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
         var bc = lines[lines.length - 1] || '';
-        var key = bc + '|' + tr.cells[2].innerText.trim();
-        if (seen[key]) return;             // halaman berikutnya bisa berisi data yang sama
-        seen[key] = true; added++;
-        out.push({
-          barcode: bc,
-          nama: tr.cells[2].innerText.trim(),
-          merek: tr.cells[3].innerText.trim(),
-          kategori: tr.cells[4].innerText.trim(),
-          jumlah: parseFloat(tr.cells[5].innerText.replace(/[^0-9.\-]/g, '')) || 0
-        });
+        var nama = tr.cells[c.nama].innerText.trim();
+        var jml = parseFloat(tr.cells[c.jumlah].innerText.replace(/[^0-9.\-]/g, '')) || 0;
+        var key = bc + '|' + nama;
+        var it = map.get(key);
+        if (it) { it.jumlah += jml; return; }
+        map.set(key, { barcode: bc, nama: nama, merek: tr.cells[c.merek].innerText.trim(), kategori: tr.cells[c.kategori].innerText.trim(), jumlah: jml });
       });
-      if (!added) break;
+      if (onProgress) onProgress(pages, map.size);
+      if (p === MAX_PAGES) masalah = 'dibatasi ' + MAX_PAGES + ' halaman, data mungkin belum lengkap';
     }
-    return out;
+    return { items: Array.from(map.values()), pages: pages, masalah: masalah, tebakKolom: !!peta && !peta.dariHeader };
   }
 
   function openStokTerpesanPopup() {
     openPopup('Stok Terpesan', function (body) {
       body.innerHTML =
-        '<div style="margin-bottom:10px;"><input id="tm-terpesan-cari" type="text" placeholder="Cari Barcode / Nama Produk" ' +
+        '<div style="margin-bottom:10px;"><input id="tm-terpesan-cari" type="text" placeholder="Cari Barcode / Nama / Merek / Kategori" ' +
         'style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #ccc;border-radius:4px;"></div>' +
         '<div id="tm-terpesan-info" style="margin-bottom:8px;color:#555;">Memuat data...</div>' +
         '<div id="tm-terpesan-list" class="tm-fill"></div>';
       var input = body.querySelector('#tm-terpesan-cari');
       var info = body.querySelector('#tm-terpesan-info');
       var list = body.querySelector('#tm-terpesan-list');
-      var data = [];
+      var data = [], peringatan = '';
+      var urutKey = 'jumlah', urutArah = -1;   // awal: paling banyak terpesan di atas
+      var angka = function (v) { return Math.round(v * 100) / 100; };
+
+      function urutkan(items) {
+        return items.slice().sort(function (a, b) {
+          var r = urutKey === 'jumlah' ? a.jumlah - b.jumlah : String(a[urutKey]).localeCompare(String(b[urutKey]), 'id', { numeric: true });
+          return (r * urutArah) || String(a.nama).localeCompare(String(b.nama), 'id', { numeric: true });
+        });
+      }
 
       function render() {
         var q = input.value.trim().toLowerCase();
         var items = data.filter(function (r) {
-          return !q || r.barcode.toLowerCase().indexOf(q) >= 0 || r.nama.toLowerCase().indexOf(q) >= 0;
+          return !q || [r.barcode, r.nama, r.merek, r.kategori].some(function (x) { return String(x).toLowerCase().indexOf(q) >= 0; });
         });
         info.innerHTML = '<b>' + items.length + ' produk</b> terpesan' + (q ? ' (sesuai pencarian)' : '') +
-          ' &middot; dari total ' + data.length + ' produk';
+          ' &middot; dari total ' + data.length + ' produk' + peringatan;
         if (!items.length) { list.innerHTML = '<p style="margin:0;color:#888;">Tidak ada data.</p>'; return; }
-        var rowsHtml = items.map(function (r, i) {
-          return '<tr><td class="c">' + (i + 1) + '</td><td>' + escapeHtml(r.barcode) + '</td><td class="nm">' + escapeHtml(r.nama) + '</td><td class="n">' + r.jumlah + '</td></tr>';
+        var rowsHtml = urutkan(items).map(function (r, i) {
+          return '<tr><td class="c">' + (i + 1) + '</td><td>' + escapeHtml(r.barcode) + '</td><td class="nm">' + escapeHtml(r.nama) + '</td>' +
+            '<td>' + escapeHtml(r.merek) + '</td><td>' + escapeHtml(r.kategori) + '</td><td class="n">' + angka(r.jumlah) + '</td></tr>';
         }).join('');
-        list.innerHTML = '<div class="tm-scroll"><table class="tm-tbl"><thead><tr>' +
-          '<th class="c">No</th><th>Barcode</th><th>Nama Produk</th><th class="c">Terpesan</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+        var th = function (key, label, cls) {
+          return '<th data-sort="' + key + '"' + (cls ? ' class="' + cls + '"' : '') + ' title="Klik untuk mengurutkan">' + label +
+            (urutKey === key ? (urutArah > 0 ? ' &#9650;' : ' &#9660;') : '') + '</th>';
+        };
+        list.innerHTML = '<div class="tm-scroll"><table class="tm-tbl"><thead><tr><th class="c">No</th>' +
+          th('barcode', 'Barcode') + th('nama', 'Nama Produk') + th('merek', 'Merek') + th('kategori', 'Kategori') + th('jumlah', 'Terpesan', 'c') +
+          '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+        list.querySelectorAll('th[data-sort]').forEach(function (h) {
+          h.addEventListener('click', function () {
+            var k = h.getAttribute('data-sort');
+            if (urutKey === k) urutArah = -urutArah; else { urutKey = k; urutArah = k === 'jumlah' ? -1 : 1; }
+            render();
+          });
+        });
       }
 
       input.addEventListener('input', render);
-      fetchStokTerpesan().then(function (items) {
-        data = items;
+      fetchStokTerpesan(function (halaman, jumlah) {
+        info.textContent = 'Memuat halaman ' + halaman + '... (' + jumlah + ' produk)';
+      }).then(function (r) {
+        data = r.items;
+        var w = [];
+        if (r.masalah) w.push('Pembacaan berhenti: ' + r.masalah + '.');
+        if (r.tebakKolom) w.push('Header tabel ERZAP tidak terbaca, posisi kolom memakai tebakan.');
+        peringatan = w.length ? '<div style="margin-top:4px;color:#c25e00;">' + escapeHtml(w.join(' ')) + '</div>' : '';
         render();
       }).catch(function () {
         info.textContent = 'Gagal mengambil data stok terpesan.';
